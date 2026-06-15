@@ -121,6 +121,109 @@ The schema is locked for Epic 1. Do not add new mutable accounting-state fields,
 
 Epic 1 must include `docs/ledgeros-integration-contract.md`. This local contract defines the minimum LedgerOS assumptions needed by PropertyLedger until the LedgerOS repo exposes an authoritative versioned API contract.
 
+## Epic 2 Decision Log
+
+The following decisions remove ambiguity for setup, onboarding, and property/lease foundations in Epic 2.
+
+### Full setup/onboarding scope
+
+Epic 2 implements the full MVP setup/onboarding foundation required before accounting workflows can run:
+
+- connect to LedgerOS;
+- validate LedgerOS health/API config;
+- select/confirm a LedgerOS entity;
+- import/confirm chart of accounts;
+- select an open first accounting period;
+- configure required account mappings;
+- create/map required bank and credit card accounts;
+- configure optional debt-service mappings;
+- run setup smoke validation;
+- persist setup status.
+
+### Lease and ownership foundations
+
+- `base_monthly_rent` is a required USD currency-aware decimal amount.
+- Rent cadence is monthly only.
+- Rent effective date defaults to the lease start date.
+- Complex rent schedules are deferred.
+- `deposit_required` means the required security deposit amount, not a boolean.
+- Store security deposits as a currency-aware decimal amount, default USD, default amount `0.00`.
+- Epic 2 enforces one primary owner per property.
+- Fractional ownership and multiple owners per property are deferred.
+
+### Required account mappings
+
+Required account mappings for setup completion:
+
+- `operating_bank_account`
+- `undeposited_funds`
+- `accounts_receivable`
+- `accounts_payable`
+- `rental_income`
+- `repairs_and_maintenance_expense`
+- `tenant_security_deposits_liability`
+- `owner_contributions_equity`
+- `owner_distributions_equity`
+
+Required if enabled:
+
+- `credit_card_liability`
+- `mortgage_or_loan_liability`
+- `interest_expense`
+- `principal_payment_mapping`
+
+Setup cannot be marked complete if required mappings are missing, inactive, or mapped to invalid LedgerOS account types.
+
+### Setup state
+
+Epic 2 must persist setup state in a model such as `PropertyLedgerSetup`.
+
+Setup statuses:
+
+- `not_started`
+- `in_progress`
+- `blocked`
+- `validated`
+- `complete`
+
+Setup is complete only when:
+
+- LedgerOS health succeeds;
+- LedgerOS entity is selected;
+- open accounting period is selected;
+- required mappings are valid;
+- required bank/card mappings are valid;
+- setup smoke validation passes.
+
+### Status ownership
+
+Setup status and accounting sync status are separate.
+
+- `PropertyLedgerSetup.setup_status` owns setup state.
+- `LedgerOSSyncRecord.status` owns per-event accounting sync state.
+
+Setup statuses:
+
+- `not_started`
+- `in_progress`
+- `blocked`
+- `validated`
+- `complete`
+
+Sync statuses:
+
+- `pending`
+- `in_progress`
+- `succeeded`
+- `failed`
+- `duplicate`
+- `cancelled`
+
+### UI expectations
+
+- UI must show setup status on setup/admin pages and global incomplete-setup banners.
+- UI must show accounting sync status only on individual accounting event records and sync diagnostics pages.
+
 ## Epic 1 — Application foundation and LedgerOS adapter
 
 ### Purpose
