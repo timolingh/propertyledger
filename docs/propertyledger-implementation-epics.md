@@ -4,6 +4,8 @@
 
 This is a review draft. It translates the PRD into buildable implementation epics for AI agents. Each epic must follow LedgerOS implementation discipline: trace requirements, state assumptions, avoid silent scope expansion, preserve accounting invariants, and provide automated and manual checks.
 
+Before starting Epic 2 or later, read [`docs/epic-1-lessons-learned.md`](/Users/tim/projects/propertyledger/docs/epic-1-lessons-learned.md).
+
 ## Implementation principles
 
 1. Build the PropertyLedger app as a separate application with its own domain database.

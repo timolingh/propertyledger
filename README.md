@@ -69,6 +69,7 @@ If the sibling LedgerOS repo uses a different API client, change only:
 - `docs/propertyledger-prd.md` — product requirements document.
 - `docs/propertyledger-implementation-epics.md` — buildable implementation epics for AI agents.
 - `docs/ledgeros-integration-contract.md` — local Epic 1 LedgerOS integration contract.
+- `docs/epic-1-lessons-learned.md` — Epic 1 retrospective and setup notes for later epics.
 - `CLAUDE.md` — guidance for AI agents working on the PropertyLedger repo.
 
 ## Core architecture decision

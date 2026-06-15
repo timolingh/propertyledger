@@ -36,6 +36,7 @@ Epic 1 does not include:
 - [`docker-compose.ledgeros.yml`](/Users/tim/projects/propertyledger/docker-compose.ledgeros.yml)
 - [`docs/propertyledger-implementation-epics.md`](/Users/tim/projects/propertyledger/docs/propertyledger-implementation-epics.md)
 - [`docs/ledgeros-integration-contract.md`](/Users/tim/projects/propertyledger/docs/ledgeros-integration-contract.md)
+- [`docs/epic-1-lessons-learned.md`](/Users/tim/projects/propertyledger/docs/epic-1-lessons-learned.md)
 
 ## Required Environment Variables
 
