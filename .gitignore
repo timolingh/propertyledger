@@ -1,0 +1,43 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+dist/
+build/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Environment / secrets
+.env
+.env.*
+
+# Keep example env files
+!.env.example
+
+# Django
+*.log
+db.sqlite3
+staticfiles/
+media/
+
+# Test / coverage
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Type checking / tooling caches
+.mypy_cache/
+.ruff_cache/
+
+# Local editor / OS files
+.DS_Store
+.idea/
+.vscode/
+
+# Docker / local data
+docker/postgres_data/
+postgres_data/

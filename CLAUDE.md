@@ -1,0 +1,99 @@
+## Project-Specific Guidelines: PropertyLedger
+
+PropertyLedger is a real estate accounting client built on top of LedgerOS.
+
+This system handles real estate accounting workflows. Treat accounting behavior as high-risk.
+
+Before coding:
+- State domain assumptions explicitly.
+- Identify whether the change affects LedgerOS sync, ledger entries, reports, balances, payments, invoices, bills, reconciliations, taxes, owner statements, tenant ledgers, property/unit reporting, or audit trails.
+- If accounting treatment is ambiguous, stop and ask.
+- Before changing accounting behavior, read `docs/propertyledger-prd.md`, `docs/propertyledger-implementation-epics.md`, and the relevant LedgerOS accounting guidance. Keep code, tests, and docs aligned.
+
+Simplicity:
+- Prefer explicit domain functions over generalized abstractions.
+- Do not create a generic property-management platform unless multiple concrete use cases already require it.
+- Avoid speculative configurability.
+
+Surgical changes:
+- Every changed line must trace to the requested behavior.
+- Do not refactor unrelated property, payment, reporting, LedgerOS adapter, or accounting-sync code.
+- Do not rename accounts, enums, statuses, event types, or transaction types without migration and test coverage.
+
+Goal-driven execution:
+- For every accounting or property-accounting change, define success using examples:
+  - expected LedgerOS sync request
+  - expected journal/accounting treatment in LedgerOS
+  - expected account balances
+  - expected owner statement line items
+  - expected tenant ledger entries
+  - expected property/unit report totals
+  - expected sync status and retry/idempotency behavior
+- Write or update tests before implementation when behavior changes.
+
+## Epic Implementation Discipline
+
+Before implementing or reviewing any epic, read and follow:
+
+- `docs/propertyledger-prd.md`
+- `docs/propertyledger-implementation-epics.md`
+- the relevant LedgerOS API/accounting contract documentation
+
+Every epic must include a requirement traceability matrix, explicit deferred/out-of-scope items, automated tests for implemented property/accounting invariants, and Docker-ready manual acceptance checks.
+
+## LedgerOS Boundary Discipline
+
+PropertyLedger must remain a separate application from LedgerOS.
+
+PropertyLedger owns:
+- properties
+- units
+- owners
+- tenants
+- leases
+- rent roll
+- property/unit attribution
+- owner statements
+- maintenance expense context
+- local workflow status
+- LedgerOS sync mappings
+
+LedgerOS owns:
+- chart of accounts
+- accounting periods
+- invoices
+- bills
+- payments
+- journal entries
+- banking/reconciliation records
+- accounting reports
+- audit trail
+- accounting invariants
+
+PropertyLedger must interact with LedgerOS through a controlled adapter/API boundary.
+
+Do not:
+- write directly to the LedgerOS database;
+- import LedgerOS Django models into PropertyLedger domain code;
+- bypass LedgerOS APIs/services for accounting mutations;
+- assume PropertyLedger local records are posted accounting facts until LedgerOS sync succeeds.
+
+## Anti-Slop Engineering Principles
+
+1. **Run the code, not just the generator.**  
+   Generated code is not complete until the relevant runtime checks pass. For Django work, at minimum run `./scripts/check.sh` or its equivalent commands: `python manage.py check`, `python manage.py makemigrations --check --dry-run`, migrations, relevant management commands, and tests before claiming the task is done.
+
+2. **Preserve domain invariants in executable tests.**  
+   Any business rule described in the PRD or epic must have a corresponding test. For PropertyLedger, this includes rent-generation idempotency, tenant ledger accuracy, property/unit attribution, owner statement totals, LedgerOS sync idempotency, posted/synced status handling, and clear separation between draft/unsynced operational records and posted LedgerOS records.
+
+3. **Do not bypass the service/adapter layer for state-changing operations.**  
+   Views, serializers, admin actions, management commands, background jobs, and future integrations must call domain services for mutations. Accounting mutations must go through the LedgerOS adapter/API boundary. They must not directly change critical fields such as sync status, posted timestamps, LedgerOS resource IDs, reconciliation links, or audit records.
+   - Web UI, API, admin, and management commands must share the same application write path for the same property-accounting behavior.
+   - If a state-changing action exists in the API, the UI/admin path must invoke the same service entrypoint rather than reimplementing the mutation or editing model fields directly.
+   - Read-only convenience fields may differ by surface, but the underlying property/accounting transition must remain one service call.
+
+4. **Avoid polished scaffolds that are not wired together.**  
+   New files must be internally consistent across imports, model fields, admin config, serializers, migrations, URLs, tests, commands, and adapter calls. If a symbol is referenced, it must exist. If a field is renamed, every caller must be updated. No handoff should rely on the user discovering integration errors.
+
+5. **Separate implemented scope from future scope.**  
+   Follow the approved PRD/epic boundary. Do not implement later-epic features early just because they are easy to scaffold. If a future hook is needed, keep it minimal, documented, and covered by tests without pretending the later feature is complete.
