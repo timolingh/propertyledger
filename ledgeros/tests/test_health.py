@@ -81,3 +81,16 @@ class LedgerOSHealthCheckTests(TestCase):
 
         self.assertFalse(result.healthy)
         self.assertEqual(result.details["http_status"], 503)
+
+    @patch.dict(os.environ, {"TEST_LEDGEROS_HMAC_SECRET": "secret"}, clear=False)
+    @patch("ledgeros.services.urlopen")
+    def test_malformed_health_response_is_unhealthy(self, mock_urlopen):
+        mock_urlopen.return_value = _FakeResponse(
+            status=200,
+            payload=b"not-json",
+        )
+
+        result = LedgerOSHealthCheckService.check()
+
+        self.assertFalse(result.healthy)
+        self.assertEqual(result.details["error"], "unexpected_payload")

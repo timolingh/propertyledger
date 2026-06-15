@@ -9,8 +9,8 @@ It is intended to be built as a separate application from LedgerOS. PropertyLedg
 This repository now includes the Epic 1 Django foundation for PropertyLedger:
 
 - Django + Django REST Framework backend;
-- PostgreSQL-backed Docker Compose local stack;
-- LedgerOS adapter boundary;
+- PostgreSQL-backed Docker Compose full-stack local setup;
+- LedgerOS adapter boundary with real LedgerOS as the only integration target;
 - deterministic local and LedgerOS health checks;
 - locked `LedgerOSSyncRecord` schema and uniqueness constraints;
 - admin/setup screen for LedgerOS connection settings.
@@ -65,11 +65,17 @@ Deferred or post-MVP:
 
 ## Next recommended step
 
-Start with Epic 1 runtime setup:
+Start with the Epic 1 runtime setup:
 
-1. Copy `.env.example` to `.env` and adjust local values.
-2. Run `docker compose up --build`.
-3. Open the setup screen at `http://localhost:8000/`.
+1. Clone the LedgerOS repo in a sibling directory. The bundled compose file expects it at `../ledgeros_v2`.
+2. Clone the PropertyLedger repo.
+3. Copy `.env.example` to `.env`.
+4. Run `make up`.
+5. Run `make migrate`.
+6. Run `make smoke`.
+7. Open the setup screen at `http://localhost:8000/`.
+
+The real LedgerOS setup uses the current LedgerOS API health route at `/api/v1/health/`.
 
 Before coding, an AI agent should read:
 

@@ -8,7 +8,8 @@ Epic 1 includes:
 
 - Django backend project structure;
 - Django REST Framework API layer;
-- PostgreSQL-backed local development stack;
+- PostgreSQL-backed local development stack for PropertyLedger;
+- real LedgerOS full-stack local setup through a sibling LedgerOS repo;
 - environment-based LedgerOS configuration;
 - deterministic local health checks;
 - deterministic LedgerOS health checks;
@@ -31,6 +32,7 @@ Epic 1 does not include:
 - [`Makefile`](/Users/tim/projects/propertyledger/Makefile)
 - [`.env.example`](/Users/tim/projects/propertyledger/.env.example)
 - [`docker-compose.yml`](/Users/tim/projects/propertyledger/docker-compose.yml)
+- [`docker-compose.ledgeros.yml`](/Users/tim/projects/propertyledger/docker-compose.ledgeros.yml)
 - [`docs/propertyledger-implementation-epics.md`](/Users/tim/projects/propertyledger/docs/propertyledger-implementation-epics.md)
 - [`docs/ledgeros-integration-contract.md`](/Users/tim/projects/propertyledger/docs/ledgeros-integration-contract.md)
 
@@ -59,22 +61,36 @@ Optional:
 - `LEDGEROS_HEALTH_PATH`
 - `LEDGEROS_TIMEOUT_SECONDS`
 
+Full-stack in-container defaults:
+
+- `DATABASE_HOST=propertyledger-db`
+- `LEDGEROS_BASE_URL=http://ledgeros-web:8000`
+- `LEDGEROS_HEALTH_PATH=/api/v1/health/`
+- `LEDGEROS_TIMEOUT_SECONDS=5`
+
 ## Start Up
 
-Use Docker Compose only.
+Use Docker Compose only. The default Epic 1 path starts the real LedgerOS stack.
 
-1. Copy `.env.example` to `.env`.
-2. Set the environment values for your local machine.
-3. Start the stack:
+1. Clone the LedgerOS repo in a sibling directory. The bundled compose file expects it at `../ledgeros_v2`.
+2. Clone the PropertyLedger repo.
+3. Copy `.env.example` to `.env`.
+4. Start the full stack:
 
 ```bash
 make up
 ```
 
-Or run the equivalent command directly:
+5. Run migrations for both repos:
 
 ```bash
-docker compose up --build
+make migrate
+```
+
+6. Run the smoke checks:
+
+```bash
+make smoke
 ```
 
 The local setup screen will be available at:
@@ -96,18 +112,20 @@ Run the Epic 1 test suite in Docker only.
 make test
 ```
 
-Equivalent command:
+Run Django checks in Docker only:
 
 ```bash
-docker compose run --rm web python manage.py test
+make check
 ```
 
 ## Useful Commands
 
 - `make help` - show available Make targets
-- `make build` - build the Docker images
-- `make down` - stop the Docker Compose stack
-- `make shell` - open a Django shell inside the web container
+- `make up` - start PropertyLedger plus real LedgerOS
+- `make down` - stop the stack
+- `make migrate` - run migrations for PropertyLedger and LedgerOS
+- `make smoke` - verify the full-stack health checks
+- `make shell` - open a Django shell inside the PropertyLedger web container
 
 ## Health Check Behavior
 
@@ -120,6 +138,8 @@ The local health check is deterministic and verifies only the PropertyLedger app
 The LedgerOS health check is deterministic and returns healthy only when the configured LedgerOS health endpoint returns HTTP 200 with a JSON payload containing `{"status":"ok"}` or `{"status":"healthy"}`.
 
 Missing configuration, timeout, connection error, authentication failure, non-2xx response, malformed response, or unexpected payload is unhealthy.
+
+The full-stack default health path is `/api/v1/health/` to match the current LedgerOS repo.
 
 ## Sync Record Contract
 
@@ -170,5 +190,5 @@ The local LedgerOS integration assumptions for Epic 1 are documented in:
 After starting the stack, open the setup screen and confirm:
 
 1. The local health check is healthy.
-2. The LedgerOS health check reflects your configured LedgerOS endpoint.
+2. The LedgerOS health check reflects your configured LedgerOS endpoint at `/api/v1/health/`.
 3. The LedgerOS connection settings save successfully.

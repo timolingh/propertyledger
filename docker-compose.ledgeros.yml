@@ -1,0 +1,46 @@
+services:
+  propertyledger-web:
+    environment:
+      LEDGEROS_BASE_URL: http://ledgeros-web:8000
+      LEDGEROS_HEALTH_PATH: /api/v1/health/
+    depends_on:
+      ledgeros-web:
+        condition: service_started
+
+  ledgeros-db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ledgeros
+      POSTGRES_USER: ledgeros
+      POSTGRES_PASSWORD: ledgeros
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ledgeros -d ledgeros"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    volumes:
+      - ledgeros_postgres_data:/var/lib/postgresql/data
+
+  ledgeros-web:
+    build:
+      context: ../ledgeros_v2
+    command: python manage.py runserver 0.0.0.0:8000
+    environment:
+      DJANGO_SECRET_KEY: ledgeros-dev-secret-key
+      DJANGO_DEBUG: "1"
+      DJANGO_ALLOWED_HOSTS: localhost,127.0.0.1,ledgeros-web
+      POSTGRES_DB: ledgeros
+      POSTGRES_USER: ledgeros
+      POSTGRES_PASSWORD: ledgeros
+      POSTGRES_HOST: ledgeros-db
+      POSTGRES_PORT: "5432"
+    volumes:
+      - ../ledgeros_v2:/app
+    ports:
+      - "8001:8000"
+    depends_on:
+      ledgeros-db:
+        condition: service_healthy
+
+volumes:
+  ledgeros_postgres_data:
