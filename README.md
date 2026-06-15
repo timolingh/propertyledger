@@ -13,7 +13,7 @@ This repository now includes the Epic 1 Django foundation for PropertyLedger:
 - LedgerOS adapter boundary with real LedgerOS as the only integration target;
 - deterministic local and LedgerOS health checks;
 - locked `LedgerOSSyncRecord` schema and uniqueness constraints;
-- admin/setup screen for LedgerOS connection settings.
+- admin/setup screen plus Epic 2 CRUD pages for properties, units, owners, tenants, and leases.
 
 ## Environment variables
 
@@ -70,6 +70,7 @@ If the sibling LedgerOS repo uses a different API client, change only:
 - `docs/propertyledger-implementation-epics.md` — buildable implementation epics for AI agents.
 - `docs/ledgeros-integration-contract.md` — local Epic 1 LedgerOS integration contract.
 - `docs/epic-1-lessons-learned.md` — Epic 1 retrospective and setup notes for later epics.
+- `docs/epic-2.md` — Epic 2 runbook for setup and CRUD workflows.
 - `CLAUDE.md` — guidance for AI agents working on the PropertyLedger repo.
 
 ## Core architecture decision
@@ -120,8 +121,8 @@ Start with the Epic 1 runtime setup:
 1. Clone the LedgerOS repo in a sibling directory. The bundled compose file expects it at `../ledgeros_v2`.
 2. Clone the PropertyLedger repo.
 3. If you want to customize the environment, copy `.env.fullstack.example` to `.env` and edit the LedgerOS client values there.
-4. Run `make up`.
-5. Run `make migrate`.
+4. Run `make up-full`.
+5. Run `make migrate-full`.
 6. Create the admin users:
    - PropertyLedger:
      ```bash
@@ -132,7 +133,7 @@ Start with the Epic 1 runtime setup:
      cd ../ledgeros_v2
      docker compose exec web python manage.py createsuperuser
      ```
-7. Run `make smoke`.
+7. Run `make smoke-full`.
 8. Open the admin screens:
    - PropertyLedger: `http://localhost:8000/admin/`
    - LedgerOS: `http://localhost:8001/admin/`

@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>{% block title %}PropertyLedger{% endblock %}</title>
+    <style>
+      :root {
+        --bg: #f7f5f1;
+        --panel: #ffffff;
+        --text: #1f1f1f;
+        --muted: #675f52;
+        --border: #d8d3c8;
+        --accent: #1f6f43;
+        --danger: #a33;
+        --nav: #2a2a2a;
+      }
+      body {
+        font-family: Arial, sans-serif;
+        margin: 0;
+        background: var(--bg);
+        color: var(--text);
+      }
+      header {
+        background: var(--nav);
+        color: #fff;
+        padding: 1rem 1.5rem;
+      }
+      header a {
+        color: #fff;
+        text-decoration: none;
+        margin-right: 1rem;
+      }
+      main {
+        max-width: 1100px;
+        margin: 0 auto;
+        padding: 1.5rem;
+      }
+      .banner {
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        background: #fff6e8;
+        padding: 1rem 1.25rem;
+        margin-bottom: 1rem;
+      }
+      .banner-ok {
+        background: #eef7f1;
+        border-color: #c3e0cd;
+      }
+      .banner-bad {
+        background: #fff1f1;
+        border-color: #efc2c2;
+      }
+      .card {
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        padding: 1rem 1.25rem;
+        margin-bottom: 1rem;
+      }
+      .muted {
+        color: var(--muted);
+      }
+      .status-ok {
+        color: var(--accent);
+      }
+      .status-bad {
+        color: var(--danger);
+      }
+      code {
+        background: #f1ede6;
+        padding: 0.1rem 0.25rem;
+        border-radius: 4px;
+      }
+      label {
+        display: block;
+        margin-top: 0.75rem;
+        font-weight: 600;
+      }
+      input, select, textarea {
+        width: 100%;
+        max-width: 42rem;
+        padding: 0.5rem;
+        margin-top: 0.25rem;
+        box-sizing: border-box;
+      }
+      textarea {
+        min-height: 8rem;
+      }
+      button, .button {
+        display: inline-block;
+        margin-top: 1rem;
+        padding: 0.65rem 1rem;
+        border-radius: 8px;
+        border: 1px solid var(--border);
+        background: #fff;
+        color: var(--text);
+        text-decoration: none;
+        cursor: pointer;
+      }
+      .button.primary {
+        background: var(--nav);
+        color: #fff;
+        border-color: var(--nav);
+      }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+      }
+      th, td {
+        text-align: left;
+        border-bottom: 1px solid var(--border);
+        padding: 0.75rem 0.5rem;
+        vertical-align: top;
+      }
+      .actions a {
+        margin-right: 0.5rem;
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <a href="{% url 'ledgeros-setup' %}">Setup</a>
+      <a href="{% url 'property-list' %}">Properties</a>
+      <a href="{% url 'unit-list' %}">Units</a>
+      <a href="{% url 'owner-list' %}">Owners</a>
+      <a href="{% url 'tenant-list' %}">Tenants</a>
+      <a href="{% url 'lease-list' %}">Leases</a>
+      <a href="/admin/">Admin</a>
+    </header>
+    <main>
+      {% if setup_obj and not setup_is_complete %}
+        <div class="banner banner-bad">
+          <strong>Setup incomplete</strong>
+          <div class="muted">Status: {{ setup_obj.get_setup_status_display }}</div>
+          <ul>
+            {% for field, messages in setup_completion_errors.items %}
+              {% for message in messages %}
+                <li>{{ field }}: {{ message }}</li>
+              {% endfor %}
+            {% endfor %}
+          </ul>
+        </div>
+      {% elif setup_obj %}
+        <div class="banner banner-ok">
+          <strong>Setup complete</strong>
+          <div class="muted">PropertyLedger is ready for Epic 2 workflows.</div>
+        </div>
+      {% endif %}
+      {% block content %}{% endblock %}
+    </main>
+  </body>
+</html>

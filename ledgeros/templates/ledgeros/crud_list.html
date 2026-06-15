@@ -1,0 +1,39 @@
+{% extends "ledgeros/base.html" %}
+
+{% block title %}{{ page_title }} | PropertyLedger{% endblock %}
+
+{% block content %}
+  <div class="card">
+    <h1>{{ page_title }}</h1>
+    <a class="button primary" href="{{ create_url }}">{{ create_label }}</a>
+  </div>
+  <div class="card">
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Summary</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in rows %}
+          <tr>
+            <td>
+              <strong>{{ row.object }}</strong>
+            </td>
+            <td>{{ row.summary }}</td>
+            <td class="actions">
+              <a href="{{ row.edit_url }}">Edit</a>
+              <a href="{{ row.archive_url }}">Archive</a>
+            </td>
+          </tr>
+        {% empty %}
+          <tr>
+            <td colspan="3" class="muted">No records yet.</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+{% endblock %}

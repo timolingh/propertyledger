@@ -1,15 +1,83 @@
 from django.urls import path
 
 from ledgeros.views import (
+    LeaseArchiveView,
+    LeaseCreateView,
+    LeaseListView,
+    LeaseUpdateView,
     LedgerOSHealthAPIView,
     LedgerOSSetupView,
     LedgerOSSyncRecordCreateAPIView,
+    OwnerArchiveView,
+    OwnerCreateView,
+    OwnerListView,
+    OwnerUpdateView,
+    PropertyArchiveView,
+    PropertyCreateView,
+    PropertyListView,
+    PropertyUpdateView,
     LocalHealthAPIView,
+    TenantArchiveView,
+    TenantCreateView,
+    TenantListView,
+    TenantUpdateView,
+    UnitArchiveView,
+    UnitCreateView,
+    UnitListView,
+    UnitUpdateView,
 )
 
 
 urlpatterns = [
     path("", LedgerOSSetupView.as_view(), name="ledgeros-setup"),
+    path("owners/", OwnerListView.as_view(), name="owner-list"),
+    path("owners/add/", OwnerCreateView.as_view(), name="owner-create"),
+    path("owners/<int:pk>/edit/", OwnerUpdateView.as_view(), name="owner-edit"),
+    path(
+        "owners/<int:pk>/archive/",
+        OwnerArchiveView.as_view(),
+        name="owner-archive",
+    ),
+    path("properties/", PropertyListView.as_view(), name="property-list"),
+    path(
+        "properties/add/",
+        PropertyCreateView.as_view(),
+        name="property-create",
+    ),
+    path(
+        "properties/<int:pk>/edit/",
+        PropertyUpdateView.as_view(),
+        name="property-edit",
+    ),
+    path(
+        "properties/<int:pk>/archive/",
+        PropertyArchiveView.as_view(),
+        name="property-archive",
+    ),
+    path("units/", UnitListView.as_view(), name="unit-list"),
+    path("units/add/", UnitCreateView.as_view(), name="unit-create"),
+    path("units/<int:pk>/edit/", UnitUpdateView.as_view(), name="unit-edit"),
+    path(
+        "units/<int:pk>/archive/",
+        UnitArchiveView.as_view(),
+        name="unit-archive",
+    ),
+    path("tenants/", TenantListView.as_view(), name="tenant-list"),
+    path("tenants/add/", TenantCreateView.as_view(), name="tenant-create"),
+    path("tenants/<int:pk>/edit/", TenantUpdateView.as_view(), name="tenant-edit"),
+    path(
+        "tenants/<int:pk>/archive/",
+        TenantArchiveView.as_view(),
+        name="tenant-archive",
+    ),
+    path("leases/", LeaseListView.as_view(), name="lease-list"),
+    path("leases/add/", LeaseCreateView.as_view(), name="lease-create"),
+    path("leases/<int:pk>/edit/", LeaseUpdateView.as_view(), name="lease-edit"),
+    path(
+        "leases/<int:pk>/archive/",
+        LeaseArchiveView.as_view(),
+        name="lease-archive",
+    ),
     path("api/health/local/", LocalHealthAPIView.as_view(), name="local-health"),
     path(
         "api/health/ledgeros/",

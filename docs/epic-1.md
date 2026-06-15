@@ -170,10 +170,10 @@ make check
 ## Useful Commands
 
 - `make help` - show available Make targets
-- `make up` - start PropertyLedger plus real LedgerOS
-- `make down` - stop the stack
-- `make migrate` - run migrations for PropertyLedger and LedgerOS
-- `make smoke` - verify the full-stack health checks
+- `make up-full` - start PropertyLedger plus real LedgerOS
+- `make down-full` - stop the stack
+- `make migrate-full` - run migrations for PropertyLedger and LedgerOS
+- `make smoke-full` - verify the full-stack health checks
 - `make shell` - open a Django shell inside the PropertyLedger web container
 
 ## Health Check Behavior
