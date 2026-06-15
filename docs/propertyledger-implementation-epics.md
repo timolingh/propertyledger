@@ -2,105 +2,312 @@
 
 ## Draft status
 
-This is a review draft. It translates the PRD into buildable implementation epics for AI agents. Each epic must follow LedgerOS implementation discipline: trace requirements, state assumptions, avoid silent scope expansion, preserve accounting invariants, and provide automated and manual checks.
+This document translates the PropertyLedger PRD into buildable implementation epics for AI agents.
 
-Before starting Epic 2 or later, read [`docs/epic-1-lessons-learned.md`](/Users/tim/projects/propertyledger/docs/epic-1-lessons-learned.md).
+It is intended to prevent the recurring failure mode where an epic is directionally correct but under-specified. Each epic must be implementation-ready before coding begins. If an epic leaves material ambiguity around data fields, statuses, LedgerOS sync, account mappings, attribution, or acceptance checks, the agent must stop and ask for clarification before implementing.
+
+PropertyLedger is a separate real estate accounting application that uses LedgerOS as the accounting backend/system of record.
+
+## Current implementation state
+
+Epic 1 and Epic 2 may already be partially or fully implemented in the repository. This document should not be used to silently rewrite completed work unless a change is explicitly requested.
+
+Use this document as:
+
+1. the forward plan for Epic 3 and later;
+2. the standard for judging whether a future epic is ready to implement;
+3. the reference for future cleanup or hardening of earlier epics if requested.
+
+If the current code differs from this document, do not assume either is correct. Identify the discrepancy and ask whether to align the code, align the docs, or preserve the existing behavior.
 
 ## Implementation principles
 
-1. Build the PropertyLedger app as a separate application with its own domain database.
+1. Build PropertyLedger as a separate application with its own domain database.
 2. Treat LedgerOS as the required MVP accounting backend.
-3. Keep LedgerOS-specific logic inside a `ledgeros_adapter` or equivalent integration boundary.
-4. Never directly mutate LedgerOS accounting tables from the PropertyLedger app.
+3. Keep LedgerOS-specific behavior behind a `ledgeros_adapter` or equivalent accounting adapter boundary.
+4. Never directly mutate LedgerOS accounting tables from PropertyLedger.
 5. Use LedgerOS APIs/services for accounting mutations.
-6. Store sync mappings for every outbound accounting event.
-7. Make every epic traceable to PRD requirements.
-8. Make deferred scope explicit.
+6. Store a sync mapping for every LedgerOS-bound accounting event.
+7. Keep property/unit/owner/tenant/lease attribution in PropertyLedger.
+8. Make every epic traceable to PRD requirements.
+9. Make deferred scope explicit.
+10. Run all development, test, and smoke-check workflows through Docker or Docker Compose.
 
-## Suggested repository shape
+## Containerization requirement
 
-```text
-propertyledger/
-  frontend/
-    app/
-    components/
-    screens/
-  backend/
-    property_domain/
-    leasing/
-    billing/
-    payments/
-    maintenance/
-    owner_statements/
-    reporting/
-    accounting_adapter/
-      interface.py
-      ledgeros_adapter.py
-      signing.py
-      idempotency.py
-    users_permissions/
-    tests/
-  docs/
-    product-prd.md
-    implementation-epics.md
-    agent-guidance.md
+PropertyLedger must run containerized from the start.
+
+All epics must preserve the Docker workflow. Do not add setup instructions that require installing Python, Node, Postgres, Redis, or other runtime dependencies directly on the host unless explicitly requested.
+
+Required baseline files:
+
+- `Dockerfile`
+- `docker-compose.yml`
+- `.dockerignore`
+- `.env.example`
+- `Makefile` or equivalent scripts
+- `scripts/check.sh`, if used by the repo
+- `scripts/test.sh`, if used by the repo
+
+The default local workflow should support:
+
+```bash
+docker compose build
+docker compose up -d
+docker compose run --rm propertyledger-web python manage.py check
+docker compose run --rm propertyledger-web python manage.py test
 ```
 
-## Epic 1 Decision Log
+When a real LedgerOS instance is needed, use the full-stack compose flow documented in the README. The mock LedgerOS flow, if present, is secondary and does not satisfy full-stack acceptance checks.
 
-The following decisions remove ambiguity for the containerized project foundation.
+## LedgerOS boundary discipline
 
-### Framework
+PropertyLedger owns:
 
-PropertyLedger uses Django and Django REST Framework for the backend, PostgreSQL for persistence, and Docker Compose for local development/runtime. A production frontend is out of scope for Epic 1.
+- properties;
+- units;
+- owners;
+- tenants;
+- leases;
+- rent roll;
+- property/unit attribution;
+- owner statement context;
+- maintenance expense context;
+- local workflow status;
+- local UI state;
+- LedgerOS sync mappings.
 
-### LedgerOS credential storage
+LedgerOS owns:
 
-LedgerOS secrets are configured through environment variables in Epic 1. HMAC secrets, API keys, and other integration secrets must not be stored in the database.
+- chart of accounts;
+- accounting periods;
+- invoices;
+- bills;
+- payments;
+- journal entries;
+- banking/reconciliation records;
+- accounting reports;
+- audit trail;
+- accounting invariants.
 
-Required environment variables:
+PropertyLedger must interact with LedgerOS through controlled APIs or adapter methods. Do not import LedgerOS Django models into PropertyLedger domain code, write directly to the LedgerOS database, or treat PropertyLedger local records as posted accounting facts until LedgerOS sync succeeds.
 
-- `LEDGEROS_BASE_URL`
-- `LEDGEROS_CLIENT_ID`
-- `LEDGEROS_HMAC_SECRET`
-- `LEDGEROS_API_KEY`, optional
-- `LEDGEROS_HEALTH_PATH`, default `/api/v1/health/` for the real full-stack setup
-- `LEDGEROS_TIMEOUT_SECONDS`, default `5`
+## Future Epic Definition Rules
 
-### Health checks
+Before implementing any epic after Epic 2, review the epic against this section. An epic is not implementation-ready unless it defines the following items.
 
-PropertyLedger must expose a local health check and a LedgerOS connectivity check.
+### 1. Scope boundary
 
-Local health check confirms the PropertyLedger app and database are reachable.
+Each epic must clearly state what is included and excluded.
 
-LedgerOS health check calls the configured LedgerOS health endpoint, defaulting to `/api/v1/health/` for the full-stack setup, and reports healthy only when LedgerOS returns HTTP 200 within the configured timeout with a JSON payload containing `{"status": "ok"}` or `{"status": "healthy"}`.
+The epic must distinguish:
 
-Missing configuration, timeout, connection error, authentication failure, non-2xx response, malformed response, or unexpected payload must be reported as unhealthy.
+- setup/configuration work;
+- local PropertyLedger domain records;
+- LedgerOS-bound accounting events;
+- reports/read models;
+- UI-only workflow support;
+- deferred future features.
 
-### LedgerOSSyncRecord
+Do not infer scope from the PRD if the epic text is narrower. If the PRD and epic conflict, stop and ask.
 
-Epic 1 must create the `LedgerOSSyncRecord` model.
+### 2. Required data model fields
 
-Required fields:
+For each new model, the epic must define required fields, nullable fields, defaults, uniqueness constraints, and archive/delete behavior.
 
-- `local_object_type`
-- `local_object_id`
-- `ledgeros_resource_type`
-- `ledgeros_resource_id`, nullable
-- `ledgeros_journal_entry_id`, nullable
-- `source_event_type`
-- `external_id`
-- `idempotency_key`
-- `request_hash`
-- `response_payload`, JSON, nullable
-- `status`
-- `last_error`, nullable
-- `attempt_count`
-- `last_synced_at`, nullable
-- `created_at`
-- `updated_at`
+Money fields must specify:
 
-Allowed statuses:
+- decimal amount field;
+- currency field;
+- whether negative amounts are allowed;
+- rounding behavior;
+- whether the value is user-entered, generated, imported, or calculated.
+
+Date fields must specify:
+
+- required or optional;
+- default behavior;
+- whether the date controls accounting period selection;
+- timezone expectations if datetime is used.
+
+### 3. Status/state lifecycle
+
+Any object with a status must define:
+
+- allowed statuses;
+- initial status;
+- valid transitions;
+- invalid transitions;
+- which service/action owns each transition;
+- whether status can be changed manually;
+- how archived records behave.
+
+Setup status, local workflow status, and LedgerOS sync status must remain separate.
+
+### 4. LedgerOS interaction contract
+
+Each LedgerOS-bound workflow must define:
+
+- which PropertyLedger action triggers LedgerOS sync;
+- which LedgerOS endpoint/resource is used;
+- required request payload fields;
+- expected response fields;
+- idempotency key format;
+- retry behavior;
+- failure behavior;
+- whether the local record can be edited after successful sync.
+
+If LedgerOS does not expose the needed API, the epic must say whether to add a LedgerOS API, defer the workflow, or keep the workflow local-only. Do not bypass LedgerOS services.
+
+### 5. Account mappings
+
+Any workflow that creates accounting impact must name the required account mappings.
+
+The epic must specify:
+
+- required mappings;
+- optional mappings;
+- expected LedgerOS account type for each mapping;
+- failure behavior if a mapping is missing or invalid.
+
+### 6. Property/unit/owner attribution
+
+Any income, expense, charge, payment, deposit, bill, adjustment, or reportable event must define whether it requires:
+
+- property;
+- unit;
+- owner;
+- tenant;
+- lease;
+- vendor;
+- maintenance category.
+
+If attribution is optional, the epic must explain when it may be blank and how reports handle blank attribution.
+
+### 7. Idempotency and sync behavior
+
+Every LedgerOS-bound event must create or update a `LedgerOSSyncRecord`.
+
+The epic must define:
+
+- local object type;
+- source event type;
+- external ID format;
+- idempotency key format;
+- expected sync status transitions;
+- duplicate handling;
+- whether retry is automatic, manual, or both.
+
+### 8. Acceptance criteria
+
+Acceptance criteria must be executable and specific.
+
+Each epic must include:
+
+- automated test expectations;
+- Docker Compose commands to run;
+- manual smoke/acceptance checks;
+- expected UI behavior, if UI is included;
+- expected LedgerOS sync records, if accounting sync is included;
+- expected report totals, if reporting is included.
+
+### 9. Explicit out-of-scope list
+
+Each epic must include an out-of-scope section. If a feature is mentioned in the PRD but not implemented in the epic, it must be explicitly deferred.
+
+### 10. Blocking open questions
+
+Open questions must be classified as:
+
+- blocks implementation;
+- does not block implementation;
+- deferred product decision.
+
+Agents must not begin implementation if any blocking question remains unresolved.
+
+## Global domain decisions
+
+These decisions apply to all epics unless a later approved decision changes them.
+
+### Product scope
+
+PropertyLedger is accounting-first with optional property-management extensions. It is not a full property-management platform in the MVP.
+
+### Primary customer
+
+The first target customer is a property manager managing units on behalf of owners.
+
+### Portfolio model
+
+MVP uses one LedgerOS accounting entity for the property-management business. Properties, units, owners, tenants, leases, and real estate reporting dimensions live in PropertyLedger.
+
+### Ownership model
+
+MVP enforces one primary owner per property. Fractional ownership, multiple owners per property, ownership percentages, ownership effective dates, and owner groups are deferred.
+
+### Accounting basis
+
+MVP uses accrual-style operational workflows. Rent charges create receivables; vendor bills create payables; tenant and vendor payments apply against open items. Refined cash-basis reporting is deferred.
+
+### Rent model
+
+MVP supports lease-based recurring base monthly rent and manual one-off tenant charges. A full recurring-charge engine, automatic late fees, rent escalations, and non-monthly cadence are deferred.
+
+### Security deposits
+
+Security deposits are tracked as liabilities with manual deduction/refund workflows. Jurisdiction-specific compliance, interest calculation, statutory notices, and legal deposit letters are deferred.
+
+### Management fees
+
+Automated management-fee calculation is deferred. A management fee may be manually recorded as a property-level expense through the normal expense/bill/journal workflow.
+
+### Payments
+
+Tenant payments are manual in MVP. Online rent collection, ACH/card processor integration, payment webhooks, failed-payment workflows, processor fee automation, and tenant portal payments are deferred.
+
+### Banking
+
+MVP supports guided banking actions and status visibility through controlled LedgerOS APIs where available. Automated bank-feed ingestion, external bank event ingestion, automatic statement import, and automated matching are deferred.
+
+### Check writing
+
+Printable check generation is deferred from initial MVP but expected before practical deployment for real bookkeeping use. Vendor payment data models must reserve enough structure to add check writing without redesigning payments.
+
+### Reporting split
+
+LedgerOS provides accounting-source-of-truth reports and statuses. PropertyLedger computes property-context reports using local real estate records and sync mappings, and those reports must reconcile to LedgerOS-posted resources where applicable.
+
+## Global data and state standards
+
+### Money fields
+
+Use decimal money amounts, not floats. Store currency where the amount can reasonably cross currency boundaries or where future compatibility requires it. MVP default currency is `USD`.
+
+Unless an epic explicitly permits negative amounts, user-entered money fields must be non-negative and direction must be expressed through workflow type, side, or accounting treatment.
+
+### Archive/delete behavior
+
+For business records that may have accounting impact, prefer archive/inactivate over hard delete. Do not delete records that are referenced by synced accounting activity.
+
+### Setup status
+
+Setup status is owned by setup/configuration models such as `PropertyLedgerSetup`.
+
+Allowed setup statuses:
+
+- `not_started`
+- `in_progress`
+- `blocked`
+- `validated`
+- `complete`
+
+Setup status answers: "Is PropertyLedger configured well enough to run workflows?"
+
+### LedgerOS sync status
+
+Accounting sync status is owned by `LedgerOSSyncRecord`.
+
+Allowed sync statuses:
 
 - `pending`
 - `in_progress`
@@ -109,51 +316,13 @@ Allowed statuses:
 - `duplicate`
 - `cancelled`
 
-Required uniqueness constraints:
+Sync status answers: "Has this specific local event been submitted to LedgerOS, and what happened?"
 
-- unique `local_object_type`, `local_object_id`, `source_event_type`
-- unique `idempotency_key`
-- unique `external_id`, `source_event_type`
+Setup status and sync status must not share a field or enum.
 
-The schema is locked for Epic 1. Do not add new mutable accounting-state fields, alternate identity fields, or status values unless a later epic explicitly requires a migration and corresponding tests.
+### Required setup account mappings
 
-### LedgerOS contract
-
-Epic 1 must include `docs/ledgeros-integration-contract.md`. This local contract defines the minimum LedgerOS assumptions needed by PropertyLedger until the LedgerOS repo exposes an authoritative versioned API contract.
-
-## Epic 2 Decision Log
-
-The following decisions remove ambiguity for setup, onboarding, and property/lease foundations in Epic 2.
-
-### Full setup/onboarding scope
-
-Epic 2 implements the full MVP setup/onboarding foundation required before accounting workflows can run:
-
-- connect to LedgerOS;
-- validate LedgerOS health/API config;
-- select/confirm a LedgerOS entity;
-- import/confirm chart of accounts;
-- select an open first accounting period;
-- configure required account mappings;
-- create/map required bank and credit card accounts;
-- configure optional debt-service mappings;
-- run setup smoke validation;
-- persist setup status.
-
-### Lease and ownership foundations
-
-- `base_monthly_rent` is a required USD currency-aware decimal amount.
-- Rent cadence is monthly only.
-- Rent effective date defaults to the lease start date.
-- Complex rent schedules are deferred.
-- `deposit_required` means the required security deposit amount, not a boolean.
-- Store security deposits as a currency-aware decimal amount, default USD, default amount `0.00`.
-- Epic 2 enforces one primary owner per property.
-- Fractional ownership and multiple owners per property are deferred.
-
-### Required account mappings
-
-Required account mappings for setup completion:
+The core setup must validate these mappings before setup can be marked complete:
 
 - `operating_bank_account`
 - `undeposited_funds`
@@ -172,13 +341,234 @@ Required if enabled:
 - `interest_expense`
 - `principal_payment_mapping`
 
-Setup cannot be marked complete if required mappings are missing, inactive, or mapped to invalid LedgerOS account types.
+Optional/deferred:
 
-### Setup state
+- `late_fee_income`
+- `management_fee_expense_category`
+- `parking_income`
+- `storage_income`
+- `utility_reimbursement_income`
+- `sales_tax_liability`
 
-Epic 2 must persist setup state in a model such as `PropertyLedgerSetup`.
+Setup cannot be marked complete if a required mapping is missing, inactive, or mapped to an invalid LedgerOS account type.
 
-Setup statuses:
+### LedgerOSSyncRecord standard
+
+Every LedgerOS-bound accounting event must create or update a `LedgerOSSyncRecord`.
+
+Required fields:
+
+- `local_object_type`
+- `local_object_id`
+- `ledgeros_resource_type`
+- `ledgeros_resource_id`, nullable until success
+- `ledgeros_journal_entry_id`, nullable
+- `source_event_type`
+- `external_id`
+- `idempotency_key`
+- `request_hash`
+- `response_payload`, JSON, nullable
+- `status`
+- `last_error`, nullable
+- `attempt_count`
+- `last_synced_at`, nullable
+- `created_at`
+- `updated_at`
+
+Required uniqueness constraints:
+
+- unique `local_object_type`, `local_object_id`, `source_event_type`
+- unique `idempotency_key`
+- unique `external_id`, `source_event_type`
+
+Do not add alternate sync identity rules in a future epic without documenting the reason, migration impact, and tests.
+
+## Suggested repository shape
+
+The current repository may not exactly match this shape. Future changes should preserve the same boundaries even if names differ.
+
+```text
+propertyledger/
+  propertyledger/              # Django project/config
+  ledgeros/                    # LedgerOS adapter/integration app, if current naming remains
+  properties/                  # property/unit/owner domain, if split later
+  leasing/                     # tenants/leases/rent roll, if split later
+  billing/                     # tenant charges/payments, if split later
+  vendors/                     # vendor bills/expenses, if split later
+  reporting/                   # real estate reports, if split later
+  docs/
+    propertyledger-prd.md
+    propertyledger-implementation-epics.md
+    ledgeros-integration-contract.md
+```
+
+Do not rename apps solely for aesthetics. Split apps only when it reduces real coupling and the migration/test impact is justified.
+
+---
+
+# Epic 1 — Containerized foundation and LedgerOS adapter
+
+## Current status
+
+Epic 1 may already be implemented. Treat this section as historical scope plus the standard for future hardening, not permission to rewrite completed work without approval.
+
+## Purpose
+
+Create the base PropertyLedger app, containerized runtime, domain boundaries, LedgerOS connection layer, and safe sync infrastructure.
+
+## In scope
+
+- Django/DRF backend skeleton;
+- PostgreSQL database;
+- Docker Compose local development;
+- real LedgerOS full-stack startup path as the primary setup path;
+- mock LedgerOS mode only as a secondary isolated test mode, if present;
+- LedgerOS adapter interface;
+- LedgerOS HMAC signing helper;
+- idempotency helper;
+- API client configuration through environment variables;
+- deterministic local and LedgerOS health checks;
+- `LedgerOSSyncRecord` model with locked schema and uniqueness constraints;
+- basic admin/setup surface.
+
+## Out of scope
+
+- rent generation;
+- owner statements;
+- online payments;
+- bank-feed ingestion;
+- tenant portal;
+- billing, payments, reporting, or reconciliation workflows beyond connectivity and sync infrastructure.
+
+## Decisions
+
+- Backend framework: Django + Django REST Framework.
+- Database: PostgreSQL.
+- Runtime: Docker Compose.
+- Full production frontend: out of scope for Epic 1.
+- Secrets: environment variables only for Epic 1; do not store HMAC secrets/API keys in the database.
+- LedgerOS health endpoint: use configured `LEDGEROS_HEALTH_PATH`, defaulting to the real LedgerOS health endpoint documented in `.env.example`/README.
+
+## Acceptance criteria
+
+- App boots locally with Docker Compose.
+- The default setup path starts PropertyLedger and a real LedgerOS instance together.
+- Local health check reports PropertyLedger app and database status.
+- LedgerOS health check reports healthy only for expected successful LedgerOS response.
+- App can create and persist a sync record.
+- Adapter can sign a sample request.
+- Secrets are not logged.
+- Tests cover HMAC signing, idempotency-key generation, sync-record uniqueness, and health checks.
+
+## Docker/manual checks
+
+Use the commands documented in the README for the current repo. At minimum, a full-stack acceptance path must verify:
+
+- PropertyLedger container starts;
+- PropertyLedger database is reachable;
+- LedgerOS container starts;
+- LedgerOS database is reachable;
+- PropertyLedger can call LedgerOS health endpoint from inside Docker;
+- checks/tests run inside containers.
+
+---
+
+# Epic 2 — Setup foundation and core real estate master data
+
+## Current status
+
+Epic 2 may already be implemented. Do not retrofit it solely because this document is stricter unless the user requests that work.
+
+## Purpose
+
+Allow a property manager/admin to configure the minimum viable operating portfolio and required LedgerOS setup before accounting workflows begin.
+
+Epic 2 gets the system ready. Later epics create accounting activity.
+
+## In scope
+
+- setup wizard or setup/admin flow;
+- LedgerOS connection validation;
+- LedgerOS health/API configuration validation;
+- LedgerOS entity selection/confirmation;
+- chart of accounts import/confirmation;
+- first open accounting period selection;
+- required account mapping setup and validation;
+- required bank and credit-card account mapping;
+- optional debt-service mappings;
+- persisted setup status;
+- property records;
+- unit records;
+- owner records;
+- tenant records;
+- lease records;
+- base monthly rent amount;
+- required security deposit amount;
+- lease status;
+- archive behavior for master data.
+
+## Out of scope
+
+- multi-entity owner books;
+- tenant portal;
+- fractional ownership;
+- multiple owners per property;
+- document management;
+- real rent generation;
+- invoices;
+- bills;
+- payments;
+- owner statements;
+- check writing.
+
+## Required data definitions
+
+### Lease rent fields
+
+- `base_monthly_rent_amount`: required decimal money amount.
+- `base_monthly_rent_currency`: required string, default `USD`.
+- `rent_billing_cadence`: `monthly` only for MVP.
+- `rent_effective_date`: defaults to lease start date.
+
+Deferred: rent escalations, multiple rent periods, non-monthly cadence, automatic proration, full recurring-charge schedules.
+
+### Security deposit fields
+
+- `security_deposit_required_amount`: required decimal money amount, default `0.00`.
+- `security_deposit_currency`: required string, default `USD`.
+
+`deposit_required` means a required amount, not a boolean and not a workflow status.
+
+### Lease statuses
+
+Allowed statuses:
+
+- `draft`
+- `active`
+- `ended`
+- `cancelled`
+
+A lease cannot be active without property, unit, tenant, start date, and base monthly rent amount.
+
+### Owner model
+
+MVP enforces one primary owner per property. An owner may own many properties. A property may not have multiple active owners in MVP.
+
+## Required setup state
+
+A setup/configuration model such as `PropertyLedgerSetup` must persist:
+
+- LedgerOS base URL or reference;
+- selected LedgerOS entity ID/name;
+- selected accounting period ID/name/start/end;
+- setup status;
+- LedgerOS health status;
+- account mapping validation status;
+- bank/card mapping validation status;
+- last validated timestamp;
+- completion timestamp.
+
+Allowed setup statuses:
 
 - `not_started`
 - `in_progress`
@@ -190,211 +580,369 @@ Setup is complete only when:
 
 - LedgerOS health succeeds;
 - LedgerOS entity is selected;
-- open accounting period is selected;
+- an open accounting period is selected;
 - required mappings are valid;
 - required bank/card mappings are valid;
 - setup smoke validation passes.
 
-### Status ownership
-
-Setup status and accounting sync status are separate.
-
-- `PropertyLedgerSetup.setup_status` owns setup state.
-- `LedgerOSSyncRecord.status` owns per-event accounting sync state.
-
-Setup statuses:
-
-- `not_started`
-- `in_progress`
-- `blocked`
-- `validated`
-- `complete`
-
-Sync statuses:
-
-- `pending`
-- `in_progress`
-- `succeeded`
-- `failed`
-- `duplicate`
-- `cancelled`
-
-### UI expectations
-
-- UI must show setup status on setup/admin pages and global incomplete-setup banners.
-- UI must show accounting sync status only on individual accounting event records and sync diagnostics pages.
-
-## Epic 1 — Application foundation and LedgerOS adapter
-
-### Purpose
-
-Create the base app, domain boundaries, LedgerOS connection layer, and safe sync infrastructure.
-
-### In scope
-
-- PropertyLedger app backend skeleton;
-- web app skeleton;
-- domain database setup;
-- LedgerOS adapter interface;
-- LedgerOS HMAC signing helper;
-- idempotency helper;
-- API client configuration;
-- deterministic local and LedgerOS health checks;
-- `LedgerOSSyncRecord` model with locked schema and uniqueness constraints;
-- basic admin/setup screen;
-- Docker Compose local development with real LedgerOS as the primary stack.
-
-### Out of scope
-
-- rent generation;
-- owner statements;
-- online payments;
-- bank-feed ingestion;
-- tenant portal;
-- billing, payments, reporting, or reconciliation workflows beyond connectivity and sync infrastructure.
-
-### Acceptance criteria
-
-- App boots locally with Docker Compose.
-- The default setup path starts PropertyLedger and a real LedgerOS instance together.
-- Admin can enter LedgerOS URL/client ID/secret references via environment-backed configuration.
-- Local health check is deterministic and reports the PropertyLedger app and database status.
-- LedgerOS health check is deterministic and reports healthy only for an expected successful LedgerOS health response.
-- App can create and persist a sync record.
-- Adapter can sign a sample request.
-- Secrets are not logged.
-- Tests cover HMAC signing, idempotency-key generation, sync-record uniqueness, and both health checks.
-
-### Manual checks
-
-```bash
-# Start local app stack with Docker Compose
-# Clone the LedgerOS repo into a sibling directory first.
-# Copy .env.fullstack.example to .env.
-# Run make up, make migrate, and make smoke.
-# Run backend checks/tests
-# Validate local health check
-# Validate LedgerOS connection using configured local LedgerOS instance
-```
-
-
-## Epic 2 — Setup wizard, properties, units, owners, tenants, and leases
-
-### Purpose
-
-Allow a property manager/admin to configure the minimum viable operating portfolio.
-
-### In scope
-
-- setup wizard;
-- property records;
-- unit records;
-- owner records;
-- tenant records;
-- lease records;
-- base monthly rent;
-- deposit required;
-- lease status;
-- account mapping setup;
-- first accounting period and LedgerOS setup validation;
-- optional debt-service account mappings;
-- optional credit-card liability account mappings.
-
-### Out of scope
-
-- multi-entity owner books;
-- tenant portal;
-- fractional ownership;
-- document management.
-
-### Acceptance criteria
+## Acceptance criteria
 
 - User can create a property, unit, owner, tenant, and active lease.
-- Lease requires unit, tenant, start date, and base rent.
-- Setup wizard validates required LedgerOS account mappings.
+- The model enforces one primary owner per property.
+- Lease requires unit, tenant, start date, and base monthly rent amount.
+- Security deposit requirement is stored as an amount, not a boolean.
+- Setup flow validates the required LedgerOS mappings listed in this document.
+- Setup cannot be marked complete if a required mapping is missing or invalid.
+- Setup persists setup status separately from accounting sync status.
 - Property/unit/tenant/lease records can be archived without deleting accounting history.
 - UI clearly distinguishes setup status from accounting sync status.
 
-## Epic 3 — Rent generation and tenant charges
+---
 
-### Purpose
+# Epic 3 — Rent generation and tenant charges
 
-Generate monthly base rent from leases and support manual one-off tenant charges.
+## Purpose
 
-### In scope
+Generate monthly base rent from active leases, support manual one-off tenant charges, and sync approved charges to LedgerOS invoices through the adapter.
 
-- generate base monthly rent charges;
-- prevent duplicate rent generation for the same lease/month;
-- manual tenant charges;
+## Implementation-readiness requirement
+
+Before coding Epic 3, produce a short decision log covering:
+
+- charge model fields;
+- charge statuses and transitions;
+- rent generation period identity;
+- idempotency key format;
+- LedgerOS invoice payload;
+- account mappings used for each charge type;
+- edit rules before and after LedgerOS sync;
+- how draft/unsynced charges appear in tenant ledgers.
+
+Do not implement Epic 3 if these items are unresolved.
+
+## In scope
+
+- generate base monthly rent charges from active leases;
+- prevent duplicate rent generation for the same lease and billing period;
+- manual one-off tenant charges;
 - tenant charge statuses;
+- charge approval/post-to-LedgerOS action;
 - LedgerOS invoice sync through adapter;
-- charge-level sync status;
-- tenant ledger draft view.
+- charge-level sync status via `LedgerOSSyncRecord`;
+- tenant ledger draft/open view.
 
-### Out of scope
+## Out of scope
 
 - full recurring-charge engine for every fee type;
 - automatic late fees;
 - online payments;
-- tenant portal.
+- tenant portal;
+- rent escalations;
+- automatic proration;
+- non-monthly rent cadence;
+- cash-basis reporting.
 
-### Acceptance criteria
+## Required data definitions
 
-- User can generate rent for a selected month.
+### TenantCharge
+
+Required fields:
+
+- property;
+- unit, required for lease-based rent, optional for property-level manual charges;
+- tenant;
+- lease, required for lease-based rent, optional for manual charges;
+- charge_type;
+- billing_period_start;
+- billing_period_end;
+- charge_date;
+- due_date;
+- amount;
+- currency, default `USD`;
+- description;
+- status;
+- created_at;
+- updated_at.
+
+Allowed charge types:
+
+- `base_rent`
+- `repair_chargeback`
+- `utility_reimbursement`
+- `late_fee_manual`
+- `parking_manual`
+- `storage_manual`
+- `deposit_adjustment_manual`
+- `other_manual`
+
+Allowed charge statuses:
+
+- `draft`
+- `approved`
+- `sync_pending`
+- `synced`
+- `sync_failed`
+- `voided`
+
+Initial status: `draft`.
+
+Valid transitions:
+
+- `draft` -> `approved`
+- `approved` -> `sync_pending`
+- `sync_pending` -> `synced`
+- `sync_pending` -> `sync_failed`
+- `sync_failed` -> `sync_pending`
+- `draft` -> `voided`
+- `approved` -> `voided`, only if not synced
+
+Once `synced`, do not edit amount, tenant, lease, period, account mapping, or charge type. Corrections after sync must use credit/adjustment workflows in later epics.
+
+## Rent generation identity
+
+A generated base rent charge is unique by:
+
+- lease;
+- charge type `base_rent`;
+- billing period start;
+- billing period end.
+
+Duplicate generation for the same lease/month must be blocked unless a future approved correction workflow explicitly permits it.
+
+## Required account mappings
+
+- `accounts_receivable`
+- `rental_income`
+
+Manual charge types may require additional optional mappings only if implemented. If a manual charge type lacks a valid mapping, the charge may be saved as draft but cannot be approved for LedgerOS sync.
+
+## LedgerOS sync contract
+
+LedgerOS resource: invoice.
+
+Source event type: `tenant_charge.invoice_created`.
+
+External ID format:
+
+```text
+tenant-charge:{tenant_charge_id}
+```
+
+Idempotency key format:
+
+```text
+propertyledger:tenant-charge:{tenant_charge_id}:invoice-created:v1
+```
+
+Required response fields from LedgerOS:
+
+- invoice/resource ID;
+- journal entry ID, if LedgerOS returns it;
+- status or posted indicator.
+
+## Acceptance criteria
+
+- User can generate rent for a selected month from active leases.
 - Rent generation is idempotent for lease/month.
 - User can create manual one-off charge.
-- Synced charge creates LedgerOS invoice.
-- Retried sync does not duplicate LedgerOS invoice.
-- Tenant ledger shows open charges and sync status.
+- Charge cannot sync without required mappings.
+- Synced charge creates a LedgerOS invoice through the adapter.
+- Retried sync does not duplicate the LedgerOS invoice.
+- Tenant ledger shows draft, approved, synced, and failed charges distinctly.
+- Synced charges are not destructively editable.
+- Tests cover duplicate rent generation, charge status transitions, required mapping validation, idempotency key generation, sync retry behavior, and tenant ledger visibility.
 
-### LedgerOS integration
+## Docker/manual checks
 
-Use LedgerOS invoice ingestion endpoint through the adapter. Include external IDs based on local charge IDs and billing periods.
+- Run tests inside Docker.
+- Generate rent for a sample active lease.
+- Verify one charge appears for the month.
+- Re-run generation and verify no duplicate charge.
+- Sync the charge and verify a `LedgerOSSyncRecord` is created/updated.
 
-## Epic 4 — Tenant payments, credits, and security deposits
+---
 
-### Purpose
+# Epic 4 — Tenant payments, credits, and security deposits
 
-Record manual tenant payments, apply them to charges, and track security deposits as liabilities.
+## Purpose
 
-### In scope
+Record manual tenant payments, apply them to open tenant charges, and track security deposits as liabilities.
+
+## Implementation-readiness requirement
+
+Before coding Epic 4, produce a short decision log covering:
+
+- payment statuses;
+- payment application rules;
+- partial payment behavior;
+- overpayment/credit behavior;
+- security deposit receipt/deduction/refund accounting treatment;
+- LedgerOS payment/credit/refund payloads;
+- edit rules after sync.
+
+## In scope
 
 - manual tenant payment recording;
-- partial payment application;
-- tenant overpayment/credit handling where supported;
+- payment application to open tenant charges;
+- partial payments;
+- overpayment/credit handling where supported by LedgerOS contract;
 - payment sync to LedgerOS;
-- deposit required/received/held tracking;
+- security deposit required/received/held tracking;
 - manual deposit deduction;
 - manual deposit refund;
 - security deposit ledger.
 
-### Out of scope
+## Out of scope
 
 - online rent collection;
 - ACH/card processor integration;
 - failed-payment workflows;
+- processor fee automation;
+- payment webhooks;
 - statutory deposit documents;
-- interest calculation.
+- deposit interest calculation;
+- jurisdiction-specific security deposit compliance;
+- tenant portal.
 
-### Acceptance criteria
+## Required data definitions
+
+### TenantPayment
+
+Required fields:
+
+- property;
+- tenant;
+- payment_date;
+- amount;
+- currency, default `USD`;
+- payment_method;
+- reference, optional;
+- status;
+- unapplied_amount;
+- created_at;
+- updated_at.
+
+Allowed payment methods:
+
+- `cash`
+- `check`
+- `ach_manual`
+- `card_manual`
+- `other`
+
+Allowed payment statuses:
+
+- `draft`
+- `applied`
+- `sync_pending`
+- `synced`
+- `sync_failed`
+- `voided`
+
+### TenantPaymentApplication
+
+Required fields:
+
+- tenant payment;
+- tenant charge;
+- amount applied;
+- created_at.
+
+Total applications may not exceed payment amount. A charge may be partially paid. A payment may be partially applied if overpayment/credit handling is enabled; otherwise unapplied amounts must block sync.
+
+### SecurityDepositRecord
+
+Required fields:
+
+- property;
+- unit;
+- tenant;
+- lease;
+- event_type;
+- event_date;
+- amount;
+- currency, default `USD`;
+- description;
+- status;
+- sync record reference where applicable.
+
+Allowed event types:
+
+- `required`
+- `received`
+- `deducted`
+- `refunded`
+
+## Required account mappings
+
+For rent/customer payments:
+
+- `undeposited_funds` or operating bank/clearing account according to LedgerOS payment contract;
+- `accounts_receivable`.
+
+For security deposits:
+
+- `tenant_security_deposits_liability`;
+- `undeposited_funds` or operating bank/clearing account according to LedgerOS payment contract.
+
+## LedgerOS sync contract
+
+LedgerOS resources may include payment, credit, refund, or journal workflow depending on the authoritative LedgerOS contract. If LedgerOS does not expose the needed resource, stop and ask whether to add a LedgerOS API or defer the workflow.
+
+Required source event types:
+
+- `tenant_payment.received`
+- `security_deposit.received`
+- `security_deposit.deducted`
+- `security_deposit.refunded`
+
+Idempotency keys must include local object ID, event type, and version.
+
+## Acceptance criteria
 
 - User can record payment against open tenant charges.
 - Partial payments reduce tenant balance correctly.
+- Payment applications cannot exceed payment amount or open charge amount.
 - Payment sync to LedgerOS is idempotent.
-- Security deposit receipt increases tenant deposit balance and syncs accounting treatment.
+- Security deposit receipt increases tenant deposit balance and syncs liability treatment.
 - Deposit deduction/refund updates tenant deposit ledger.
+- Synced payments/deposit events are not destructively editable.
+- Tests cover partial payments, overpayment handling, deposit ledger balance, sync idempotency, and status transitions.
 
-## Epic 5 — Vendor bills and maintenance expense tracking
+## Docker/manual checks
 
-### Purpose
+- Run tests inside Docker.
+- Create charge, record partial payment, verify tenant ledger balance.
+- Record security deposit receipt and verify deposit ledger balance.
+- Retry sync and verify no duplicate LedgerOS resource.
 
-Support vendor bills, property/unit expense attribution, and accounting-relevant maintenance tracking.
+---
 
-### In scope
+# Epic 5 — Vendor bills, credit cards, debt service, and maintenance expenses
+
+## Purpose
+
+Support vendor bills, property/unit expense attribution, credit-card-paid vendor bills, manual debt-service payments, and accounting-relevant maintenance tracking.
+
+## Implementation-readiness requirement
+
+Before coding Epic 5, produce a short decision log covering:
+
+- vendor bill statuses;
+- vendor payment statuses;
+- credit card account/payment fields;
+- AP-clearing treatment for credit-card payments;
+- debt-service principal/interest fields;
+- required account mappings;
+- LedgerOS bill/payment/journal payloads;
+- edit rules after sync.
+
+## In scope
 
 - vendor records;
 - vendor bills;
-- property and optional unit attribution;
+- property attribution;
+- optional unit attribution;
 - maintenance categories;
 - repair notes;
 - tenant-chargeable flag;
@@ -405,40 +953,304 @@ Support vendor bills, property/unit expense attribution, and accounting-relevant
 - LedgerOS bill/payment sync;
 - maintenance expense summary.
 
-### Out of scope
+## Out of scope
 
 - work orders;
 - tenant maintenance requests;
 - vendor dispatch;
 - photo uploads;
-- approval workflow.
+- approval workflow;
+- automatic credit-card feed ingestion;
+- receipt OCR;
+- automatic card statement reconciliation;
+- amortization schedule generation;
+- automatic principal/interest split calculation.
 
-### Acceptance criteria
+## Required data definitions
 
-- User can create vendor bill assigned to property/unit.
-- User can tag bill as maintenance category.
+### VendorBill
+
+Required fields:
+
+- vendor;
+- property;
+- unit, optional;
+- bill_date;
+- due_date, optional;
+- amount;
+- currency, default `USD`;
+- expense_category;
+- maintenance_category, optional;
+- repair_notes, optional;
+- tenant_chargeable flag;
+- status;
+- created_at;
+- updated_at.
+
+Allowed statuses:
+
+- `draft`
+- `approved`
+- `sync_pending`
+- `synced`
+- `sync_failed`
+- `voided`
+
+### VendorPayment
+
+Required fields:
+
+- vendor;
+- vendor bill;
+- payment_date;
+- amount;
+- currency, default `USD`;
+- payment_method;
+- bank_account or credit_card_account, depending on payment method;
+- memo, optional;
+- check_number, nullable;
+- check_status;
+- status.
+
+Allowed payment methods:
+
+- `manual_check`
+- `ach_manual`
+- `credit_card`
+- `cash`
+- `other`
+
+Allowed check statuses:
+
+- `not_applicable`
+- `pending_print`
+- `printed`
+- `voided`
+
+Check writing itself is deferred, but these fields reserve the drop-in place.
+
+### DebtServicePayment
+
+Required fields:
+
+- property;
+- lender/vendor;
+- payment_date;
+- total_amount;
+- principal_amount;
+- interest_amount;
+- currency, default `USD`;
+- loan liability account mapping;
+- interest expense account mapping;
+- payment account;
+- status.
+
+Principal plus interest must equal total amount unless a later escrow/fee component is explicitly added.
+
+## Required account mappings
+
+Vendor bills:
+
+- `accounts_payable`
+- relevant expense account, such as `repairs_and_maintenance_expense`
+
+Credit-card vendor payments:
+
+- `accounts_payable`
+- `credit_card_liability`
+
+Credit-card payoff:
+
+- `credit_card_liability`
+- `operating_bank_account`
+
+Debt service:
+
+- `mortgage_or_loan_liability`
+- `interest_expense`
+- `operating_bank_account`
+
+## Required accounting treatment
+
+Vendor bill:
+
+```text
+Debit  Expense
+Credit Accounts Payable
+```
+
+Vendor bill paid by credit card:
+
+```text
+Debit  Accounts Payable
+Credit Credit Card Liability
+```
+
+Credit card payoff:
+
+```text
+Debit  Credit Card Liability
+Credit Operating Bank Account
+```
+
+Debt-service payment:
+
+```text
+Debit  Mortgage/Loan Liability    principal amount
+Debit  Interest Expense           interest amount
+Credit Operating Bank Account     total amount
+```
+
+## LedgerOS sync contract
+
+LedgerOS resources may include bill, vendor payment, bank transaction, or journal workflow depending on the authoritative LedgerOS contract.
+
+Required source event types:
+
+- `vendor_bill.created`
+- `vendor_payment.sent`
+- `vendor_payment.credit_card`
+- `credit_card.payoff`
+- `debt_service.payment_recorded`
+
+If LedgerOS lacks a required endpoint, stop and ask whether to add a LedgerOS API, use an existing approved journal workflow, or defer the workflow.
+
+## Acceptance criteria
+
+- User can create vendor bill assigned to property and optional unit.
+- User can tag bill with maintenance category.
 - User can mark expense as tenant-chargeable.
 - Bill syncs to LedgerOS without duplicate accounting entries under retry.
 - Vendor payment syncs to LedgerOS.
 - Credit-card vendor payment clears AP and increases credit-card liability rather than reducing bank cash.
 - Credit-card payoff reduces credit-card liability and bank cash.
 - Debt-service payment records principal and interest split.
+- Principal plus interest equals total debt-service payment.
 - Maintenance expense report includes categorized expenses.
+- Synced bills/payments are not destructively editable.
+- Tests cover attribution, credit-card accounting treatment, debt-service split validation, sync idempotency, and maintenance reporting inputs.
 
-## Epic 6 — Owner statements and manual owner activity
+## Docker/manual checks
 
-### Purpose
+- Run tests inside Docker.
+- Create vendor bill for a property/unit.
+- Pay bill by credit card and verify local status/sync record.
+- Record credit card payoff.
+- Record debt-service payment with principal/interest split.
+
+---
+
+# Epic 6 — Banking, reconciliation visibility, and check-writing foundation
+
+## Purpose
+
+Expose guided banking and reconciliation actions without implementing automated bank-feed ingestion, and reserve the check-writing workflow needed before practical deployment.
+
+## Implementation-readiness requirement
+
+Before coding Epic 6, produce a short decision log covering:
+
+- which LedgerOS banking APIs exist;
+- which new LedgerOS APIs, if any, are required;
+- deposit and withdrawal payloads;
+- reconciliation status read model;
+- check-writing placeholder fields already available from Epic 5;
+- what is MVP versus post-MVP required deployment feature.
+
+## In scope
+
+- view LedgerOS bank accounts;
+- view bank account balances/statuses;
+- record deposits through controlled workflow where LedgerOS API exists;
+- record withdrawals through controlled workflow where LedgerOS API exists;
+- show reconciliation status;
+- show unmatched/unreconciled activity where LedgerOS API exists;
+- ensure vendor-payment records have fields needed for later check writing;
+- document check-writing drop-in design.
+
+## Out of scope
+
+- Plaid or other bank feeds;
+- automatic statement import;
+- external bank event ingestion;
+- fully automated matching engine;
+- printable check generation unless explicitly pulled into this epic;
+- positive pay/export unless explicitly pulled into check-writing work.
+
+## Required LedgerOS APIs/read contracts
+
+MVP banking UI requires controlled LedgerOS APIs for:
+
+- bank-account list;
+- bank-account balance/status;
+- manually recording deposit;
+- manually recording withdrawal;
+- unreconciled activity read, if displayed;
+- reconciliation status read.
+
+If any are missing, the epic must explicitly choose one:
+
+1. add the narrow LedgerOS API;
+2. defer that UI action;
+3. keep it read-only.
+
+Do not call LedgerOS internals or rely on Django Admin workflows from PropertyLedger.
+
+## Acceptance criteria
+
+- Bookkeeper can view bank account status.
+- Bookkeeper can record deposit/withdrawal only through controlled actions.
+- Reconciliation status is visible by account/period where LedgerOS supports it.
+- No external bank ingestion event is accepted in MVP.
+- Missing LedgerOS banking API results in clear disabled/deferred UI behavior, not direct DB access.
+- Vendor payment records include payment method, bank account, memo, nullable check number, check status, and enough structure for a post-MVP check-writing module.
+- Tests cover API availability handling, deposit/withdrawal service calls, and disabled behavior where API support is missing.
+
+## Post-MVP required deployment feature: check writing
+
+Check writing may be implemented as part of Epic 6 if explicitly requested; otherwise it remains the named post-MVP required deployment feature below.
+
+The design must preserve:
+
+- configurable check templates;
+- printable check output;
+- check alignment settings;
+- check number sequencing;
+- void check workflow;
+- reprint controls;
+- audit trail for printed/reprinted/voided checks;
+- link from check payment to vendor bill/payment record.
+
+---
+
+# Epic 7 — Owner statements and manual owner activity
+
+## Purpose
 
 Produce owner statements and support manual owner contributions, owner distributions, and manually recorded management-fee expenses.
 
-### In scope
+## Implementation-readiness requirement
+
+Before coding Epic 7, produce a short decision log covering:
+
+- owner statement period rules;
+- which records appear on owner statements;
+- property attribution requirements;
+- owner contribution/distribution accounting treatment;
+- reconciliation to LedgerOS-posted activity;
+- export/save behavior.
+
+## In scope
 
 - owner statement generation;
+- owner statement preview;
+- owner statement saved record or export, if selected by implementation;
 - manual management-fee expense display where recorded;
 - owner contributions/distributions as manual records;
-- owner statement export or saved statement record.
+- owner/property attribution for all statement lines;
+- reconciliation of statement totals to posted/synced activity.
 
-### Out of scope
+## Out of scope
 
 - automated owner payable;
 - owner ACH payout;
@@ -447,93 +1259,182 @@ Produce owner statements and support manual owner contributions, owner distribut
 - complex fee schedules;
 - leasing commissions;
 - vacancy fees;
-- automated owner payable/distribution subsystem.
+- automated owner payable/distribution subsystem;
+- multi-entity owner books;
+- fractional ownership.
 
-### Acceptance criteria
+## Required data definitions
+
+### OwnerContributionDistribution
+
+Required fields:
+
+- owner;
+- property;
+- event_type;
+- event_date;
+- amount;
+- currency, default `USD`;
+- payment_account or bank account reference;
+- description;
+- status;
+- sync record, if LedgerOS-bound.
+
+Allowed event types:
+
+- `contribution`
+- `distribution`
+
+MVP accounting treatment is equity-style:
+
+Owner contribution:
+
+```text
+Debit  Cash
+Credit Owner Contributions / Equity
+```
+
+Owner distribution:
+
+```text
+Debit  Owner Distributions / Retained Earnings
+Credit Cash
+```
+
+PropertyLedger stores owner/property attribution. MVP does not implement true separate owner equity ledgers.
+
+## Owner statement contents
+
+An owner statement must show:
+
+- owner;
+- property;
+- statement period;
+- rent charged;
+- rent collected;
+- property expenses;
+- maintenance expenses;
+- manually recorded management-fee expenses;
+- owner contributions;
+- owner distributions;
+- security deposit activity if relevant to the owner view;
+- net summary.
+
+Draft/unsynced records may be shown for operational visibility only if clearly labeled. Official totals must reconcile to posted/synced activity.
+
+## Acceptance criteria
 
 - User can manually record owner contributions and owner distributions with property attribution.
 - User can manually record management-fee expenses through normal expense/bill/journal workflow.
 - Owner statement shows rent collected, expenses, manually recorded management-fee expenses, contributions/distributions, and net summary.
 - Statement totals reconcile to underlying posted/synced activity.
+- Statement clearly excludes or labels draft/unsynced items.
+- Tests cover statement period filtering, attribution, contribution/distribution treatment, and reconciliation to synced records.
 
-## Epic 7 — Banking and reconciliation UI
+## Docker/manual checks
 
-### Purpose
+- Run tests inside Docker.
+- Create owner/property activity across a statement period.
+- Generate owner statement and compare totals to source records.
 
-Expose guided banking and reconciliation actions without implementing automated bank-feed ingestion.
+---
 
-### In scope
+# Epic 8 — Reports and dashboards
 
-- view LedgerOS bank accounts;
-- record deposits through controlled workflow;
-- record withdrawals through controlled workflow;
-- show reconciliation status;
-- show unmatched/unreconciled activity;
-- require controlled LedgerOS APIs for bank-account reads, balances, deposits, withdrawals, unreconciled activity, and reconciliation status;
-- reserve vendor-payment fields needed for later check writing.
+## Purpose
 
-### Out of scope
+Expose PropertyLedger reports first while preserving access to LedgerOS accounting reports.
 
-- Plaid or other bank feeds;
-- automatic statement import;
-- external bank event ingestion;
-- fully automated matching engine;
-- printable check generation in MVP.
+## Implementation-readiness requirement
 
-### Acceptance criteria
+Before coding Epic 8, produce a report definition table. Each report must define:
 
-- Bookkeeper can view bank account status.
-- Bookkeeper can record deposit/withdrawal using controlled action.
-- Reconciliation status is visible by account/period.
-- No external bank ingestion event is accepted in MVP.
-- Vendor payment records include payment method, bank account, memo, nullable check number, check status, and enough structure for a post-MVP check-writing module.
+- purpose;
+- source records;
+- period/date basis;
+- scope filters;
+- whether it includes draft/unsynced items;
+- how totals reconcile to LedgerOS;
+- drill-down behavior.
 
-### Implementation note
-
-This epic may require LedgerOS API expansion if current LedgerOS banking workflows are only available through services/admin. Do not bypass LedgerOS services to implement banking actions.
-
-## Epic 8 — Reports and dashboards
-
-### Purpose
-
-Expose PropertyLedger reports first, while preserving access to LedgerOS accounting reports.
-
-### In scope
+## In scope
 
 - rent roll;
 - tenant ledger;
 - delinquency report;
 - property income/expense;
-- owner statement view;
+- owner statement view/report link;
 - security deposit ledger;
 - management-fee expense summary;
 - maintenance expense summary;
-- links to LedgerOS trial balance, P&L, balance sheet, period summary, tax summary where available.
+- links to LedgerOS trial balance, P&L, balance sheet, period summary, and tax summary where available.
 
-### Out of scope
+## Out of scope
 
 - arbitrary report builder;
 - SQL report builder;
 - cash-basis owner statements;
-- advanced tax reporting.
+- advanced tax reporting;
+- custom dashboard designer.
 
-### Acceptance criteria
+## Reporting split
+
+LedgerOS read APIs should be used for accounting-system-of-record reports and statuses, including:
+
+- trial balance;
+- profit and loss;
+- balance sheet;
+- accounting periods;
+- chart of accounts;
+- invoice/bill/payment status;
+- bank balances;
+- reconciliation status;
+- audit drill-down.
+
+PropertyLedger computes property-management reports that require property, unit, tenant, lease, owner, or maintenance context, including:
+
+- rent roll;
+- tenant ledger;
+- delinquency report;
+- owner statements;
+- property income/expense;
+- security deposit ledger;
+- maintenance expense summary;
+- management-fee expense summary;
+- unit-level expense reports.
+
+Real estate financial reports must reconcile to LedgerOS-posted resources where applicable. Draft or unsynced items may be shown for operational visibility, but must be clearly labeled and excluded from official financial totals.
+
+## Acceptance criteria
 
 - PropertyLedger reports are accessible from primary navigation.
-- Reports define period and scope.
-- Reports exclude draft/unposted accounting activity where financial totals are shown.
+- Each report defines period and scope.
+- Reports exclude draft/unposted accounting activity where official financial totals are shown.
 - Drill-down links show source records where practical.
 - Property income/expense and owner statement totals reconcile to posted/synced accounting activity.
 - LedgerOS accounting-source reports and statuses are read from LedgerOS APIs where available.
-- Property/unit/tenant/owner-context reports are computed in the PropertyLedger app and reconciled to LedgerOS-posted resources.
+- Property/unit/tenant/owner-context reports are computed in PropertyLedger and reconciled to LedgerOS-posted resources.
+- Tests cover report filters, period handling, draft exclusion, and reconciliation logic.
 
-## Epic 9 — Roles, permissions, audit, and production readiness
+## Docker/manual checks
 
-### Purpose
+- Run tests inside Docker.
+- Generate each MVP report with seeded/sample data.
+- Verify at least one report reconciles to LedgerOS-posted source records.
+
+---
+
+# Epic 9 — Roles, permissions, audit, and production readiness
+
+## Purpose
 
 Add MVP role model, audit visibility, and production-readiness basics.
 
-### In scope
+## Implementation-readiness requirement
+
+Before coding Epic 9, produce a coarse permission matrix. It must define what each role can view, create, update, approve/sync, reverse/void, configure, and export.
+
+## In scope
 
 - Admin role;
 - Property manager role;
@@ -543,32 +1444,70 @@ Add MVP role model, audit visibility, and production-readiness basics.
 - coarse permissions;
 - audit/activity log view;
 - import/export basics;
-- deployment checklist.
+- deployment checklist;
+- environment variable documentation;
+- production secret handling guidance.
 
-### Out of scope
+## Out of scope
 
 - fine-grained permission matrix;
 - approval chains;
 - owner portal;
 - tenant portal;
-- enterprise SSO.
+- enterprise SSO;
+- billing/subscription management.
 
-### Acceptance criteria
+## Required roles
+
+### Admin
+
+Can configure system, users, properties, LedgerOS setup, account mappings, and all workflows.
+
+### Property manager
+
+Can manage properties, units, tenants, and leases; review charges/payments/reports; initiate operational workflows as allowed.
+
+### Bookkeeper
+
+Can create/post/sync charges and bills, record payments, perform banking/reconciliation workflows, run reports, and correct through approved workflows. Cannot change system-level mappings unless explicitly granted.
+
+### Owner viewer
+
+Role exists in model/design for future owner access. Owner login/portal may remain deferred.
+
+### Read-only viewer
+
+Can view records and reports. Cannot create, post, sync, reverse, configure, or export sensitive data unless explicitly granted.
+
+## Acceptance criteria
 
 - Users can be assigned roles.
 - Role permissions are enforced on major workflows.
 - Read-only users cannot mutate data.
 - Bookkeepers cannot modify system-level mappings unless allowed.
 - Audit/activity log shows major successful events.
-- Deployment checklist documents environment variables, secrets, and LedgerOS connection requirements.
+- Deployment checklist documents environment variables, secrets, LedgerOS connection requirements, Docker commands, and production caveats.
+- Tests cover representative allow/deny cases for each role.
 
-## Epic 10 — API documentation and agent-built connector support
+## Docker/manual checks
 
-### Purpose
+- Run tests inside Docker.
+- Create users for each role.
+- Verify allowed and denied workflows manually or through tests.
+
+---
+
+# Epic 10 — API documentation and agent-built connector support
+
+## Purpose
 
 Make the system usable by sophisticated users and AI agents building connectors.
 
-### In scope
+## Implementation-readiness requirement
+
+Before coding Epic 10, define which API surface is actually public for PropertyLedger. Do not document internal endpoints as stable public API unless they are intended for external clients.
+
+## In scope
 
 - external API documentation for PropertyLedger app;
 - LedgerOS adapter documentation;
@@ -576,28 +1515,54 @@ Make the system usable by sophisticated users and AI agents building connectors.
 - example payloads;
 - sync error handling guide;
 - test sandbox instructions;
-- OpenAPI schema if practical.
+- OpenAPI schema if practical;
+- API versioning guidance.
 
-### Out of scope
+## Out of scope
 
 - QuickBooks/Xero connectors;
 - payment processor connectors;
-- bank-feed connectors.
+- bank-feed connectors;
+- tenant portal API;
+- owner portal API.
 
-### Acceptance criteria
+## Required documentation topics
+
+- authentication model;
+- idempotency behavior;
+- external ID rules;
+- retry behavior;
+- duplicate handling;
+- request/response logging and secret redaction;
+- local object IDs versus LedgerOS resource IDs;
+- sandbox/full-stack startup path;
+- examples for tenant charge, tenant payment, vendor bill, and manually recorded management-fee expense.
+
+## Acceptance criteria
 
 - A technical user can build a client using docs alone.
 - Example payloads exist for tenant charge, payment, vendor bill, and manual management-fee expense.
 - Docs explain idempotency, duplicate handling, retries, and external IDs.
 - Agent guidance states not to bypass accounting adapter boundaries.
+- OpenAPI schema exists or the doc explains why it is deferred.
 
-## Post-MVP Required Deployment Feature — Check writing
+## Docker/manual checks
 
-### Purpose
+- Run tests inside Docker.
+- Validate example payloads against serializers/schemas where practical.
+- Confirm docs match actual endpoints.
 
-Add printable check generation to the existing vendor payment workflow without redesigning vendor payments. This feature is deferred from the first MVP build but expected before practical deployment for real bookkeeping use.
+---
 
-### Depends on
+# Post-MVP Required Deployment Feature — Check writing
+
+## Purpose
+
+Add printable check generation to the existing vendor payment workflow without redesigning vendor payments.
+
+This feature is deferred from the first MVP build but expected before practical deployment for real bookkeeping use.
+
+## Depends on
 
 - vendor bills;
 - vendor payments;
@@ -606,7 +1571,7 @@ Add printable check generation to the existing vendor payment workflow without r
 - check number and check status placeholders;
 - audit/activity logging.
 
-### In scope
+## In scope
 
 - configurable check templates;
 - printable check output;
@@ -618,26 +1583,55 @@ Add printable check generation to the existing vendor payment workflow without r
 - link from check payment to vendor bill/payment record;
 - optional positive-pay/export support if needed.
 
-### Out of scope
+## Out of scope
 
 - bank-feed ingestion;
 - external payment processor integration;
 - approval chains unless added separately.
 
-### Acceptance criteria
+## Required state model
+
+Check-capable vendor payments must distinguish:
+
+- not applicable;
+- pending print;
+- printed;
+- voided.
+
+Voiding a check must use an explicit accounting-safe workflow and must not destructively edit posted accounting facts.
+
+## Acceptance criteria
 
 - Bookkeeper can print a check for an eligible vendor payment.
 - Check number is unique per bank account sequence.
 - Printed, reprinted, and voided checks are auditable.
-- Voiding a check uses an explicit accounting-safe workflow and does not destructively edit posted facts.
+- Voiding a check uses an explicit accounting-safe workflow.
+- Reprinting is controlled and auditable.
 
-## Cross-epic requirement traceability template
+---
+
+# Cross-epic requirement traceability template
 
 Each epic handoff must include:
 
 | Requirement | PRD section | Status | Code location | Test/manual check |
 |---|---|---|---|---|
 | Example | 9.4 Rent and tenant charges | Implemented/Deferred | path/to/file | test name/check |
+
+## Cross-epic handoff template
+
+Before claiming an epic is complete, an agent must provide:
+
+1. requirements implemented;
+2. requirements deferred;
+3. blocking questions resolved;
+4. files changed;
+5. migrations created, if any;
+6. automated tests added/updated;
+7. Docker/manual checks run;
+8. known limitations;
+9. screenshots or API examples if UI/API changed;
+10. confirmation that LedgerOS accounting invariants were not bypassed.
 
 ## Global deferred roadmap
 
@@ -655,17 +1649,3 @@ Each epic handoff must include:
 - tax automation;
 - QuickBooks/Xero connectors;
 - check writing until the required post-MVP deployment feature is implemented.
-
-## Agent handoff checklist
-
-Before claiming an epic is complete, an agent must provide:
-
-1. requirements implemented;
-2. requirements deferred;
-3. files changed;
-4. migrations created, if any;
-5. automated tests added/updated;
-6. Docker/manual checks run;
-7. known limitations;
-8. screenshots or API examples if UI/API changed;
-9. confirmation that LedgerOS accounting invariants were not bypassed.
