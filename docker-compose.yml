@@ -1,0 +1,48 @@
+services:
+  propertyledger-db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${DATABASE_NAME:-propertyledger}
+      POSTGRES_USER: ${DATABASE_USER:-propertyledger}
+      POSTGRES_PASSWORD: ${DATABASE_PASSWORD:-propertyledger}
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U ${DATABASE_USER:-propertyledger} -d ${DATABASE_NAME:-propertyledger}",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    volumes:
+      - propertyledger_postgres_data:/var/lib/postgresql/data
+
+  propertyledger-web:
+    build: .
+    command: python manage.py runserver 0.0.0.0:8000
+    environment:
+      DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:-propertyledger-dev-secret-key}
+      DJANGO_DEBUG: ${DJANGO_DEBUG:-1}
+      DJANGO_ALLOWED_HOSTS: ${DJANGO_ALLOWED_HOSTS:-localhost,127.0.0.1,0.0.0.0}
+      DATABASE_ENGINE: ${DATABASE_ENGINE:-django.db.backends.postgresql}
+      DATABASE_NAME: ${DATABASE_NAME:-propertyledger}
+      DATABASE_USER: ${DATABASE_USER:-propertyledger}
+      DATABASE_PASSWORD: ${DATABASE_PASSWORD:-propertyledger}
+      DATABASE_HOST: ${DATABASE_HOST:-propertyledger-db}
+      DATABASE_PORT: ${DATABASE_PORT:-5432}
+      LEDGEROS_BASE_URL: ${LEDGEROS_BASE_URL:-}
+      LEDGEROS_CLIENT_ID: ${LEDGEROS_CLIENT_ID:-}
+      LEDGEROS_HMAC_SECRET: ${LEDGEROS_HMAC_SECRET:-}
+      LEDGEROS_API_KEY: ${LEDGEROS_API_KEY:-}
+      LEDGEROS_HEALTH_PATH: ${LEDGEROS_HEALTH_PATH:-/health/}
+      LEDGEROS_TIMEOUT_SECONDS: ${LEDGEROS_TIMEOUT_SECONDS:-5}
+    volumes:
+      - .:/app
+    ports:
+      - "8000:8000"
+    depends_on:
+      propertyledger-db:
+        condition: service_healthy
+
+volumes:
+  propertyledger_postgres_data:

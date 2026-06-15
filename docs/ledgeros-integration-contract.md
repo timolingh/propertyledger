@@ -56,8 +56,9 @@ The local health check is deterministic and verifies only the PropertyLedger app
 The LedgerOS health check is deterministic and:
 
 - calls the configured LedgerOS health endpoint;
+- defaults to `/api/v1/health/` for the real LedgerOS full-stack setup;
 - uses the configured timeout;
-- returns healthy only when the response matches the expected successful condition;
+- returns healthy only when the response is HTTP 200 with JSON payload `{"status":"ok"}` or `{"status":"healthy"}`;
 - reports any missing config, timeout, authentication failure, connection error, non-2xx response, or malformed payload as unhealthy.
 
 ## Signing and idempotency

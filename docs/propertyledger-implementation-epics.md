@@ -4,6 +4,8 @@
 
 This is a review draft. It translates the PRD into buildable implementation epics for AI agents. Each epic must follow LedgerOS implementation discipline: trace requirements, state assumptions, avoid silent scope expansion, preserve accounting invariants, and provide automated and manual checks.
 
+Before starting Epic 2 or later, read [`docs/epic-1-lessons-learned.md`](/Users/tim/projects/propertyledger/docs/epic-1-lessons-learned.md).
+
 ## Implementation principles
 
 1. Build the PropertyLedger app as a separate application with its own domain database.
@@ -62,7 +64,7 @@ Required environment variables:
 - `LEDGEROS_CLIENT_ID`
 - `LEDGEROS_HMAC_SECRET`
 - `LEDGEROS_API_KEY`, optional
-- `LEDGEROS_HEALTH_PATH`, default `/health/`
+- `LEDGEROS_HEALTH_PATH`, default `/api/v1/health/` for the real full-stack setup
 - `LEDGEROS_TIMEOUT_SECONDS`, default `5`
 
 ### Health checks
@@ -71,7 +73,7 @@ PropertyLedger must expose a local health check and a LedgerOS connectivity chec
 
 Local health check confirms the PropertyLedger app and database are reachable.
 
-LedgerOS health check calls the configured LedgerOS health endpoint and reports healthy only when LedgerOS returns HTTP 200 within the configured timeout.
+LedgerOS health check calls the configured LedgerOS health endpoint, defaulting to `/api/v1/health/` for the full-stack setup, and reports healthy only when LedgerOS returns HTTP 200 within the configured timeout with a JSON payload containing `{"status": "ok"}` or `{"status": "healthy"}`.
 
 Missing configuration, timeout, connection error, authentication failure, non-2xx response, malformed response, or unexpected payload must be reported as unhealthy.
 
@@ -137,7 +139,7 @@ Create the base app, domain boundaries, LedgerOS connection layer, and safe sync
 - deterministic local and LedgerOS health checks;
 - `LedgerOSSyncRecord` model with locked schema and uniqueness constraints;
 - basic admin/setup screen;
-- Docker Compose local development.
+- Docker Compose local development with real LedgerOS as the primary stack.
 
 ### Out of scope
 
@@ -151,6 +153,7 @@ Create the base app, domain boundaries, LedgerOS connection layer, and safe sync
 ### Acceptance criteria
 
 - App boots locally with Docker Compose.
+- The default setup path starts PropertyLedger and a real LedgerOS instance together.
 - Admin can enter LedgerOS URL/client ID/secret references via environment-backed configuration.
 - Local health check is deterministic and reports the PropertyLedger app and database status.
 - LedgerOS health check is deterministic and reports healthy only for an expected successful LedgerOS health response.
@@ -163,6 +166,9 @@ Create the base app, domain boundaries, LedgerOS connection layer, and safe sync
 
 ```bash
 # Start local app stack with Docker Compose
+# Clone the LedgerOS repo into a sibling directory first.
+# Copy .env.fullstack.example to .env.
+# Run make up, make migrate, and make smoke.
 # Run backend checks/tests
 # Validate local health check
 # Validate LedgerOS connection using configured local LedgerOS instance
