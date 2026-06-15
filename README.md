@@ -6,12 +6,20 @@ It is intended to be built as a separate application from LedgerOS. PropertyLedg
 
 ## Current package status
 
-This starter package contains planning and agent-guidance documents only. It is not yet an application implementation.
+This repository now includes the Epic 1 Django foundation for PropertyLedger:
+
+- Django + Django REST Framework backend;
+- PostgreSQL-backed Docker Compose local stack;
+- LedgerOS adapter boundary;
+- deterministic local and LedgerOS health checks;
+- locked `LedgerOSSyncRecord` schema and uniqueness constraints;
+- admin/setup screen for LedgerOS connection settings.
 
 ## Included docs
 
 - `docs/propertyledger-prd.md` — product requirements document.
 - `docs/propertyledger-implementation-epics.md` — buildable implementation epics for AI agents.
+- `docs/ledgeros-integration-contract.md` — local Epic 1 LedgerOS integration contract.
 - `CLAUDE.md` — guidance for AI agents working on the PropertyLedger repo.
 
 ## Core architecture decision
@@ -57,7 +65,11 @@ Deferred or post-MVP:
 
 ## Next recommended step
 
-Start with `docs/propertyledger-implementation-epics.md`, Epic 1: application foundation and LedgerOS adapter.
+Start with Epic 1 runtime setup:
+
+1. Copy `.env.example` to `.env` and adjust local values.
+2. Run `docker compose up --build`.
+3. Open the setup screen at `http://localhost:8000/`.
 
 Before coding, an AI agent should read:
 

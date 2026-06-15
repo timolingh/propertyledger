@@ -71,7 +71,7 @@ PropertyLedger must expose a local health check and a LedgerOS connectivity chec
 
 Local health check confirms the PropertyLedger app and database are reachable.
 
-LedgerOS health check calls the configured LedgerOS health endpoint and reports healthy only when LedgerOS returns HTTP 200 within the configured timeout.
+LedgerOS health check calls the configured LedgerOS health endpoint and reports healthy only when LedgerOS returns HTTP 200 within the configured timeout with a JSON payload containing `{"status": "ok"}` or `{"status": "healthy"}`.
 
 Missing configuration, timeout, connection error, authentication failure, non-2xx response, malformed response, or unexpected payload must be reported as unhealthy.
 

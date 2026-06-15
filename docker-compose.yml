@@ -1,0 +1,41 @@
+services:
+  web:
+    build: .
+    command: python manage.py runserver 0.0.0.0:8000
+    env_file:
+      - .env.example
+    volumes:
+      - .:/app
+    ports:
+      - "8000:8000"
+    depends_on:
+      - db
+      - ledgeros-mock
+
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: propertyledger
+      POSTGRES_USER: propertyledger
+      POSTGRES_PASSWORD: propertyledger
+    expose:
+      - "5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  ledgeros-mock:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: python -m mock_ledgeros.server
+    env_file:
+      - .env.example
+    volumes:
+      - .:/app
+    expose:
+      - "8080"
+    ports:
+      - "8080:8080"
+
+volumes:
+  postgres_data:

@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>PropertyLedger Setup</title>
+    <style>
+      body { font-family: Arial, sans-serif; margin: 2rem; background: #f7f5f1; color: #1f1f1f; }
+      .card { background: #fff; border: 1px solid #d8d3c8; border-radius: 12px; padding: 1rem 1.25rem; margin-bottom: 1rem; }
+      label { display: block; margin-top: 0.75rem; font-weight: 600; }
+      input { width: 100%; max-width: 36rem; padding: 0.5rem; margin-top: 0.25rem; }
+      .status-ok { color: #1f6f43; }
+      .status-bad { color: #a33; }
+      button { margin-top: 1rem; padding: 0.65rem 1rem; }
+      code { background: #f1ede6; padding: 0.1rem 0.25rem; border-radius: 4px; }
+    </style>
+  </head>
+  <body>
+    <h1>PropertyLedger Epic 1 Setup</h1>
+    <div class="card">
+      <h2>Local Health</h2>
+      <p class="{% if local_health.healthy %}status-ok{% else %}status-bad{% endif %}">
+        {% if local_health.healthy %}Healthy{% else %}Unhealthy{% endif %}
+      </p>
+      <pre>{{ local_health.details|safe }}</pre>
+    </div>
+    <div class="card">
+      <h2>LedgerOS Health</h2>
+      <p class="{% if ledgeros_health.healthy %}status-ok{% else %}status-bad{% endif %}">
+        {% if ledgeros_health.healthy %}Healthy{% else %}Unhealthy{% endif %}
+      </p>
+      <pre>{{ ledgeros_health.details|safe }}</pre>
+    </div>
+    <div class="card">
+      <h2>LedgerOS Connection</h2>
+      <form method="post">
+        {% csrf_token %}
+        {{ settings_form.as_p }}
+        <button type="submit">Save Settings</button>
+      </form>
+      <p>Secrets stay in environment variables. Current secret env var: <code>{{ settings_obj.hmac_secret_env_var }}</code></p>
+    </div>
+  </body>
+</html>
