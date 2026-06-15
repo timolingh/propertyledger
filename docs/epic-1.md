@@ -31,6 +31,7 @@ Epic 1 does not include:
 - [`README.md`](/Users/tim/projects/propertyledger/README.md)
 - [`Makefile`](/Users/tim/projects/propertyledger/Makefile)
 - [`.env.example`](/Users/tim/projects/propertyledger/.env.example)
+- [`.env.fullstack.example`](/Users/tim/projects/propertyledger/.env.fullstack.example)
 - [`docker-compose.yml`](/Users/tim/projects/propertyledger/docker-compose.yml)
 - [`docker-compose.ledgeros.yml`](/Users/tim/projects/propertyledger/docker-compose.ledgeros.yml)
 - [`docs/propertyledger-implementation-epics.md`](/Users/tim/projects/propertyledger/docs/propertyledger-implementation-epics.md)
@@ -38,7 +39,7 @@ Epic 1 does not include:
 
 ## Required Environment Variables
 
-Copy `.env.example` to `.env` and set values for your local environment.
+Copy `.env.fullstack.example` to `.env` for the full-stack setup. Use `.env.example` only for PropertyLedger-only local work.
 
 Required:
 
@@ -67,6 +68,31 @@ Full-stack in-container defaults:
 - `LEDGEROS_BASE_URL=http://ledgeros-web:8000`
 - `LEDGEROS_HEALTH_PATH=/api/v1/health/`
 - `LEDGEROS_TIMEOUT_SECONDS=5`
+- `LEDGEROS_CLIENT_ID=propertyledger` if the sibling LedgerOS repo keeps that client ID
+- `LEDGEROS_HMAC_SECRET=change-me` as a development-only placeholder for the real secret value
+- `LEDGEROS_API_KEY=` unless the sibling LedgerOS repo requires bearer auth
+
+Copy-paste starter values:
+
+```dotenv
+DJANGO_SECRET_KEY=change-me
+DJANGO_DEBUG=true
+DJANGO_ALLOWED_HOSTS=localhost,127.0.0.1,0.0.0.0
+DATABASE_ENGINE=django.db.backends.postgresql
+DATABASE_NAME=propertyledger
+DATABASE_USER=propertyledger
+DATABASE_PASSWORD=propertyledger
+DATABASE_HOST=propertyledger-db
+DATABASE_PORT=5432
+LEDGEROS_BASE_URL=http://ledgeros-web:8000
+LEDGEROS_CLIENT_ID=propertyledger
+LEDGEROS_HMAC_SECRET=change-me
+LEDGEROS_API_KEY=
+LEDGEROS_HEALTH_PATH=/api/v1/health/
+LEDGEROS_TIMEOUT_SECONDS=5
+```
+
+If the sibling LedgerOS repo uses different API client values, change only `LEDGEROS_CLIENT_ID`, `LEDGEROS_HMAC_SECRET`, and `LEDGEROS_API_KEY` if needed.
 
 ## Start Up
 
@@ -74,7 +100,7 @@ Use Docker Compose only. The default Epic 1 path starts the real LedgerOS stack.
 
 1. Clone the LedgerOS repo in a sibling directory. The bundled compose file expects it at `../ledgeros_v2`.
 2. Clone the PropertyLedger repo.
-3. Copy `.env.example` to `.env`.
+3. If you want to customize the environment, copy `.env.fullstack.example` to `.env` and adjust the LedgerOS client settings there.
 4. Start the full stack:
 
 ```bash
@@ -96,6 +122,28 @@ make smoke
 The local setup screen will be available at:
 
 - `http://localhost:8000/`
+
+## Admin Access
+
+Create a superuser in each repo before using the admin screens:
+
+- PropertyLedger:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.ledgeros.yml exec propertyledger-web python manage.py createsuperuser
+```
+
+- LedgerOS:
+
+```bash
+cd ../ledgeros_v2
+docker compose exec web python manage.py createsuperuser
+```
+
+Admin URLs:
+
+- PropertyLedger admin: `http://localhost:8000/admin/`
+- LedgerOS admin: `http://localhost:8001/admin/`
 
 ## Runtime Endpoints
 

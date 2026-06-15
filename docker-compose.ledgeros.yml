@@ -2,6 +2,9 @@ services:
   propertyledger-web:
     environment:
       LEDGEROS_BASE_URL: http://ledgeros-web:8000
+      LEDGEROS_CLIENT_ID: propertyledger
+      LEDGEROS_HMAC_SECRET: change-me
+      LEDGEROS_API_KEY: ""
       LEDGEROS_HEALTH_PATH: /api/v1/health/
     depends_on:
       ledgeros-web:

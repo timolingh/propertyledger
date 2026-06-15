@@ -165,7 +165,7 @@ Create the base app, domain boundaries, LedgerOS connection layer, and safe sync
 ```bash
 # Start local app stack with Docker Compose
 # Clone the LedgerOS repo into a sibling directory first.
-# Copy .env.example to .env.
+# Copy .env.fullstack.example to .env.
 # Run make up, make migrate, and make smoke.
 # Run backend checks/tests
 # Validate local health check
