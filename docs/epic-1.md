@@ -28,19 +28,18 @@ Epic 1 does not include:
 
 ## Files To Know
 
-- [`README.md`](/Users/tim/projects/propertyledger/README.md)
-- [`Makefile`](/Users/tim/projects/propertyledger/Makefile)
-- [`.env.example`](/Users/tim/projects/propertyledger/.env.example)
-- [`.env.fullstack.example`](/Users/tim/projects/propertyledger/.env.fullstack.example)
-- [`docker-compose.yml`](/Users/tim/projects/propertyledger/docker-compose.yml)
-- [`docker-compose.ledgeros.yml`](/Users/tim/projects/propertyledger/docker-compose.ledgeros.yml)
-- [`docs/propertyledger-implementation-epics.md`](/Users/tim/projects/propertyledger/docs/propertyledger-implementation-epics.md)
-- [`docs/ledgeros-integration-contract.md`](/Users/tim/projects/propertyledger/docs/ledgeros-integration-contract.md)
-- [`docs/epic-1-lessons-learned.md`](/Users/tim/projects/propertyledger/docs/epic-1-lessons-learned.md)
+- [`README.md`](../README.md)
+- [`Makefile`](../Makefile)
+- [`.env.example`](../.env.example)
+- [`docker-compose.yml`](../docker-compose.yml)
+- [`docker-compose.ledgeros.yml`](../docker-compose.ledgeros.yml)
+- [`docs/propertyledger-implementation-epics.md`](../docs/propertyledger-implementation-epics.md)
+- [`docs/ledgeros-integration-contract.md`](../docs/ledgeros-integration-contract.md)
+- [`docs/epic-1-lessons-learned.md`](../docs/epic-1-lessons-learned.md)
 
 ## Required Environment Variables
 
-Copy `.env.fullstack.example` to `.env` for the full-stack setup. Use `.env.example` only for PropertyLedger-only local work.
+Copy `.env.example` to `.env` for the full-stack setup.
 
 Required:
 
@@ -101,7 +100,7 @@ Use Docker Compose only. The default Epic 1 path starts the real LedgerOS stack.
 
 1. Clone the LedgerOS repo in a sibling directory. The bundled compose file expects it at `../ledgeros_v2`.
 2. Clone the PropertyLedger repo.
-3. If you want to customize the environment, copy `.env.fullstack.example` to `.env` and adjust the LedgerOS client settings there.
+3. If you want to customize the environment, copy `.env.example` to `.env` and adjust the LedgerOS client settings there.
 4. Start the full stack:
 
 ```bash
@@ -234,7 +233,7 @@ Uniqueness constraints:
 
 The local LedgerOS integration assumptions for Epic 1 are documented in:
 
-- [`docs/ledgeros-integration-contract.md`](/Users/tim/projects/propertyledger/docs/ledgeros-integration-contract.md)
+- [`docs/ledgeros-integration-contract.md`](../docs/ledgeros-integration-contract.md)
 
 ## Suggested First Check
 

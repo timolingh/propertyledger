@@ -31,29 +31,28 @@ Epic 2 does not include:
 
 ## Files To Know
 
-- [`README.md`](/Users/tim/projects/propertyledger/README.md)
-- [`Makefile`](/Users/tim/projects/propertyledger/Makefile)
-- [`.env.example`](/Users/tim/projects/propertyledger/.env.example)
-- [`.env.fullstack.example`](/Users/tim/projects/propertyledger/.env.fullstack.example)
-- [`docker-compose.yml`](/Users/tim/projects/propertyledger/docker-compose.yml)
-- [`docker-compose.ledgeros.yml`](/Users/tim/projects/propertyledger/docker-compose.ledgeros.yml)
-- [`docs/propertyledger-prd.md`](/Users/tim/projects/propertyledger/docs/propertyledger-prd.md)
-- [`docs/propertyledger-implementation-epics.md`](/Users/tim/projects/propertyledger/docs/propertyledger-implementation-epics.md)
-- [`docs/epic-1.md`](/Users/tim/projects/propertyledger/docs/epic-1.md)
-- [`docs/epic-1-lessons-learned.md`](/Users/tim/projects/propertyledger/docs/epic-1-lessons-learned.md)
-- [`ledgeros/models.py`](/Users/tim/projects/propertyledger/ledgeros/models.py)
-- [`ledgeros/forms.py`](/Users/tim/projects/propertyledger/ledgeros/forms.py)
-- [`ledgeros/views.py`](/Users/tim/projects/propertyledger/ledgeros/views.py)
-- [`ledgeros/urls.py`](/Users/tim/projects/propertyledger/ledgeros/urls.py)
-- [`ledgeros/templates/ledgeros/base.html`](/Users/tim/projects/propertyledger/ledgeros/templates/ledgeros/base.html)
-- [`ledgeros/templates/ledgeros/setup.html`](/Users/tim/projects/propertyledger/ledgeros/templates/ledgeros/setup.html)
-- [`ledgeros/templates/ledgeros/crud_list.html`](/Users/tim/projects/propertyledger/ledgeros/templates/ledgeros/crud_list.html)
-- [`ledgeros/templates/ledgeros/crud_form.html`](/Users/tim/projects/propertyledger/ledgeros/templates/ledgeros/crud_form.html)
-- [`ledgeros/templates/ledgeros/crud_confirm_delete.html`](/Users/tim/projects/propertyledger/ledgeros/templates/ledgeros/crud_confirm_delete.html)
+- [`README.md`](../README.md)
+- [`Makefile`](../Makefile)
+- [`.env.example`](../.env.example)
+- [`docker-compose.yml`](../docker-compose.yml)
+- [`docker-compose.ledgeros.yml`](../docker-compose.ledgeros.yml)
+- [`docs/propertyledger-prd.md`](../docs/propertyledger-prd.md)
+- [`docs/propertyledger-implementation-epics.md`](../docs/propertyledger-implementation-epics.md)
+- [`docs/epic-1.md`](../docs/epic-1.md)
+- [`docs/epic-1-lessons-learned.md`](../docs/epic-1-lessons-learned.md)
+- [`ledgeros/models.py`](../ledgeros/models.py)
+- [`ledgeros/forms.py`](../ledgeros/forms.py)
+- [`ledgeros/views.py`](../ledgeros/views.py)
+- [`ledgeros/urls.py`](../ledgeros/urls.py)
+- [`ledgeros/templates/ledgeros/base.html`](../ledgeros/templates/ledgeros/base.html)
+- [`ledgeros/templates/ledgeros/setup.html`](../ledgeros/templates/ledgeros/setup.html)
+- [`ledgeros/templates/ledgeros/crud_list.html`](../ledgeros/templates/ledgeros/crud_list.html)
+- [`ledgeros/templates/ledgeros/crud_form.html`](../ledgeros/templates/ledgeros/crud_form.html)
+- [`ledgeros/templates/ledgeros/crud_confirm_delete.html`](../ledgeros/templates/ledgeros/crud_confirm_delete.html)
 
 ## Required Environment Variables
 
-Copy `.env.fullstack.example` to `.env` for the real LedgerOS full-stack setup. Use `.env.example` only for PropertyLedger-only work.
+Copy `.env.example` to `.env` for the real LedgerOS full-stack setup.
 
 Required:
 
@@ -91,7 +90,7 @@ Use Docker Compose only. The default Epic 2 path starts PropertyLedger and real 
 
 1. Clone the LedgerOS repo in a sibling directory. The bundled compose file expects it at `../ledgeros_v2`.
 2. Clone the PropertyLedger repo.
-3. Copy `.env.fullstack.example` to `.env`.
+3. Copy `.env.example` to `.env`.
 4. Run the stack:
 
 ```bash
