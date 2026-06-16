@@ -121,8 +121,8 @@ Start with the Epic 1 runtime setup:
 1. Clone the LedgerOS repo in a sibling directory. The bundled compose file expects it at `../ledgeros_v2`.
 2. Clone the PropertyLedger repo.
 3. If you want to customize the environment, copy `.env.fullstack.example` to `.env` and edit the LedgerOS client values there.
-4. Run `make up-full`.
-5. Run `make migrate-full`.
+4. Run `make up`.
+5. Run `make migrate`.
 6. Create the admin users:
    - PropertyLedger:
      ```bash
@@ -133,7 +133,7 @@ Start with the Epic 1 runtime setup:
      cd ../ledgeros_v2
      docker compose exec web python manage.py createsuperuser
      ```
-7. Run `make smoke-full`.
+7. Run `make smoke`.
 8. Open the admin screens:
    - PropertyLedger: `http://localhost:8000/admin/`
    - LedgerOS: `http://localhost:8001/admin/`

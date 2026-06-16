@@ -95,19 +95,19 @@ Use Docker Compose only. The default Epic 2 path starts PropertyLedger and real 
 4. Run the stack:
 
 ```bash
-make up-full
+make up
 ```
 
 5. Run migrations:
 
 ```bash
-make migrate-full
+make migrate
 ```
 
 6. Run the smoke checks:
 
 ```bash
-make smoke-full
+make smoke
 ```
 
 The main app UI will be available at:
@@ -189,10 +189,10 @@ make check
 ## Useful Commands
 
 - `make help` - show available Make targets
-- `make up-full` - start PropertyLedger plus real LedgerOS
-- `make down-full` - stop the stack
-- `make migrate-full` - run migrations for PropertyLedger and LedgerOS
-- `make smoke-full` - verify the full-stack health checks
+- `make up` - start PropertyLedger plus real LedgerOS
+- `make down` - stop the stack
+- `make migrate` - run migrations for PropertyLedger and LedgerOS
+- `make smoke` - verify the full-stack health checks
 - `make shell` - open a Django shell inside the PropertyLedger web container
 
 ## Setup Rules
@@ -254,4 +254,3 @@ After starting the stack, open the app and confirm:
 3. The setup page shows setup status and account mapping status.
 4. The property, unit, owner, tenant, and lease pages load.
 5. You can create and archive a property without deleting its history.
-
