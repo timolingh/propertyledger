@@ -135,6 +135,15 @@ class LedgerOSSetupViewTests(TestCase):
         self.assertEqual(settings_obj.base_url, "http://ledgeros.example")
         self.assertEqual(settings_obj.client_id, "propertyledger")
 
+    def test_setup_view_uses_friendly_validation_labels(self):
+        response = self.client.get(reverse("ledgeros-setup"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Required account mappings")
+        self.assertContains(response, "LedgerOS health")
+        self.assertNotContains(response, "required_account_mappings:")
+        self.assertNotContains(response, "ledgeros_health:")
+
 
 class PropertyLedgerDomainModelTests(TestCase):
     def test_lease_defaults_rent_effective_date_to_lease_start(self):

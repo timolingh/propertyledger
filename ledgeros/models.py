@@ -86,6 +86,14 @@ class PropertyLedgerSetup(SingletonModel):
         "interest_expense",
         "principal_payment_mapping",
     )
+    SETUP_ERROR_LABELS = {
+        "ledgeros_health": "LedgerOS health",
+        "ledgeros_entity": "LedgerOS entity",
+        "accounting_period": "Accounting period",
+        "required_account_mappings": "Required account mappings",
+        "optional_account_mappings": "Optional account mappings",
+        "setup_smoke": "Setup smoke",
+    }
 
     class Meta:
         verbose_name = "PropertyLedger setup"
@@ -164,6 +172,18 @@ class PropertyLedgerSetup(SingletonModel):
             ]
 
         return errors
+
+    def setup_completion_error_groups(self) -> list[dict[str, list[str] | str]]:
+        errors = self.setup_completion_errors()
+        return [
+            {
+                "label": self.SETUP_ERROR_LABELS.get(
+                    field, field.replace("_", " ").title()
+                ),
+                "messages": messages,
+            }
+            for field, messages in errors.items()
+        ]
 
     def clean(self):
         super().clean()

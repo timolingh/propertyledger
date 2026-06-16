@@ -37,7 +37,7 @@ class LedgerOSAppContextMixin:
         setup_obj = PropertyLedgerSetup.load()
         return {
             "setup_obj": setup_obj,
-            "setup_completion_errors": setup_obj.setup_completion_errors(),
+            "setup_completion_error_groups": setup_obj.setup_completion_error_groups(),
             "setup_is_complete": (
                 setup_obj.setup_status == PropertyLedgerSetup.Status.COMPLETE
             ),

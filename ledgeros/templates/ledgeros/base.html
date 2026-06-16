@@ -133,10 +133,15 @@
           <strong>Setup incomplete</strong>
           <div class="muted">Status: {{ setup_obj.get_setup_status_display }}</div>
           <ul>
-            {% for field, messages in setup_completion_errors.items %}
-              {% for message in messages %}
-                <li>{{ field }}: {{ message }}</li>
-              {% endfor %}
+            {% for error_group in setup_completion_error_groups %}
+              <li>
+                <strong>{{ error_group.label }}</strong>
+                <ul>
+                  {% for message in error_group.messages %}
+                    <li>{{ message }}</li>
+                  {% endfor %}
+                </ul>
+              </li>
             {% endfor %}
           </ul>
         </div>
