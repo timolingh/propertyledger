@@ -1,4 +1,4 @@
-.PHONY: help up up-full down down-full migrate migrate-full smoke smoke-full build test check shell
+.PHONY: help up up-full down down-full reset reset-full migrate migrate-full smoke smoke-full build test check shell
 
 BASE_COMPOSE = docker compose -f docker-compose.yml
 FULLSTACK_COMPOSE = docker compose -f docker-compose.yml -f docker-compose.ledgeros.yml
@@ -8,6 +8,7 @@ help:
 		'PropertyLedger container workflow:' \
 		'  make up         - start PropertyLedger plus real LedgerOS' \
 		'  make down       - stop the PropertyLedger + LedgerOS stack' \
+		'  make reset      - stop the PropertyLedger + LedgerOS stack and remove volumes' \
 		'  make migrate    - run migrations for PropertyLedger and LedgerOS' \
 		'  make smoke      - verify the full-stack health checks' \
 		'  make test       - run the Django test suite in Docker only' \
@@ -23,6 +24,11 @@ down:
 	$(FULLSTACK_COMPOSE) down --remove-orphans
 
 down-full: down
+
+reset:
+	$(FULLSTACK_COMPOSE) down -v --remove-orphans
+
+reset-full: reset
 
 build:
 	$(BASE_COMPOSE) build
