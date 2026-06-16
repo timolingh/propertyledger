@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+from decimal import Decimal
+
+from django.core.exceptions import ValidationError
 from django.db import models
 
 
@@ -24,7 +27,7 @@ class LedgerOSConnectionSettings(SingletonModel):
         max_length=255, default="LEDGEROS_HMAC_SECRET"
     )
     api_key_env_var = models.CharField(max_length=255, blank=True, default="")
-    health_path = models.CharField(max_length=255, default="/health/")
+    health_path = models.CharField(max_length=255, default="/api/v1/health/")
     timeout_seconds = models.PositiveSmallIntegerField(default=5)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -34,6 +37,382 @@ class LedgerOSConnectionSettings(SingletonModel):
 
     def __str__(self) -> str:
         return "LedgerOS connection settings"
+
+
+class PropertyLedgerSetup(SingletonModel):
+    class Status(models.TextChoices):
+        NOT_STARTED = "not_started", "Not started"
+        IN_PROGRESS = "in_progress", "In progress"
+        BLOCKED = "blocked", "Blocked"
+        VALIDATED = "validated", "Validated"
+        COMPLETE = "complete", "Complete"
+
+    setup_status = models.CharField(
+        max_length=20, choices=Status.choices, default=Status.NOT_STARTED
+    )
+    ledgeros_entity_id = models.CharField(max_length=255, blank=True, default="")
+    ledgeros_entity_name = models.CharField(max_length=255, blank=True, default="")
+    ledgeros_accounting_period_id = models.CharField(
+        max_length=255, blank=True, default=""
+    )
+    ledgeros_accounting_period_name = models.CharField(
+        max_length=255, blank=True, default=""
+    )
+    last_ledgeros_health_check_at = models.DateTimeField(blank=True, null=True)
+    last_ledgeros_health_check_healthy = models.BooleanField(default=False)
+    last_ledgeros_health_check_payload = models.JSONField(blank=True, null=True)
+    last_setup_smoke_at = models.DateTimeField(blank=True, null=True)
+    last_setup_smoke_healthy = models.BooleanField(default=False)
+    last_setup_smoke_payload = models.JSONField(blank=True, null=True)
+    validated_at = models.DateTimeField(blank=True, null=True)
+    completed_at = models.DateTimeField(blank=True, null=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    REQUIRED_ACCOUNT_MAPPING_KEYS = (
+        "operating_bank_account",
+        "undeposited_funds",
+        "accounts_receivable",
+        "accounts_payable",
+        "rental_income",
+        "repairs_and_maintenance_expense",
+        "tenant_security_deposits_liability",
+        "owner_contributions_equity",
+        "owner_distributions_equity",
+    )
+    OPTIONAL_ACCOUNT_MAPPING_KEYS = (
+        "credit_card_liability",
+        "mortgage_or_loan_liability",
+        "interest_expense",
+        "principal_payment_mapping",
+    )
+    SETUP_ERROR_LABELS = {
+        "ledgeros_health": "LedgerOS health",
+        "ledgeros_entity": "LedgerOS entity",
+        "accounting_period": "Accounting period",
+        "required_account_mappings": "Required account mappings",
+        "optional_account_mappings": "Optional account mappings",
+        "setup_smoke": "Setup smoke",
+    }
+
+    class Meta:
+        verbose_name = "PropertyLedger setup"
+
+    def __str__(self) -> str:
+        return "PropertyLedger setup"
+
+    @property
+    def has_selected_ledgeros_entity(self) -> bool:
+        return bool(self.ledgeros_entity_id and self.ledgeros_entity_name)
+
+    @property
+    def has_selected_accounting_period(self) -> bool:
+        return bool(
+            self.ledgeros_accounting_period_id
+            and self.ledgeros_accounting_period_name
+        )
+
+    def _mapping_by_key(self) -> dict[str, "PropertyLedgerAccountMapping"]:
+        return {
+            mapping.mapping_key: mapping for mapping in self.account_mappings.all()
+        }
+
+    def missing_required_account_mappings(self) -> list[str]:
+        mappings = self._mapping_by_key()
+        missing = []
+        for mapping_key in self.REQUIRED_ACCOUNT_MAPPING_KEYS:
+            mapping = mappings.get(mapping_key)
+            if mapping is None or not mapping.is_valid_for_completion:
+                missing.append(mapping_key)
+        return missing
+
+    def invalid_enabled_optional_account_mappings(self) -> list[str]:
+        mappings = self._mapping_by_key()
+        invalid = []
+        for mapping_key in self.OPTIONAL_ACCOUNT_MAPPING_KEYS:
+            mapping = mappings.get(mapping_key)
+            if (
+                mapping is not None
+                and mapping.is_enabled
+                and not mapping.is_valid_for_completion
+            ):
+                invalid.append(mapping_key)
+        return invalid
+
+    def setup_completion_errors(self) -> dict[str, list[str]]:
+        errors: dict[str, list[str]] = {}
+        if not self.last_ledgeros_health_check_healthy:
+            errors["ledgeros_health"] = [
+                "LedgerOS health must succeed before setup can be complete."
+            ]
+        if not self.has_selected_ledgeros_entity:
+            errors["ledgeros_entity"] = ["A LedgerOS entity must be selected."]
+        if not self.has_selected_accounting_period:
+            errors["accounting_period"] = [
+                "An open accounting period must be selected."
+            ]
+
+        missing_required = self.missing_required_account_mappings()
+        if missing_required:
+            errors["required_account_mappings"] = [
+                f"Missing or invalid mapping: {mapping_key}"
+                for mapping_key in missing_required
+            ]
+
+        invalid_optional = self.invalid_enabled_optional_account_mappings()
+        if invalid_optional:
+            errors["optional_account_mappings"] = [
+                f"Missing or invalid enabled optional mapping: {mapping_key}"
+                for mapping_key in invalid_optional
+            ]
+
+        if not self.last_setup_smoke_healthy:
+            errors["setup_smoke"] = [
+                "Setup smoke validation must succeed before setup can be complete."
+            ]
+
+        return errors
+
+    def setup_completion_error_groups(self) -> list[dict[str, list[str] | str]]:
+        errors = self.setup_completion_errors()
+        return [
+            {
+                "label": self.SETUP_ERROR_LABELS.get(
+                    field, field.replace("_", " ").title()
+                ),
+                "messages": messages,
+            }
+            for field, messages in errors.items()
+        ]
+
+    def clean(self):
+        super().clean()
+        if self.setup_status in {
+            self.Status.VALIDATED,
+            self.Status.COMPLETE,
+        }:
+            errors = self.setup_completion_errors()
+            if self.setup_status == self.Status.VALIDATED:
+                errors.pop("setup_smoke", None)
+            if errors:
+                raise ValidationError(errors)
+
+
+class PropertyLedgerAccountMapping(models.Model):
+    class MappingKey(models.TextChoices):
+        OPERATING_BANK_ACCOUNT = "operating_bank_account", "Operating bank account"
+        UNDEPOSITED_FUNDS = "undeposited_funds", "Undeposited funds"
+        ACCOUNTS_RECEIVABLE = "accounts_receivable", "Accounts receivable"
+        ACCOUNTS_PAYABLE = "accounts_payable", "Accounts payable"
+        RENTAL_INCOME = "rental_income", "Rental income"
+        REPAIRS_AND_MAINTENANCE_EXPENSE = (
+            "repairs_and_maintenance_expense",
+            "Repairs and maintenance expense",
+        )
+        TENANT_SECURITY_DEPOSITS_LIABILITY = (
+            "tenant_security_deposits_liability",
+            "Tenant security deposits liability",
+        )
+        OWNER_CONTRIBUTIONS_EQUITY = (
+            "owner_contributions_equity",
+            "Owner contributions equity",
+        )
+        OWNER_DISTRIBUTIONS_EQUITY = (
+            "owner_distributions_equity",
+            "Owner distributions equity",
+        )
+        CREDIT_CARD_LIABILITY = "credit_card_liability", "Credit card liability"
+        MORTGAGE_OR_LOAN_LIABILITY = (
+            "mortgage_or_loan_liability",
+            "Mortgage or loan liability",
+        )
+        INTEREST_EXPENSE = "interest_expense", "Interest expense"
+        PRINCIPAL_PAYMENT_MAPPING = (
+            "principal_payment_mapping",
+            "Principal payment mapping",
+        )
+
+    ACCOUNT_TYPE_HINTS: dict[str, set[str]] = {
+        MappingKey.OPERATING_BANK_ACCOUNT: {"asset", "cash", "bank"},
+        MappingKey.UNDEPOSITED_FUNDS: {"asset", "clearing"},
+        MappingKey.ACCOUNTS_RECEIVABLE: {"asset", "receivable", "ar"},
+        MappingKey.ACCOUNTS_PAYABLE: {"liability", "payable", "ap"},
+        MappingKey.RENTAL_INCOME: {"revenue", "income"},
+        MappingKey.REPAIRS_AND_MAINTENANCE_EXPENSE: {"expense"},
+        MappingKey.TENANT_SECURITY_DEPOSITS_LIABILITY: {"liability"},
+        MappingKey.OWNER_CONTRIBUTIONS_EQUITY: {"equity"},
+        MappingKey.OWNER_DISTRIBUTIONS_EQUITY: {"equity"},
+        MappingKey.CREDIT_CARD_LIABILITY: {"liability"},
+        MappingKey.MORTGAGE_OR_LOAN_LIABILITY: {"liability"},
+        MappingKey.INTEREST_EXPENSE: {"expense"},
+        MappingKey.PRINCIPAL_PAYMENT_MAPPING: {"liability"},
+    }
+
+    setup = models.ForeignKey(
+        PropertyLedgerSetup,
+        on_delete=models.CASCADE,
+        related_name="account_mappings",
+    )
+    mapping_key = models.CharField(max_length=64, choices=MappingKey.choices)
+    ledgeros_account_id = models.CharField(max_length=255, blank=True, default="")
+    ledgeros_account_name = models.CharField(max_length=255, blank=True, default="")
+    ledgeros_account_type = models.CharField(max_length=64, blank=True, default="")
+    is_required = models.BooleanField(default=True)
+    is_enabled = models.BooleanField(default=True)
+    notes = models.TextField(blank=True, default="")
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = [("setup", "mapping_key")]
+        ordering = ["mapping_key", "id"]
+
+    def __str__(self) -> str:
+        return self.get_mapping_key_display()
+
+    @property
+    def is_valid_for_completion(self) -> bool:
+        if not self.ledgeros_account_id or not self.ledgeros_account_type:
+            return False
+
+        allowed_types = self.ACCOUNT_TYPE_HINTS.get(self.mapping_key)
+        if not allowed_types:
+            return True
+
+        account_type = self.ledgeros_account_type.strip().lower()
+        return account_type in allowed_types
+
+
+class TimestampedModel(models.Model):
+    class Meta:
+        abstract = True
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+
+class Owner(TimestampedModel):
+    name = models.CharField(max_length=255)
+    email = models.EmailField(blank=True, default="")
+    phone = models.CharField(max_length=50, blank=True, default="")
+    is_active = models.BooleanField(default=True)
+
+    class Meta:
+        ordering = ["name", "id"]
+
+    def __str__(self) -> str:
+        return self.name
+
+
+class Property(TimestampedModel):
+    class Status(models.TextChoices):
+        ACTIVE = "active", "Active"
+        ARCHIVED = "archived", "Archived"
+
+    name = models.CharField(max_length=255)
+    primary_owner = models.ForeignKey(
+        Owner,
+        on_delete=models.PROTECT,
+        related_name="primary_properties",
+    )
+    status = models.CharField(
+        max_length=20, choices=Status.choices, default=Status.ACTIVE
+    )
+    notes = models.TextField(blank=True, default="")
+
+    class Meta:
+        ordering = ["name", "id"]
+        verbose_name_plural = "Properties"
+
+    def __str__(self) -> str:
+        return self.name
+
+
+class Unit(TimestampedModel):
+    class Status(models.TextChoices):
+        ACTIVE = "active", "Active"
+        ARCHIVED = "archived", "Archived"
+
+    property = models.ForeignKey(
+        Property,
+        on_delete=models.CASCADE,
+        related_name="units",
+    )
+    name = models.CharField(max_length=255)
+    status = models.CharField(
+        max_length=20, choices=Status.choices, default=Status.ACTIVE
+    )
+    notes = models.TextField(blank=True, default="")
+
+    class Meta:
+        ordering = ["property__name", "name", "id"]
+        unique_together = [("property", "name")]
+
+    def __str__(self) -> str:
+        return f"{self.property.name} / {self.name}"
+
+
+class Tenant(TimestampedModel):
+    name = models.CharField(max_length=255)
+    email = models.EmailField(blank=True, default="")
+    phone = models.CharField(max_length=50, blank=True, default="")
+    is_active = models.BooleanField(default=True)
+    notes = models.TextField(blank=True, default="")
+
+    class Meta:
+        ordering = ["name", "id"]
+
+    def __str__(self) -> str:
+        return self.name
+
+
+class Lease(TimestampedModel):
+    class Status(models.TextChoices):
+        DRAFT = "draft", "Draft"
+        ACTIVE = "active", "Active"
+        ENDED = "ended", "Ended"
+        CANCELLED = "cancelled", "Cancelled"
+
+    unit = models.ForeignKey(
+        Unit,
+        on_delete=models.CASCADE,
+        related_name="leases",
+    )
+    tenant = models.ForeignKey(
+        Tenant,
+        on_delete=models.PROTECT,
+        related_name="leases",
+    )
+    lease_start_date = models.DateField()
+    lease_end_date = models.DateField(blank=True, null=True)
+    rent_effective_date = models.DateField(blank=True, null=True)
+    base_monthly_rent_amount = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        default=Decimal("0.00"),
+    )
+    base_monthly_rent_currency = models.CharField(max_length=3, default="USD")
+    deposit_required_amount = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        default=Decimal("0.00"),
+    )
+    deposit_required_currency = models.CharField(max_length=3, default="USD")
+    status = models.CharField(
+        max_length=20, choices=Status.choices, default=Status.DRAFT
+    )
+    notes = models.TextField(blank=True, default="")
+
+    class Meta:
+        ordering = ["-lease_start_date", "-id"]
+
+    def save(self, *args, **kwargs):  # type: ignore[override]
+        if self.rent_effective_date is None:
+            self.rent_effective_date = self.lease_start_date
+        super().save(*args, **kwargs)
+
+    def __str__(self) -> str:
+        return f"{self.unit} - {self.tenant}"
 
 
 class LedgerOSSyncRecord(models.Model):

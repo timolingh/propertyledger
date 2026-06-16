@@ -1,0 +1,15 @@
+{% extends "ledgeros/base.html" %}
+
+{% block title %}{{ page_title }} | PropertyLedger{% endblock %}
+
+{% block content %}
+  <div class="card">
+    <h1>{{ page_title }}</h1>
+    <p>This action will archive <strong>{{ object }}</strong>.</p>
+    <form method="post">
+      {% csrf_token %}
+      <button type="submit" class="button primary">Archive</button>
+      <a class="button" href="{{ list_url }}">Cancel</a>
+    </form>
+  </div>
+{% endblock %}

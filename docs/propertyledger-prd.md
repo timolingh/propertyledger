@@ -224,10 +224,13 @@ Required setup steps:
 4. Import or confirm chart of accounts.
 5. Create or select the first accounting period.
 6. Configure account mappings.
-7. Create default bank accounts or map existing LedgerOS bank accounts.
+7. Create or map required bank and credit card accounts.
 8. Configure optional debt-service account mappings.
 9. Configure optional credit-card liability account mappings.
 10. Run a smoke-test transaction.
+11. Persist setup status.
+
+Setup status and accounting sync status are separate. Setup status is owned by the PropertyLedger setup model and is shown in setup/admin surfaces. Accounting sync status is owned by each `LedgerOSSyncRecord` and is shown only on event-specific and diagnostics surfaces.
 
 Required real estate account mappings:
 
@@ -251,6 +254,27 @@ Setup/onboarding must include optional real estate financing and credit-card acc
 
 Credit-card MVP support includes credit-card liability accounts, property/unit expense attribution, and credit-card payoff workflows. Automated card-feed ingestion and card statement reconciliation are deferred.
 
+Required real estate setup mappings for Epic 2:
+
+- operating bank account;
+- undeposited funds;
+- accounts receivable;
+- accounts payable;
+- rental income;
+- repairs and maintenance expense;
+- tenant security deposits liability;
+- owner contributions equity;
+- owner distributions equity.
+
+Required if enabled:
+
+- credit-card liability;
+- mortgage or loan liability;
+- interest expense;
+- principal payment mapping.
+
+Setup cannot be marked complete if required mappings are missing, inactive, or mapped to invalid LedgerOS account types.
+
 ### 9.2 Properties, units, and owners
 
 The app must support:
@@ -273,11 +297,13 @@ The app must support:
 - lease records;
 - lease start/end dates;
 - unit assignment;
-- base monthly rent amount;
-- security deposit required;
+- base monthly rent amount, monthly cadence only, currency-aware USD decimal;
+- security deposit required amount, currency-aware USD decimal;
 - lease status: draft, active, ended, cancelled;
 - tenant balance visibility;
 - tenant ledger view.
+
+The rent effective date defaults to the lease start date. Complex rent schedules are deferred.
 
 ### 9.4 Rent and tenant charges
 

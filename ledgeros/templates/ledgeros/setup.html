@@ -1,43 +1,74 @@
-<!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="utf-8">
-    <title>PropertyLedger Setup</title>
-    <style>
-      body { font-family: Arial, sans-serif; margin: 2rem; background: #f7f5f1; color: #1f1f1f; }
-      .card { background: #fff; border: 1px solid #d8d3c8; border-radius: 12px; padding: 1rem 1.25rem; margin-bottom: 1rem; }
-      label { display: block; margin-top: 0.75rem; font-weight: 600; }
-      input { width: 100%; max-width: 36rem; padding: 0.5rem; margin-top: 0.25rem; }
-      .status-ok { color: #1f6f43; }
-      .status-bad { color: #a33; }
-      button { margin-top: 1rem; padding: 0.65rem 1rem; }
-      code { background: #f1ede6; padding: 0.1rem 0.25rem; border-radius: 4px; }
-    </style>
-  </head>
-  <body>
-    <h1>PropertyLedger Epic 1 Setup</h1>
-    <div class="card">
-      <h2>Local Health</h2>
-      <p class="{% if local_health.healthy %}status-ok{% else %}status-bad{% endif %}">
-        {% if local_health.healthy %}Healthy{% else %}Unhealthy{% endif %}
-      </p>
-      <pre>{{ local_health.details|safe }}</pre>
-    </div>
-    <div class="card">
-      <h2>LedgerOS Health</h2>
-      <p class="{% if ledgeros_health.healthy %}status-ok{% else %}status-bad{% endif %}">
-        {% if ledgeros_health.healthy %}Healthy{% else %}Unhealthy{% endif %}
-      </p>
-      <pre>{{ ledgeros_health.details|safe }}</pre>
-    </div>
-    <div class="card">
-      <h2>LedgerOS Connection</h2>
-      <form method="post">
-        {% csrf_token %}
-        {{ settings_form.as_p }}
-        <button type="submit">Save Settings</button>
-      </form>
-      <p>Secrets stay in environment variables. Current secret env var: <code>{{ settings_obj.hmac_secret_env_var }}</code></p>
-    </div>
-  </body>
-</html>
+{% extends "ledgeros/base.html" %}
+
+{% block title %}PropertyLedger Setup{% endblock %}
+
+{% block content %}
+  <div class="card">
+    <h1>PropertyLedger Setup</h1>
+    <p class="{% if local_health.healthy %}status-ok{% else %}status-bad{% endif %}">
+      Local health: {% if local_health.healthy %}Healthy{% else %}Unhealthy{% endif %}
+    </p>
+    <pre>{{ local_health.details|safe }}</pre>
+  </div>
+  <div class="card">
+    <h2>Recommended Order</h2>
+    <ol>
+      {% for step in setup_flow_steps %}
+        <li>
+          <strong><a href="{{ step.url }}">{{ step.label }}</a></strong>
+          {% if step.complete %}
+            <span class="status-ok">Complete</span>
+          {% elif forloop.first %}
+            <span class="status-bad">Start here</span>
+          {% else %}
+            <span class="status-bad">Next</span>
+          {% endif %}
+          <div class="muted">{{ step.summary }}</div>
+        </li>
+      {% endfor %}
+    </ol>
+  </div>
+  <div class="card">
+    <h2>LedgerOS Health</h2>
+    <p class="{% if ledgeros_health.healthy %}status-ok{% else %}status-bad{% endif %}">
+      {% if ledgeros_health.healthy %}Healthy{% else %}Unhealthy{% endif %}
+    </p>
+    <pre>{{ ledgeros_health.details|safe }}</pre>
+  </div>
+  <div class="card">
+    <h2>Setup Status</h2>
+    <p class="{% if setup_obj.setup_status == 'complete' %}status-ok{% else %}status-bad{% endif %}">
+      {{ setup_obj.get_setup_status_display }}
+    </p>
+    <p>LedgerOS entity: <code>{{ setup_obj.ledgeros_entity_name|default:"not selected" }}</code></p>
+    <p>Accounting period: <code>{{ setup_obj.ledgeros_accounting_period_name|default:"not selected" }}</code></p>
+  </div>
+  <div class="card">
+    <h2>LedgerOS Connection</h2>
+    <form method="post">
+      {% csrf_token %}
+      {{ settings_form.as_p }}
+      <button type="submit" class="button primary">Save Settings</button>
+    </form>
+    <p class="muted">Secrets stay in environment variables. Current secret env var: <code>{{ settings_obj.hmac_secret_env_var }}</code></p>
+  </div>
+  <div class="card">
+    <h2>Account Mappings</h2>
+    <ul>
+      {% for mapping in setup_obj.account_mappings.all %}
+        <li>
+          <strong>{{ mapping.get_mapping_key_display }}</strong>:
+          {% if mapping.ledgeros_account_name %}
+            <code>{{ mapping.ledgeros_account_name }}</code>
+          {% else %}
+            not mapped
+          {% endif %}
+          ({% if mapping.is_enabled %}enabled{% else %}disabled{% endif %})
+        </li>
+      {% empty %}
+        <li>No account mappings have been configured yet.</li>
+      {% endfor %}
+    </ul>
+    <p class="muted">Full setup requires all required mappings, a selected LedgerOS entity and accounting period, and a passing smoke test.</p>
+  </div>
+{% endblock %}
