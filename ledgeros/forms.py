@@ -83,6 +83,11 @@ class LeaseForm(forms.ModelForm):
             "status",
             "notes",
         ]
+        widgets = {
+            "lease_start_date": forms.DateInput(attrs={"type": "date"}),
+            "lease_end_date": forms.DateInput(attrs={"type": "date"}),
+            "rent_effective_date": forms.DateInput(attrs={"type": "date"}),
+        }
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)

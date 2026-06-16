@@ -28,6 +28,7 @@ Epic 2 does not include:
 - multi-owner allocation;
 - tenant portal;
 - bank feeds.
+- bulk load/import flows for tenants and units.
 
 ## Files To Know
 
@@ -40,6 +41,7 @@ Epic 2 does not include:
 - [`docs/propertyledger-implementation-epics.md`](../docs/propertyledger-implementation-epics.md)
 - [`docs/epic-1.md`](../docs/epic-1.md)
 - [`docs/epic-1-lessons-learned.md`](../docs/epic-1-lessons-learned.md)
+- [`docs/epic-2-lessons-learned.md`](../docs/epic-2-lessons-learned.md)
 - [`ledgeros/models.py`](../ledgeros/models.py)
 - [`ledgeros/forms.py`](../ledgeros/forms.py)
 - [`ledgeros/views.py`](../ledgeros/views.py)
@@ -230,6 +232,10 @@ That order matches the data dependencies in the forms:
 - `Lease.tenant` requires a tenant.
 
 The app surfaces that order in the setup screen and blocks create actions that would violate it.
+
+## Follow-on Feature
+
+The next small follow-on feature after Epic 2 should add bulk load/import support for tenants and units so repetitive master-data entry does not have to happen one record at a time.
 
 ### Properties, owners, and units
 

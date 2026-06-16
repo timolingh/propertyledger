@@ -322,6 +322,7 @@ class Property(TimestampedModel):
 
     class Meta:
         ordering = ["name", "id"]
+        verbose_name_plural = "Properties"
 
     def __str__(self) -> str:
         return self.name

@@ -148,6 +148,9 @@ class LedgerOSSetupViewTests(TestCase):
 
 
 class PropertyLedgerDomainModelTests(TestCase):
+    def test_property_plural_name_is_properties(self):
+        self.assertEqual(Property._meta.verbose_name_plural, "Properties")
+
     def test_lease_defaults_rent_effective_date_to_lease_start(self):
         owner = Owner.objects.create(name="Owner One")
         property_obj = Property.objects.create(
@@ -320,3 +323,30 @@ class PropertyLedgerCrudViewTests(TestCase):
         self.assertContains(
             lease_response, "Create a unit and a tenant before adding a lease."
         )
+
+    def test_lease_form_uses_date_inputs(self):
+        owner = Owner.objects.create(name="Owner One", is_active=True)
+        property_obj = Property.objects.create(
+            name="Property One",
+            primary_owner=owner,
+        )
+        Unit.objects.create(property=property_obj, name="101")
+        Tenant.objects.create(name="Tenant One")
+
+        lease_response = self.client.get(reverse("lease-create"))
+        self.assertEqual(lease_response.status_code, 200)
+        self.assertContains(lease_response, 'type="date"', count=3)
+
+    def test_admin_lease_add_uses_date_inputs(self):
+        User = get_user_model()
+        admin_user = User.objects.create_superuser(
+            username="lease-admin",
+            password="password123",
+            email="admin@example.com",
+        )
+        self.client.force_login(admin_user)
+
+        response = self.client.get(reverse("admin:ledgeros_lease_add"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'type="date"', count=3)
