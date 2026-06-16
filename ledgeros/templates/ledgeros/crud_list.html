@@ -5,7 +5,12 @@
 {% block content %}
   <div class="card">
     <h1>{{ page_title }}</h1>
-    <a class="button primary" href="{{ create_url }}">{{ create_label }}</a>
+    {% if create_available %}
+      <a class="button primary" href="{{ create_url }}">{{ create_label }}</a>
+    {% else %}
+      <p class="muted">{{ create_gate_message }}</p>
+      <a class="button primary" href="{{ create_gate_url }}">{{ create_gate_label }}</a>
+    {% endif %}
   </div>
   <div class="card">
     <table>

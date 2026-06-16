@@ -11,6 +11,24 @@
     <pre>{{ local_health.details|safe }}</pre>
   </div>
   <div class="card">
+    <h2>Recommended Order</h2>
+    <ol>
+      {% for step in setup_flow_steps %}
+        <li>
+          <strong><a href="{{ step.url }}">{{ step.label }}</a></strong>
+          {% if step.complete %}
+            <span class="status-ok">Complete</span>
+          {% elif forloop.first %}
+            <span class="status-bad">Start here</span>
+          {% else %}
+            <span class="status-bad">Next</span>
+          {% endif %}
+          <div class="muted">{{ step.summary }}</div>
+        </li>
+      {% endfor %}
+    </ol>
+  </div>
+  <div class="card">
     <h2>LedgerOS Health</h2>
     <p class="{% if ledgeros_health.healthy %}status-ok{% else %}status-bad{% endif %}">
       {% if ledgeros_health.healthy %}Healthy{% else %}Unhealthy{% endif %}

@@ -138,9 +138,9 @@ Admin URLs:
 App URLs:
 
 - Setup: `http://localhost:8000/`
+- Owners: `http://localhost:8000/owners/`
 - Properties: `http://localhost:8000/properties/`
 - Units: `http://localhost:8000/units/`
-- Owners: `http://localhost:8000/owners/`
 - Tenants: `http://localhost:8000/tenants/`
 - Leases: `http://localhost:8000/leases/`
 
@@ -172,6 +172,8 @@ App URLs:
 - `POST /api/sync-records/` - create a `LedgerOSSyncRecord`
 
 ## Testing
+
+Run tests in Docker only. Do not rely on host Python or host-installed Django packages.
 
 Run the Epic 2 test slice in Docker:
 
@@ -208,6 +210,26 @@ Setup completion depends on:
 Setup status is stored on `PropertyLedgerSetup.setup_status`. Sync status remains stored on `LedgerOSSyncRecord.status`.
 
 ## Domain Rules
+
+### Suggested configuration order
+
+When setting up the app without a wizard, use this order:
+
+1. Setup and LedgerOS connection.
+2. Owners.
+3. Properties.
+4. Units.
+5. Tenants.
+6. Leases.
+
+That order matches the data dependencies in the forms:
+
+- `Property.primary_owner` requires an owner.
+- `Unit.property` requires a property.
+- `Lease.unit` requires a unit.
+- `Lease.tenant` requires a tenant.
+
+The app surfaces that order in the setup screen and blocks create actions that would violate it.
 
 ### Properties, owners, and units
 

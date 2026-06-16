@@ -119,6 +119,15 @@ make migrate
 make smoke
 ```
 
+## Testing
+
+All Epic 1 tests run in Docker. Use compose-based commands rather than host Python:
+
+```bash
+docker compose -f docker-compose.yml run --rm propertyledger-web python manage.py test
+make check
+```
+
 The local setup screen will be available at:
 
 - `http://localhost:8000/`

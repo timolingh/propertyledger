@@ -120,9 +120,9 @@
   <body>
     <header>
       <a href="{% url 'ledgeros-setup' %}">Setup</a>
+      <a href="{% url 'owner-list' %}">Owners</a>
       <a href="{% url 'property-list' %}">Properties</a>
       <a href="{% url 'unit-list' %}">Units</a>
-      <a href="{% url 'owner-list' %}">Owners</a>
       <a href="{% url 'tenant-list' %}">Tenants</a>
       <a href="{% url 'lease-list' %}">Leases</a>
       <a href="/admin/">Admin</a>
@@ -132,6 +132,13 @@
         <div class="banner banner-bad">
           <strong>Setup incomplete</strong>
           <div class="muted">Status: {{ setup_obj.get_setup_status_display }}</div>
+          {% if setup_next_step %}
+            <div class="muted">
+              Next recommended step:
+              <a href="{{ setup_next_step.url }}">{{ setup_next_step.label }}</a>
+            </div>
+            <div class="muted">{{ setup_next_step.summary }}</div>
+          {% endif %}
           <ul>
             {% for error_group in setup_completion_error_groups %}
               <li>

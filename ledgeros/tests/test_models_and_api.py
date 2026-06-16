@@ -117,6 +117,8 @@ class LedgerOSSetupViewTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "PropertyLedger Setup")
         self.assertContains(response, "Setup Status")
+        self.assertContains(response, "Recommended Order")
+        self.assertContains(response, "Create owners")
 
         post_response = self.client.post(
             reverse("ledgeros-setup"),
@@ -298,3 +300,23 @@ class PropertyLedgerCrudViewTests(TestCase):
         self.assertEqual(archive_response.status_code, 302)
         property_obj.refresh_from_db()
         self.assertEqual(property_obj.status, Property.Status.ARCHIVED)
+
+    def test_create_pages_explain_required_setup_order(self):
+        property_response = self.client.get(reverse("property-create"))
+        self.assertEqual(property_response.status_code, 200)
+        self.assertContains(
+            property_response,
+            "Create at least one active owner before adding a property.",
+        )
+        self.assertContains(property_response, "Go to owners")
+
+        unit_response = self.client.get(reverse("unit-create"))
+        self.assertEqual(unit_response.status_code, 200)
+        self.assertContains(unit_response, "Create a property before adding units.")
+        self.assertContains(unit_response, "Go to properties")
+
+        lease_response = self.client.get(reverse("lease-create"))
+        self.assertEqual(lease_response.status_code, 200)
+        self.assertContains(
+            lease_response, "Create a unit and a tenant before adding a lease."
+        )

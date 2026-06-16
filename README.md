@@ -73,6 +73,17 @@ If the sibling LedgerOS repo uses a different API client, change only:
 - `docs/epic-2.md` — Epic 2 runbook for setup and CRUD workflows.
 - `CLAUDE.md` — guidance for AI agents working on the PropertyLedger repo.
 
+## Testing
+
+All automated tests run in Docker. Use the compose commands below from the repo root:
+
+```bash
+docker compose -f docker-compose.yml run --rm propertyledger-web python manage.py test
+make check
+```
+
+Do not assume host Python or host-installed Django dependencies are available.
+
 ## Core architecture decision
 
 PropertyLedger should be a separate repo from LedgerOS and interact with LedgerOS through a clean adapter/API boundary.
