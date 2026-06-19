@@ -1,4 +1,6 @@
+from django import forms
 from django.contrib import admin
+from django.db import models
 
 from ledgeros.models import (
     Lease,
@@ -116,6 +118,9 @@ class TenantAdmin(admin.ModelAdmin):
 
 @admin.register(Lease)
 class LeaseAdmin(admin.ModelAdmin):
+    formfield_overrides = {
+        models.DateField: {"widget": forms.DateInput(attrs={"type": "date"})},
+    }
     list_display = [
         "unit",
         "tenant",

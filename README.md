@@ -70,8 +70,20 @@ If the sibling LedgerOS repo uses a different API client, change only:
 - `docs/propertyledger-implementation-epics.md` — buildable implementation epics for AI agents.
 - `docs/ledgeros-integration-contract.md` — local Epic 1 LedgerOS integration contract.
 - `docs/epic-1-lessons-learned.md` — Epic 1 retrospective and setup notes for later epics.
+- `docs/epic-2-lessons-learned.md` — Epic 2 retrospective and workflow notes for later epics.
 - `docs/epic-2.md` — Epic 2 runbook for setup and CRUD workflows.
 - `CLAUDE.md` — guidance for AI agents working on the PropertyLedger repo.
+
+## Testing
+
+All automated tests run in Docker. Use the compose commands below from the repo root:
+
+```bash
+docker compose -f docker-compose.yml run --rm propertyledger-web python manage.py test
+make check
+```
+
+Do not assume host Python or host-installed Django dependencies are available.
 
 ## Core architecture decision
 
@@ -120,7 +132,7 @@ Start with the Epic 1 runtime setup:
 
 1. Clone the LedgerOS repo in a sibling directory. The bundled compose file expects it at `../ledgeros_v2`.
 2. Clone the PropertyLedger repo.
-3. If you want to customize the environment, copy `.env.example` to `.env` and edit the LedgerOS client values there using the full-stack values below.
+3. If you want to customize the environment, copy `.env.example` to `.env` and edit the LedgerOS client values there.
 4. Run `make up`.
 5. Run `make migrate`.
 6. Create the admin users:

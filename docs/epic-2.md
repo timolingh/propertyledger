@@ -28,6 +28,7 @@ Epic 2 does not include:
 - multi-owner allocation;
 - tenant portal;
 - bank feeds.
+- bulk load/import flows for tenants and units.
 
 ## Files To Know
 
@@ -36,10 +37,11 @@ Epic 2 does not include:
 - [`.env.example`](../.env.example)
 - [`docker-compose.yml`](../docker-compose.yml)
 - [`docker-compose.ledgeros.yml`](../docker-compose.ledgeros.yml)
-- [`docs/propertyledger-prd.md`](./propertyledger-prd.md)
-- [`docs/propertyledger-implementation-epics.md`](./propertyledger-implementation-epics.md)
-- [`docs/epic-1.md`](./epic-1.md)
-- [`docs/epic-1-lessons-learned.md`](./epic-1-lessons-learned.md)
+- [`docs/propertyledger-prd.md`](../docs/propertyledger-prd.md)
+- [`docs/propertyledger-implementation-epics.md`](../docs/propertyledger-implementation-epics.md)
+- [`docs/epic-1.md`](../docs/epic-1.md)
+- [`docs/epic-1-lessons-learned.md`](../docs/epic-1-lessons-learned.md)
+- [`docs/epic-2-lessons-learned.md`](../docs/epic-2-lessons-learned.md)
 - [`ledgeros/models.py`](../ledgeros/models.py)
 - [`ledgeros/forms.py`](../ledgeros/forms.py)
 - [`ledgeros/views.py`](../ledgeros/views.py)
@@ -52,7 +54,7 @@ Epic 2 does not include:
 
 ## Required Environment Variables
 
-Copy `.env.example` to `.env`. Leave the LedgerOS values blank for PropertyLedger-only work, or fill them in using the full-stack values below.
+Copy `.env.example` to `.env` for the real LedgerOS full-stack setup.
 
 Required:
 
@@ -173,6 +175,8 @@ App URLs:
 
 ## Testing
 
+Run tests in Docker only. Do not rely on host Python or host-installed Django packages.
+
 Run the Epic 2 test slice in Docker:
 
 ```bash
@@ -190,6 +194,7 @@ make check
 - `make help` - show available Make targets
 - `make up` - start PropertyLedger plus real LedgerOS
 - `make down` - stop the stack
+- `make reset` - stop the stack and remove volumes
 - `make migrate` - run migrations for PropertyLedger and LedgerOS
 - `make smoke` - verify the full-stack health checks
 - `make shell` - open a Django shell inside the PropertyLedger web container
@@ -208,6 +213,30 @@ Setup completion depends on:
 Setup status is stored on `PropertyLedgerSetup.setup_status`. Sync status remains stored on `LedgerOSSyncRecord.status`.
 
 ## Domain Rules
+
+### Suggested configuration order
+
+When setting up the app without a wizard, use this order:
+
+1. Setup and LedgerOS connection.
+2. Owners.
+3. Properties.
+4. Units.
+5. Tenants.
+6. Leases.
+
+That order matches the data dependencies in the forms:
+
+- `Property.primary_owner` requires an owner.
+- `Unit.property` requires a property.
+- `Lease.unit` requires a unit.
+- `Lease.tenant` requires a tenant.
+
+The app surfaces that order in the setup screen and blocks create actions that would violate it.
+
+## Follow-on Feature
+
+The next small follow-on feature after Epic 2 should add bulk load/import support for tenants and units so repetitive master-data entry does not have to happen one record at a time.
 
 ### Properties, owners, and units
 

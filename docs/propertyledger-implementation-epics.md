@@ -58,6 +58,8 @@ docker compose run --rm propertyledger-web python manage.py check
 docker compose run --rm propertyledger-web python manage.py test
 ```
 
+All automated verification is expected to run in Docker. Do not depend on host Python, host Django packages, or host database services for test execution.
+
 When a real LedgerOS instance is needed, use the full-stack compose flow documented in the README. The mock LedgerOS flow, if present, is secondary and does not satisfy full-stack acceptance checks.
 
 ## LedgerOS boundary discipline

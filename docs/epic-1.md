@@ -100,7 +100,7 @@ Use Docker Compose only. The default Epic 1 path starts the real LedgerOS stack.
 
 1. Clone the LedgerOS repo in a sibling directory. The bundled compose file expects it at `../ledgeros_v2`.
 2. Clone the PropertyLedger repo.
-3. If you want to customize the environment, copy `.env.example` to `.env` and adjust the LedgerOS client settings there using the full-stack values below.
+3. If you want to customize the environment, copy `.env.example` to `.env` and adjust the LedgerOS client settings there.
 4. Start the full stack:
 
 ```bash
@@ -117,6 +117,15 @@ make migrate
 
 ```bash
 make smoke
+```
+
+## Testing
+
+All Epic 1 tests run in Docker. Use compose-based commands rather than host Python:
+
+```bash
+docker compose -f docker-compose.yml run --rm propertyledger-web python manage.py test
+make check
 ```
 
 The local setup screen will be available at:
@@ -171,9 +180,12 @@ make check
 - `make help` - show available Make targets
 - `make up` - start PropertyLedger plus real LedgerOS
 - `make down` - stop the stack
+- `make reset` - stop the stack and remove volumes
 - `make migrate` - run migrations for PropertyLedger and LedgerOS
 - `make smoke` - verify the full-stack health checks
 - `make shell` - open a Django shell inside the PropertyLedger web container
+
+The `*-full` target names remain available as compatibility aliases, but the short names above are the primary documented commands.
 
 ## Health Check Behavior
 
@@ -231,7 +243,7 @@ Uniqueness constraints:
 
 The local LedgerOS integration assumptions for Epic 1 are documented in:
 
-- [`docs/ledgeros-integration-contract.md`](./ledgeros-integration-contract.md)
+- [`docs/ledgeros-integration-contract.md`](../docs/ledgeros-integration-contract.md)
 
 ## Suggested First Check
 

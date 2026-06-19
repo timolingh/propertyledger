@@ -33,13 +33,66 @@ from ledgeros.services import LedgerOSHealthCheckService, LocalHealthCheckServic
 
 
 class LedgerOSAppContextMixin:
+    def get_setup_flow_steps(self) -> list[dict[str, Any]]:
+        setup_obj = PropertyLedgerSetup.load()
+        connection_settings = LedgerOSConnectionSettings.load()
+        steps = [
+            {
+                "label": "Configure LedgerOS connection",
+                "url": reverse("ledgeros-setup"),
+                "summary": (
+                    "Set the LedgerOS base URL, client id, and health settings."
+                ),
+                "complete": bool(
+                    connection_settings.base_url and connection_settings.client_id
+                ),
+            },
+            {
+                "label": "Create owners",
+                "url": reverse("owner-list"),
+                "summary": "Properties require a primary owner.",
+                "complete": Owner.objects.filter(is_active=True).exists(),
+            },
+            {
+                "label": "Create properties",
+                "url": reverse("property-list"),
+                "summary": "Units require a property.",
+                "complete": Property.objects.exists(),
+            },
+            {
+                "label": "Create units",
+                "url": reverse("unit-list"),
+                "summary": "Leases require a unit.",
+                "complete": Unit.objects.exists(),
+            },
+            {
+                "label": "Create tenants",
+                "url": reverse("tenant-list"),
+                "summary": "Leases require a tenant.",
+                "complete": Tenant.objects.filter(is_active=True).exists(),
+            },
+            {
+                "label": "Create leases",
+                "url": reverse("lease-list"),
+                "summary": "Finish the operational record chain.",
+                "complete": Lease.objects.exists(),
+            },
+        ]
+        return steps
+
     def get_app_context(self) -> dict[str, Any]:
         setup_obj = PropertyLedgerSetup.load()
+        setup_flow_steps = self.get_setup_flow_steps()
         return {
             "setup_obj": setup_obj,
-            "setup_completion_errors": setup_obj.setup_completion_errors(),
+            "setup_completion_error_groups": setup_obj.setup_completion_error_groups(),
             "setup_is_complete": (
                 setup_obj.setup_status == PropertyLedgerSetup.Status.COMPLETE
+            ),
+            "setup_flow_steps": setup_flow_steps,
+            "setup_next_step": next(
+                (step for step in setup_flow_steps if not step["complete"]),
+                None,
             ),
         }
 
@@ -81,12 +134,21 @@ class LedgerOSCrudListView(LoginRequiredMixin, LedgerOSAppContextMixin, ListView
     create_url_name = ""
     create_label = "Add"
 
+    def get_create_gate_context(self) -> dict[str, Any]:
+        return {
+            "create_available": True,
+            "create_gate_message": "",
+            "create_gate_url": "",
+            "create_gate_label": "",
+        }
+
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         context["page_title"] = self.page_title
         context["create_url"] = reverse(self.create_url_name)
         context["create_label"] = self.create_label
         context["rows"] = self.get_rows(context["objects"])
+        context.update(self.get_create_gate_context())
         return context
 
     def get_rows(self, objects):
@@ -100,11 +162,20 @@ class LedgerOSCrudFormView(LoginRequiredMixin, LedgerOSAppContextMixin):
     page_action = ""
     list_url_name = ""
 
+    def get_create_gate_context(self) -> dict[str, Any]:
+        return {
+            "create_available": True,
+            "create_gate_message": "",
+            "create_gate_url": "",
+            "create_gate_label": "",
+        }
+
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         context["page_title"] = self.page_title
         context["page_action"] = self.page_action
         context["list_url"] = reverse(self.list_url_name)
+        context.update(self.get_create_gate_context())
         return context
 
     def form_valid(self, form):
@@ -219,6 +290,18 @@ class PropertyListView(LedgerOSCrudListView):
     create_url_name = "property-create"
     create_label = "Add property"
 
+    def get_create_gate_context(self) -> dict[str, Any]:
+        if Owner.objects.filter(is_active=True).exists():
+            return super().get_create_gate_context()
+        return {
+            "create_available": False,
+            "create_gate_message": (
+                "Create at least one active owner before adding a property."
+            ),
+            "create_gate_url": reverse("owner-list"),
+            "create_gate_label": "Go to owners",
+        }
+
     def get_rows(self, objects):
         return [
             {
@@ -237,6 +320,18 @@ class PropertyCreateView(LedgerOSCrudFormView, CreateView):
     page_title = "Add property"
     page_action = "Create property"
     list_url_name = "property-list"
+
+    def get_create_gate_context(self) -> dict[str, Any]:
+        if Owner.objects.filter(is_active=True).exists():
+            return super().get_create_gate_context()
+        return {
+            "create_available": False,
+            "create_gate_message": (
+                "Create at least one active owner before adding a property."
+            ),
+            "create_gate_url": reverse("owner-list"),
+            "create_gate_label": "Go to owners",
+        }
 
 
 class PropertyUpdateView(LedgerOSCrudFormView, UpdateView):
@@ -265,6 +360,16 @@ class UnitListView(LedgerOSCrudListView):
     create_url_name = "unit-create"
     create_label = "Add unit"
 
+    def get_create_gate_context(self) -> dict[str, Any]:
+        if Property.objects.exists():
+            return super().get_create_gate_context()
+        return {
+            "create_available": False,
+            "create_gate_message": "Create a property before adding units.",
+            "create_gate_url": reverse("property-list"),
+            "create_gate_label": "Go to properties",
+        }
+
     def get_rows(self, objects):
         return [
             {
@@ -283,6 +388,16 @@ class UnitCreateView(LedgerOSCrudFormView, CreateView):
     page_title = "Add unit"
     page_action = "Create unit"
     list_url_name = "unit-list"
+
+    def get_create_gate_context(self) -> dict[str, Any]:
+        if Property.objects.exists():
+            return super().get_create_gate_context()
+        return {
+            "create_available": False,
+            "create_gate_message": "Create a property before adding units.",
+            "create_gate_url": reverse("property-list"),
+            "create_gate_label": "Go to properties",
+        }
 
 
 class UnitUpdateView(LedgerOSCrudFormView, UpdateView):
@@ -355,6 +470,26 @@ class LeaseListView(LedgerOSCrudListView):
     create_url_name = "lease-create"
     create_label = "Add lease"
 
+    def get_create_gate_context(self) -> dict[str, Any]:
+        unit_missing = not Unit.objects.exists()
+        tenant_missing = not Tenant.objects.filter(is_active=True).exists()
+        if unit_missing or tenant_missing:
+            if unit_missing and tenant_missing:
+                message = "Create a unit and a tenant before adding a lease."
+            elif unit_missing:
+                message = "Create a unit before adding a lease."
+            else:
+                message = "Create a tenant before adding a lease."
+            gate_url_name = "unit-list" if unit_missing else "tenant-list"
+            gate_label = "Go to units" if unit_missing else "Go to tenants"
+            return {
+                "create_available": False,
+                "create_gate_message": message,
+                "create_gate_url": reverse(gate_url_name),
+                "create_gate_label": gate_label,
+            }
+        return super().get_create_gate_context()
+
     def get_rows(self, objects):
         return [
             {
@@ -377,6 +512,26 @@ class LeaseCreateView(LedgerOSCrudFormView, CreateView):
     page_title = "Add lease"
     page_action = "Create lease"
     list_url_name = "lease-list"
+
+    def get_create_gate_context(self) -> dict[str, Any]:
+        unit_missing = not Unit.objects.exists()
+        tenant_missing = not Tenant.objects.filter(is_active=True).exists()
+        if unit_missing or tenant_missing:
+            if unit_missing and tenant_missing:
+                message = "Create a unit and a tenant before adding a lease."
+            elif unit_missing:
+                message = "Create a unit before adding a lease."
+            else:
+                message = "Create a tenant before adding a lease."
+            gate_url_name = "unit-list" if unit_missing else "tenant-list"
+            gate_label = "Go to units" if unit_missing else "Go to tenants"
+            return {
+                "create_available": False,
+                "create_gate_message": message,
+                "create_gate_url": reverse(gate_url_name),
+                "create_gate_label": gate_label,
+            }
+        return super().get_create_gate_context()
 
 
 class LeaseUpdateView(LedgerOSCrudFormView, UpdateView):

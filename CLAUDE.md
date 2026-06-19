@@ -99,3 +99,6 @@ Do not:
 
 5. **Separate implemented scope from future scope.**  
    Follow the approved PRD/epic boundary. Do not implement later-epic features early just because they are easy to scaffold. If a future hook is needed, keep it minimal, documented, and covered by tests without pretending the later feature is complete.
+
+6. **Keep command naming canonical unless there is a real workflow distinction.**  
+   Use the shortest documented Make target names as the primary workflow in docs and examples. Only introduce a suffix like `-full` when it represents a distinct supported path and the docs explain why both names exist. If a new name is only an alias, label it explicitly as such.

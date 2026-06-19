@@ -9,6 +9,7 @@ This note captures the onboarding and setup issues that came up while finishing 
 - The admin access path was not obvious.
 - The health check depended on persisted LedgerOS connection settings, not just container env vars.
 - `make smoke` initially hid important application bootstrap logic inside an inline shell command.
+- When there is no wizard, the UI still needs a dependency-aware setup order so users do not create children before parents.
 
 ## What We Should Keep Doing
 
@@ -19,6 +20,8 @@ This note captures the onboarding and setup issues that came up while finishing 
 - Put reusable setup logic in Django management commands or application code, not in Makefile shell glue.
 - Make admin URLs, superuser creation, and smoke checks explicit in the docs.
 - Keep smoke checks idempotent and able to recreate the stack when needed.
+- Gate create screens or show a clear prerequisite path when a form depends on another record existing first.
+- For repetitive master-data setup, include a bulk-load path early instead of forcing one-record-at-a-time entry.
 
 ## What To Avoid Next Time
 
@@ -36,5 +39,7 @@ For the next epic, start by writing down:
 - which settings live in env vs database vs admin UI;
 - what must be seeded automatically;
 - what can be changed manually after boot.
+- the required dependency order for any create/setup workflow without a wizard.
+- whether any master-data setup needs a bulk-load/import path to avoid repetitive manual entry.
 
 If a workflow step will be reused in deployment or release automation, implement it as a real command or service, not just a Make target.
