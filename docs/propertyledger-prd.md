@@ -297,8 +297,8 @@ The app must support:
 - lease records;
 - lease start/end dates;
 - unit assignment;
-- base monthly rent amount, monthly cadence only, currency-aware USD decimal;
-- security deposit required amount, currency-aware USD decimal;
+- base monthly rent amount, monthly cadence only;
+- security deposit required amount;
 - lease status: draft, active, ended, cancelled;
 - tenant balance visibility;
 - tenant ledger view.

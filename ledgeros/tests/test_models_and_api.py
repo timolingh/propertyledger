@@ -169,8 +169,7 @@ class PropertyLedgerDomainModelTests(TestCase):
         )
 
         self.assertEqual(str(lease.rent_effective_date), "2026-01-01")
-        self.assertEqual(lease.base_monthly_rent_currency, "USD")
-        self.assertEqual(lease.deposit_required_currency, "USD")
+        self.assertIsNone(lease.lease_end_date)
 
     def test_setup_completion_validation_requires_required_state(self):
         setup = PropertyLedgerSetup.load()
@@ -283,9 +282,7 @@ class PropertyLedgerCrudViewTests(TestCase):
                 "lease_end_date": "",
                 "rent_effective_date": "",
                 "base_monthly_rent_amount": "1500.00",
-                "base_monthly_rent_currency": "USD",
                 "deposit_required_amount": "500.00",
-                "deposit_required_currency": "USD",
                 "status": Lease.Status.ACTIVE,
                 "notes": "",
             },

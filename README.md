@@ -17,7 +17,7 @@ This repository now includes the Epic 1 Django foundation for PropertyLedger:
 
 ## Environment variables
 
-Use [`.env.example`](.env.example) for the full-stack PropertyLedger plus LedgerOS Docker Compose setup.
+Use [`.env.example`](./.env.example) as the single env template. Leave the LedgerOS values blank for PropertyLedger-only local work, or fill them in with the full-stack values below.
 
 Warning: in full-stack Docker mode, `LEDGEROS_BASE_URL` must be `http://ledgeros-web:8000`, not `localhost`.
 

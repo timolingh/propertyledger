@@ -247,8 +247,8 @@ The next small follow-on feature after Epic 2 should add bulk load/import suppor
 ### Tenants and leases
 
 - Leases require a unit, tenant, start date, and monthly base rent.
-- `base_monthly_rent` is a USD currency-aware decimal amount.
-- `deposit_required` is a USD currency-aware decimal amount.
+- `base_monthly_rent` is a decimal amount.
+- `deposit_required` is a decimal amount.
 - Rent effective date defaults to lease start date.
 - Lease cadence is monthly only.
 

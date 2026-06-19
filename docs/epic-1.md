@@ -33,13 +33,13 @@ Epic 1 does not include:
 - [`.env.example`](../.env.example)
 - [`docker-compose.yml`](../docker-compose.yml)
 - [`docker-compose.ledgeros.yml`](../docker-compose.ledgeros.yml)
-- [`docs/propertyledger-implementation-epics.md`](../docs/propertyledger-implementation-epics.md)
-- [`docs/ledgeros-integration-contract.md`](../docs/ledgeros-integration-contract.md)
-- [`docs/epic-1-lessons-learned.md`](../docs/epic-1-lessons-learned.md)
+- [`docs/propertyledger-implementation-epics.md`](./propertyledger-implementation-epics.md)
+- [`docs/ledgeros-integration-contract.md`](./ledgeros-integration-contract.md)
+- [`docs/epic-1-lessons-learned.md`](./epic-1-lessons-learned.md)
 
 ## Required Environment Variables
 
-Copy `.env.example` to `.env` for the full-stack setup.
+Copy `.env.example` to `.env`. Leave the LedgerOS values blank for PropertyLedger-only local work, or fill them in using the full-stack values below.
 
 Required:
 

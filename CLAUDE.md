@@ -19,6 +19,8 @@ Surgical changes:
 - Every changed line must trace to the requested behavior.
 - Do not refactor unrelated property, payment, reporting, LedgerOS adapter, or accounting-sync code.
 - Do not rename accounts, enums, statuses, event types, or transaction types without migration and test coverage.
+- In markdown docs, use repo-relative links for files and paths. Do not introduce machine-specific absolute paths such as `/Users/...` or `/home/...`.
+- When updating doc hyperlinks, keep them portable across macOS and Linux.
 
 Goal-driven execution:
 - For every accounting or property-accounting change, define success using examples:

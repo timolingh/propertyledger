@@ -1,4 +1,4 @@
-.PHONY: help up up-full down down-full reset reset-full migrate migrate-full smoke smoke-full build test check shell
+.PHONY: help up down migrate smoke build test check shell
 
 BASE_COMPOSE = docker compose -f docker-compose.yml
 FULLSTACK_COMPOSE = docker compose -f docker-compose.yml -f docker-compose.ledgeros.yml
@@ -17,8 +17,6 @@ help:
 
 up:
 	$(FULLSTACK_COMPOSE) up -d --build
-
-up-full: up
 
 down:
 	$(FULLSTACK_COMPOSE) down --remove-orphans

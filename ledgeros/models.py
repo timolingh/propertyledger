@@ -391,13 +391,11 @@ class Lease(TimestampedModel):
         decimal_places=2,
         default=Decimal("0.00"),
     )
-    base_monthly_rent_currency = models.CharField(max_length=3, default="USD")
     deposit_required_amount = models.DecimalField(
         max_digits=12,
         decimal_places=2,
         default=Decimal("0.00"),
     )
-    deposit_required_currency = models.CharField(max_length=3, default="USD")
     status = models.CharField(
         max_length=20, choices=Status.choices, default=Status.DRAFT
     )

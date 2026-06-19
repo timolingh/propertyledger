@@ -496,7 +496,7 @@ class LeaseListView(LedgerOSCrudListView):
                 "object": obj,
                 "summary": (
                     f"{obj.unit.property.name} / {obj.unit.name} -> {obj.tenant.name} "
-                    f"| {obj.base_monthly_rent_currency} {obj.base_monthly_rent_amount} "
+                    f"| {obj.base_monthly_rent_amount} "
                     f"| {obj.get_status_display()}"
                 ),
                 "edit_url": reverse("lease-edit", kwargs={"pk": obj.pk}),
