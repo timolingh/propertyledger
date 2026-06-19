@@ -77,20 +77,22 @@ class LeaseForm(forms.ModelForm):
             "lease_end_date",
             "rent_effective_date",
             "base_monthly_rent_amount",
-            "base_monthly_rent_currency",
             "deposit_required_amount",
-            "deposit_required_currency",
             "status",
             "notes",
         ]
+        widgets = {
+            "lease_start_date": forms.DateInput(attrs={"type": "date"}),
+            "lease_end_date": forms.DateInput(attrs={"type": "date"}),
+            "rent_effective_date": forms.DateInput(attrs={"type": "date"}),
+        }
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.fields["unit"].queryset = Unit.objects.select_related("property").all()
         self.fields["tenant"].queryset = Tenant.objects.filter(is_active=True)
-        self.fields["base_monthly_rent_currency"].initial = "USD"
-        self.fields["deposit_required_currency"].initial = "USD"
         self.fields["rent_effective_date"].required = False
+        self.fields["lease_end_date"].required = False
 
 
 class PropertyLedgerSetupForm(forms.ModelForm):

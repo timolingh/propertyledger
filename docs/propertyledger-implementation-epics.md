@@ -526,7 +526,6 @@ Epic 2 gets the system ready. Later epics create accounting activity.
 ### Lease rent fields
 
 - `base_monthly_rent_amount`: required decimal money amount.
-- `base_monthly_rent_currency`: required string, default `USD`.
 - `rent_billing_cadence`: `monthly` only for MVP.
 - `rent_effective_date`: defaults to lease start date.
 
@@ -535,7 +534,6 @@ Deferred: rent escalations, multiple rent periods, non-monthly cadence, automati
 ### Security deposit fields
 
 - `security_deposit_required_amount`: required decimal money amount, default `0.00`.
-- `security_deposit_currency`: required string, default `USD`.
 
 `deposit_required` means a required amount, not a boolean and not a workflow status.
 

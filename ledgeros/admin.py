@@ -121,13 +121,12 @@ class LeaseAdmin(admin.ModelAdmin):
         "tenant",
         "status",
         "lease_start_date",
+        "lease_end_date",
         "rent_effective_date",
         "base_monthly_rent_amount",
-        "base_monthly_rent_currency",
         "deposit_required_amount",
-        "deposit_required_currency",
     ]
-    list_filter = ["status", "base_monthly_rent_currency", "deposit_required_currency"]
+    list_filter = ["status"]
     search_fields = ["unit__name", "unit__property__name", "tenant__name"]
 
 
