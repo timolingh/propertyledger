@@ -138,9 +138,9 @@ Admin URLs:
 App URLs:
 
 - Setup: `http://localhost:8000/`
+- Owners: `http://localhost:8000/owners/`
 - Properties: `http://localhost:8000/properties/`
 - Units: `http://localhost:8000/units/`
-- Owners: `http://localhost:8000/owners/`
 - Tenants: `http://localhost:8000/tenants/`
 - Leases: `http://localhost:8000/leases/`
 
