@@ -17,7 +17,7 @@ This repository now includes the Epic 1 Django foundation for PropertyLedger:
 
 ## Environment variables
 
-Use [`.env.fullstack.example`](/Users/tim/projects/propertyledger/.env.fullstack.example) for the primary PropertyLedger plus real LedgerOS Docker Compose setup. Use [`.env.example`](/Users/tim/projects/propertyledger/.env.example) for PropertyLedger-only local work.
+Use [`.env.example`](./.env.example) as the single env template. Leave the LedgerOS values blank for PropertyLedger-only local work, or fill them in with the full-stack values below.
 
 Warning: in full-stack Docker mode, `LEDGEROS_BASE_URL` must be `http://ledgeros-web:8000`, not `localhost`.
 
@@ -120,9 +120,9 @@ Start with the Epic 1 runtime setup:
 
 1. Clone the LedgerOS repo in a sibling directory. The bundled compose file expects it at `../ledgeros_v2`.
 2. Clone the PropertyLedger repo.
-3. If you want to customize the environment, copy `.env.fullstack.example` to `.env` and edit the LedgerOS client values there.
-4. Run `make up-full`.
-5. Run `make migrate-full`.
+3. If you want to customize the environment, copy `.env.example` to `.env` and edit the LedgerOS client values there using the full-stack values below.
+4. Run `make up`.
+5. Run `make migrate`.
 6. Create the admin users:
    - PropertyLedger:
      ```bash
@@ -133,7 +133,7 @@ Start with the Epic 1 runtime setup:
      cd ../ledgeros_v2
      docker compose exec web python manage.py createsuperuser
      ```
-7. Run `make smoke-full`.
+7. Run `make smoke`.
 8. Open the admin screens:
    - PropertyLedger: `http://localhost:8000/admin/`
    - LedgerOS: `http://localhost:8001/admin/`
