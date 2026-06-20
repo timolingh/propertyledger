@@ -353,6 +353,12 @@ Optional/deferred:
 
 Setup cannot be marked complete if a required mapping is missing, inactive, or mapped to an invalid LedgerOS account type.
 
+Example required mapping:
+
+| Mapping key | LedgerOS account id | LedgerOS account name | LedgerOS account type |
+| --- | --- | --- | --- |
+| `operating_bank_account` | `1000` | `Operating Bank` | `asset` |
+
 ### LedgerOSSyncRecord standard
 
 Every LedgerOS-bound accounting event must create or update a `LedgerOSSyncRecord`.

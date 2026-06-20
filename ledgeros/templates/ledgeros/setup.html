@@ -11,6 +11,23 @@
     <pre>{{ local_health.details|safe }}</pre>
   </div>
   <div class="card">
+    <h2>What Must Be Configured</h2>
+    <ul>
+      {% for item in setup_prerequisites %}
+        <li>
+          <strong>{{ item.label }}</strong>
+          {% if item.complete %}
+            <span class="status-ok">Complete</span>
+          {% else %}
+            <span class="status-bad">Missing</span>
+          {% endif %}
+          <div class="muted">{{ item.summary }}</div>
+          <div><code>{{ item.details }}</code></div>
+        </li>
+      {% endfor %}
+    </ul>
+  </div>
+  <div class="card">
     <h2>Recommended Order</h2>
     <ol>
       {% for step in setup_flow_steps %}
@@ -42,6 +59,21 @@
     </p>
     <p>LedgerOS entity: <code>{{ setup_obj.ledgeros_entity_name|default:"not selected" }}</code></p>
     <p>Accounting period: <code>{{ setup_obj.ledgeros_accounting_period_name|default:"not selected" }}</code></p>
+    {% if setup_completion_error_groups %}
+      <h3>Blocking Issues</h3>
+      <ul>
+        {% for group in setup_completion_error_groups %}
+          <li>
+            <strong>{{ group.label }}</strong>
+            <ul>
+              {% for message in group.messages %}
+                <li>{{ message }}</li>
+              {% endfor %}
+            </ul>
+          </li>
+        {% endfor %}
+      </ul>
+    {% endif %}
   </div>
   <div class="card">
     <h2>LedgerOS Connection</h2>
@@ -64,6 +96,11 @@
             not mapped
           {% endif %}
           ({% if mapping.is_enabled %}enabled{% else %}disabled{% endif %})
+          {% if mapping.is_required %}
+            <span class="status-bad">required</span>
+          {% else %}
+            <span class="status-ok">optional</span>
+          {% endif %}
         </li>
       {% empty %}
         <li>No account mappings have been configured yet.</li>

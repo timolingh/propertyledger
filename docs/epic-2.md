@@ -195,7 +195,7 @@ make check
 - `make up` - start PropertyLedger plus real LedgerOS
 - `make down` - stop the stack
 - `make reset` - stop the stack and remove volumes
-- `make migrate` - run migrations for PropertyLedger and LedgerOS
+- `make migrate` - run migrations for PropertyLedger and LedgerOS, then bootstrap saved connection settings, setup prerequisite rows, and demo account mappings
 - `make smoke` - verify the full-stack health checks
 - `make shell` - open a Django shell inside the PropertyLedger web container
 
@@ -272,6 +272,12 @@ Required if enabled:
 - `mortgage_or_loan_liability`
 - `interest_expense`
 - `principal_payment_mapping`
+
+Example mapping:
+
+| Mapping key | LedgerOS account id | LedgerOS account name | LedgerOS account type |
+| --- | --- | --- | --- |
+| `rental_income` | `4000` | `Rental Income` | `revenue` |
 
 ## Suggested First Check
 

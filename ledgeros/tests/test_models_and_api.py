@@ -155,6 +155,9 @@ class LedgerOSSetupViewTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "PropertyLedger Setup")
+        self.assertContains(response, "What Must Be Configured")
+        self.assertContains(response, "LedgerOS connection saved")
+        self.assertContains(response, "Required account mappings configured")
         self.assertContains(response, "Setup Status")
         self.assertContains(response, "Recommended Order")
         self.assertContains(response, "Create owners")
@@ -183,6 +186,7 @@ class LedgerOSSetupViewTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "Required account mappings")
         self.assertContains(response, "LedgerOS health")
+        self.assertContains(response, "Blocking Issues")
         self.assertNotContains(response, "required_account_mappings:")
         self.assertNotContains(response, "ledgeros_health:")
 

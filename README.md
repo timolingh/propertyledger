@@ -137,7 +137,7 @@ Start with the Epic 1 runtime setup:
 2. Clone the PropertyLedger repo.
 3. If you want to customize the environment, copy `.env.example` to `.env` and edit the LedgerOS client values there.
 4. Run `make up`.
-5. Run `make migrate`.
+5. Run `make migrate` to apply migrations and bootstrap the saved connection settings plus the setup prerequisite rows, including demo account mappings.
 6. Create the admin users:
    - PropertyLedger:
      ```bash

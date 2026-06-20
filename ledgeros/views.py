@@ -26,6 +26,7 @@ from ledgeros.models import (
     LedgerOSSyncRecord,
     Owner,
     Property,
+    PropertyLedgerAccountMapping,
     PropertyLedgerSetup,
     Tenant,
     TenantCharge,
@@ -40,6 +41,12 @@ from ledgeros.services import (
 
 
 class LedgerOSAppContextMixin:
+    def _mapping_label(self, mapping_key: str) -> str:
+        try:
+            return PropertyLedgerAccountMapping.MappingKey(mapping_key).label
+        except ValueError:
+            return mapping_key.replace("_", " ").title()
+
     def get_setup_flow_steps(self) -> list[dict[str, Any]]:
         setup_obj = PropertyLedgerSetup.load()
         connection_settings = LedgerOSConnectionSettings.load()
@@ -93,6 +100,79 @@ class LedgerOSAppContextMixin:
         ]
         return steps
 
+    def get_setup_prerequisites(self) -> list[dict[str, Any]]:
+        setup_obj = PropertyLedgerSetup.load()
+        connection_settings = LedgerOSConnectionSettings.load()
+        missing_required_mappings = [
+            self._mapping_label(mapping_key)
+            for mapping_key in setup_obj.missing_required_account_mappings()
+        ]
+
+        return [
+            {
+                "label": "LedgerOS connection saved",
+                "complete": bool(
+                    connection_settings.base_url and connection_settings.client_id
+                ),
+                "summary": (
+                    "Base URL and client ID must be present in the saved connection settings."
+                ),
+                "details": (
+                    f"Base URL: {connection_settings.base_url or 'missing'}; "
+                    f"Client ID: {connection_settings.client_id or 'missing'}"
+                ),
+            },
+            {
+                "label": "LedgerOS health check passes",
+                "complete": LedgerOSHealthCheckService.check().healthy,
+                "summary": (
+                    "The configured LedgerOS health endpoint must return a healthy response."
+                ),
+                "details": (
+                    "Run the LedgerOS health check from the setup page after saving connection settings."
+                ),
+            },
+            {
+                "label": "LedgerOS entity selected",
+                "complete": setup_obj.has_selected_ledgeros_entity,
+                "summary": "Select the LedgerOS entity that owns the PropertyLedger books.",
+                "details": (
+                    setup_obj.ledgeros_entity_name or "No LedgerOS entity has been selected yet."
+                ),
+            },
+            {
+                "label": "Accounting period selected",
+                "complete": setup_obj.has_selected_accounting_period,
+                "summary": "Select the open accounting period to receive posted activity.",
+                "details": (
+                    setup_obj.ledgeros_accounting_period_name
+                    or "No accounting period has been selected yet."
+                ),
+            },
+            {
+                "label": "Required account mappings configured",
+                "complete": not missing_required_mappings,
+                "summary": (
+                    "All required LedgerOS account mappings must exist and be valid before setup can complete."
+                ),
+                "details": (
+                    ", ".join(missing_required_mappings)
+                    if missing_required_mappings
+                    else "All required mappings are present."
+                ),
+            },
+            {
+                "label": "Setup smoke passes",
+                "complete": setup_obj.last_setup_smoke_healthy,
+                "summary": (
+                    "The smoke check confirms the full setup path is usable end to end."
+                ),
+                "details": (
+                    "Run make smoke after configuring LedgerOS, the entity, the period, and the required mappings."
+                ),
+            },
+        ]
+
     def get_app_context(self) -> dict[str, Any]:
         setup_obj = PropertyLedgerSetup.load()
         setup_flow_steps = self.get_setup_flow_steps()
@@ -102,6 +182,7 @@ class LedgerOSAppContextMixin:
             "setup_is_complete": (
                 setup_obj.setup_status == PropertyLedgerSetup.Status.COMPLETE
             ),
+            "setup_prerequisites": self.get_setup_prerequisites(),
             "setup_flow_steps": setup_flow_steps,
             "setup_next_step": next(
                 (step for step in setup_flow_steps if not step["complete"]),
