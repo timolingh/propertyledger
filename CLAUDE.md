@@ -42,6 +42,7 @@ Before implementing or reviewing any epic, read and follow:
 - the relevant LedgerOS API/accounting contract documentation
 
 Every epic must include a requirement traceability matrix, explicit deferred/out-of-scope items, automated tests for implemented property/accounting invariants, and Docker-ready manual acceptance checks.
+Every epic should also have its own runbook in `docs/epic-N.md` format so setup, verification, and domain rules stay close to the code.
 
 ## LedgerOS Boundary Discipline
 

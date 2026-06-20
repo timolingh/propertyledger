@@ -9,6 +9,7 @@ from ledgeros.models import (
     Property,
     PropertyLedgerSetup,
     Tenant,
+    TenantCharge,
     Unit,
 )
 
@@ -94,6 +95,49 @@ class LeaseForm(forms.ModelForm):
         self.fields["rent_effective_date"].required = False
         self.fields["lease_end_date"].required = False
 
+
+class TenantChargeForm(forms.ModelForm):
+    class Meta:
+        model = TenantCharge
+        fields = [
+            "property",
+            "unit",
+            "tenant",
+            "lease",
+            "charge_type",
+            "billing_period_start",
+            "billing_period_end",
+            "charge_date",
+            "due_date",
+            "amount",
+            "description",
+            "status",
+        ]
+        widgets = {
+            "billing_period_start": forms.DateInput(attrs={"type": "date"}),
+            "billing_period_end": forms.DateInput(attrs={"type": "date"}),
+            "charge_date": forms.DateInput(attrs={"type": "date"}),
+            "due_date": forms.DateInput(attrs={"type": "date"}),
+        }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["property"].queryset = Property.objects.all()
+        self.fields["unit"].queryset = Unit.objects.select_related("property").all()
+        self.fields["tenant"].queryset = Tenant.objects.all()
+        self.fields["lease"].queryset = Lease.objects.select_related(
+            "unit__property", "tenant"
+        ).all()
+        self.fields["property"].required = False
+        self.fields["unit"].required = False
+        self.fields["tenant"].required = False
+        self.fields["lease"].required = False
+        self.fields["billing_period_start"].required = False
+        self.fields["billing_period_end"].required = False
+        if self.instance and self.instance.pk and self.instance.status == TenantCharge.Status.SYNCED:
+            for name in self.fields:
+                if name not in {"due_date", "description"}:
+                    self.fields[name].disabled = True
 
 class PropertyLedgerSetupForm(forms.ModelForm):
     class Meta:

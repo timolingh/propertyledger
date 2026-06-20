@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from typing import Any
 
 from django.contrib.auth.mixins import LoginRequiredMixin
@@ -15,6 +16,7 @@ from ledgeros.forms import (
     LedgerOSConnectionSettingsForm,
     OwnerForm,
     PropertyForm,
+    TenantChargeForm,
     TenantForm,
     UnitForm,
 )
@@ -26,10 +28,15 @@ from ledgeros.models import (
     Property,
     PropertyLedgerSetup,
     Tenant,
+    TenantCharge,
     Unit,
 )
 from ledgeros.serializers import LedgerOSSyncRecordSerializer
-from ledgeros.services import LedgerOSHealthCheckService, LocalHealthCheckService
+from ledgeros.services import (
+    LedgerOSHealthCheckService,
+    LocalHealthCheckService,
+    TenantChargeService,
+)
 
 
 class LedgerOSAppContextMixin:
@@ -76,6 +83,12 @@ class LedgerOSAppContextMixin:
                 "url": reverse("lease-list"),
                 "summary": "Finish the operational record chain.",
                 "complete": Lease.objects.exists(),
+            },
+            {
+                "label": "Create tenant charges",
+                "url": reverse("charge-list"),
+                "summary": "Manual charges may be property-level or linked to a lease.",
+                "complete": TenantCharge.objects.exists(),
             },
         ]
         return steps
@@ -549,4 +562,127 @@ class LeaseArchiveView(LedgerOSCrudArchiveView):
 
     def archive_object(self, obj):
         obj.status = Lease.Status.CANCELLED
+        obj.save(update_fields=["status", "updated_at"])
+
+
+class TenantChargeListView(LedgerOSCrudListView):
+    model = TenantCharge
+    page_title = "Tenant Charges"
+    create_url_name = "charge-create"
+    create_label = "Add charge"
+
+    def get_create_gate_context(self) -> dict[str, Any]:
+        if Property.objects.exists():
+            return super().get_create_gate_context()
+        return {
+            "create_available": False,
+            "create_gate_message": "Create a property before adding charges.",
+            "create_gate_url": reverse("property-list"),
+            "create_gate_label": "Go to properties",
+        }
+
+    def get_rows(self, objects):
+        return [
+            {
+                "object": obj,
+                "summary": (
+                    f"{obj.get_charge_scope_summary()} | {obj.get_charge_type_display()} "
+                    f"| {obj.amount} | {obj.get_status_display()}"
+                ),
+                "edit_url": reverse("charge-edit", kwargs={"pk": obj.pk}),
+                "archive_url": reverse("charge-archive", kwargs={"pk": obj.pk}),
+            }
+            for obj in objects
+        ]
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        failed_charges = (
+            TenantCharge.objects.select_related("sync_record", "property", "tenant", "lease")
+            .filter(sync_record__status=LedgerOSSyncRecord.Status.FAILED)
+            .order_by("-updated_at", "-id")[:5]
+        )
+        context["sync_log_entries"] = [
+            {
+                "title": f"Charge {charge.pk} sync failed",
+                "object": charge,
+                "status": charge.sync_record.status if charge.sync_record else "",
+                "error": charge.sync_record.last_error if charge.sync_record else "",
+                "response_text": (
+                    json.dumps(charge.sync_record.response_payload, indent=2, sort_keys=True)
+                    if charge.sync_record and charge.sync_record.response_payload is not None
+                    else ""
+                ),
+                "updated_at": charge.sync_record.updated_at if charge.sync_record else charge.updated_at,
+            }
+            for charge in failed_charges
+            if charge.sync_record is not None
+        ]
+        return context
+
+
+class TenantChargeCreateView(LedgerOSCrudFormView, CreateView):
+    model = TenantCharge
+    form_class = TenantChargeForm
+    page_title = "Add charge"
+    page_action = "Create charge"
+    list_url_name = "charge-list"
+
+    def get_create_gate_context(self) -> dict[str, Any]:
+        if Property.objects.exists():
+            return super().get_create_gate_context()
+        return {
+            "create_available": False,
+            "create_gate_message": "Create a property before adding charges.",
+            "create_gate_url": reverse("property-list"),
+            "create_gate_label": "Go to properties",
+        }
+
+    def form_valid(self, form):
+        self.object = form.save()
+        if self.object.status == TenantCharge.Status.APPROVED:
+            TenantChargeService.approve_charge(self.object)
+        return HttpResponseRedirect(reverse(self.list_url_name))
+
+
+class TenantChargeUpdateView(LedgerOSCrudFormView, UpdateView):
+    model = TenantCharge
+    form_class = TenantChargeForm
+    page_title = "Edit charge"
+    page_action = "Save charge"
+    list_url_name = "charge-list"
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        if getattr(self, "object", None) and self.object.sync_record:
+            context["sync_log_entries"] = [
+                {
+                    "title": f"Charge {self.object.pk} sync status",
+                    "object": self.object,
+                    "status": self.object.sync_record.status,
+                    "error": self.object.sync_record.last_error or "",
+                    "response_text": (
+                        json.dumps(self.object.sync_record.response_payload, indent=2, sort_keys=True)
+                        if self.object.sync_record.response_payload is not None
+                        else ""
+                    ),
+                    "updated_at": self.object.sync_record.updated_at,
+                }
+            ]
+        return context
+
+    def form_valid(self, form):
+        self.object = form.save()
+        if self.object.status == TenantCharge.Status.APPROVED:
+            TenantChargeService.approve_charge(self.object)
+        return HttpResponseRedirect(reverse(self.list_url_name))
+
+
+class TenantChargeArchiveView(LedgerOSCrudArchiveView):
+    model = TenantCharge
+    page_title = "Archive charge"
+    list_url_name = "charge-list"
+
+    def archive_object(self, obj):
+        obj.status = TenantCharge.Status.VOIDED
         obj.save(update_fields=["status", "updated_at"])

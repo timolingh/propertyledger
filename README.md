@@ -6,14 +6,15 @@ It is intended to be built as a separate application from LedgerOS. PropertyLedg
 
 ## Current package status
 
-This repository now includes the Epic 1 Django foundation for PropertyLedger:
+This repository now includes the Epic 1 through Epic 3 Django foundation for PropertyLedger:
 
 - Django + Django REST Framework backend;
 - PostgreSQL-backed Docker Compose full-stack local setup;
 - LedgerOS adapter boundary with real LedgerOS as the only integration target;
 - deterministic local and LedgerOS health checks;
 - locked `LedgerOSSyncRecord` schema and uniqueness constraints;
-- admin/setup screen plus Epic 2 CRUD pages for properties, units, owners, tenants, and leases.
+- admin/setup screen plus Epic 2 CRUD pages for properties, units, owners, tenants, and leases;
+- Epic 3 tenant-charge workflow for base rent generation and manual charges.
 
 ## Environment variables
 
@@ -71,7 +72,9 @@ If the sibling LedgerOS repo uses a different API client, change only:
 - `docs/ledgeros-integration-contract.md` — local Epic 1 LedgerOS integration contract.
 - `docs/epic-1-lessons-learned.md` — Epic 1 retrospective and setup notes for later epics.
 - `docs/epic-2-lessons-learned.md` — Epic 2 retrospective and workflow notes for later epics.
+- `docs/epic-1.md` — Epic 1 runbook for setup and verification.
 - `docs/epic-2.md` — Epic 2 runbook for setup and CRUD workflows.
+- `docs/epic-3.md` — Epic 3 runbook for rent generation and tenant charges.
 - `CLAUDE.md` — guidance for AI agents working on the PropertyLedger repo.
 
 ## Testing

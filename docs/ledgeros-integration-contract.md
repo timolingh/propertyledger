@@ -69,6 +69,38 @@ Idempotency keys must be deterministic for the same logical outbound event.
 
 Idempotency keys must be stable across retries and must be stored with the sync record.
 
+## Invoice submission contract
+
+PropertyLedger submits tenant-charge invoices to:
+
+- `POST /api/v1/invoices/`
+
+The request body must include:
+
+- `customer_code`
+- `external_invoice_number`
+- `invoice_date`
+- `due_date`
+- `total_amount`
+- `lines`
+
+Each invoice line must include:
+
+- `account_code`
+- `line_description`
+- `amount`
+
+Write requests must include the HMAC headers used by the LedgerOS API client flow:
+
+- `X-LedgerOS-Client-Id`
+- `X-LedgerOS-Timestamp`
+- `X-LedgerOS-Nonce`
+- `X-LedgerOS-Signature`
+- `Idempotency-Key`
+- `Content-Type: application/json`
+
+The current PropertyLedger implementation derives invoice customer code from the tenant when present, otherwise it falls back to the property name. If the LedgerOS customer does not exist, LedgerOS should reject the request and PropertyLedger will mark the sync as failed.
+
 ## Sync mapping expectations
 
 Every outbound LedgerOS-bound accounting event must persist a local sync record.

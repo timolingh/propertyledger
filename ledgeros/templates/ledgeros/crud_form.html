@@ -9,6 +9,27 @@
       <p class="muted">{{ create_gate_message }}</p>
       <a class="button" href="{{ create_gate_url }}">{{ create_gate_label }}</a>
     {% endif %}
+    {% if sync_log_entries %}
+      <div class="card nested">
+        <h2>Sync log</h2>
+        <ul class="log-list">
+          {% for entry in sync_log_entries %}
+            <li>
+              <strong>{{ entry.title }}</strong>
+              <div class="muted">
+                {{ entry.updated_at }} | {{ entry.status }}
+              </div>
+              {% if entry.error %}
+                <pre>{{ entry.error }}</pre>
+              {% endif %}
+              {% if entry.response_text %}
+                <pre>{{ entry.response_text }}</pre>
+              {% endif %}
+            </li>
+          {% endfor %}
+        </ul>
+      </div>
+    {% endif %}
     <form method="post">
       {% csrf_token %}
       {{ form.as_p }}

@@ -11,6 +11,7 @@ from ledgeros.models import (
     PropertyLedgerAccountMapping,
     PropertyLedgerSetup,
     Tenant,
+    TenantCharge,
     Unit,
 )
 
@@ -133,6 +134,29 @@ class LeaseAdmin(admin.ModelAdmin):
     ]
     list_filter = ["status"]
     search_fields = ["unit__name", "unit__property__name", "tenant__name"]
+
+
+@admin.register(TenantCharge)
+class TenantChargeAdmin(admin.ModelAdmin):
+    list_display = [
+        "property",
+        "unit",
+        "tenant",
+        "lease",
+        "charge_type",
+        "amount",
+        "status",
+        "charge_date",
+        "due_date",
+    ]
+    list_filter = ["status", "charge_type", "property"]
+    search_fields = [
+        "property__name",
+        "unit__name",
+        "tenant__name",
+        "lease__id",
+        "description",
+    ]
 
 
 @admin.register(LedgerOSSyncRecord)
