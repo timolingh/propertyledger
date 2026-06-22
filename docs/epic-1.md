@@ -9,7 +9,7 @@ Epic 1 includes:
 - Django backend project structure;
 - Django REST Framework API layer;
 - PostgreSQL-backed local development stack for PropertyLedger;
-- real LedgerOS full-stack local setup through a sibling LedgerOS repo;
+- real LedgerOS local setup through a sibling LedgerOS repo;
 - environment-based LedgerOS configuration;
 - deterministic local health checks;
 - deterministic LedgerOS health checks;
@@ -39,7 +39,7 @@ Epic 1 does not include:
 
 ## Required Environment Variables
 
-Copy `.env.example` to `.env`. Leave the LedgerOS values blank for PropertyLedger-only local work, or fill them in using the full-stack values below.
+Copy `.env.example` to `.env`. Leave the LedgerOS values blank for PropertyLedger-only local work, or fill them in using the LedgerOS-enabled values below.
 
 Required:
 
@@ -62,7 +62,7 @@ Optional:
 - `LEDGEROS_HEALTH_PATH`
 - `LEDGEROS_TIMEOUT_SECONDS`
 
-Full-stack in-container defaults:
+LedgerOS-enabled in-container defaults:
 
 - `DATABASE_HOST=propertyledger-db`
 - `LEDGEROS_BASE_URL=http://ledgeros-web:8000`
@@ -101,7 +101,7 @@ Use Docker Compose only. The default Epic 1 path starts the real LedgerOS stack.
 1. Clone the LedgerOS repo in a sibling directory. The bundled compose file expects it at `../ledgeros_v2`.
 2. Clone the PropertyLedger repo.
 3. If you want to customize the environment, copy `.env.example` to `.env` and adjust the LedgerOS client settings there.
-4. Start the full stack:
+4. Start the LedgerOS-enabled stack:
 
 ```bash
 make up
@@ -182,10 +182,8 @@ make check
 - `make down` - stop the stack
 - `make reset` - stop the stack and remove volumes
 - `make migrate` - run migrations for PropertyLedger and LedgerOS, then bootstrap saved connection settings, setup prerequisite rows, and demo account mappings
-- `make smoke` - verify the full-stack health checks
+- `make smoke` - verify the LedgerOS health checks
 - `make shell` - open a Django shell inside the PropertyLedger web container
-
-The `*-full` target names remain available as compatibility aliases, but the short names above are the primary documented commands.
 
 ## Health Check Behavior
 
@@ -199,7 +197,7 @@ The LedgerOS health check is deterministic and returns healthy only when the con
 
 Missing configuration, timeout, connection error, authentication failure, non-2xx response, malformed response, or unexpected payload is unhealthy.
 
-The full-stack default health path is `/api/v1/health/` to match the current LedgerOS repo.
+The default LedgerOS health path is `/api/v1/health/` to match the current LedgerOS repo.
 
 ## Sync Record Contract
 

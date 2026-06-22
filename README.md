@@ -9,7 +9,7 @@ It is intended to be built as a separate application from LedgerOS. PropertyLedg
 This repository now includes the Epic 1 through Epic 3 Django foundation for PropertyLedger:
 
 - Django + Django REST Framework backend;
-- PostgreSQL-backed Docker Compose full-stack local setup;
+- PostgreSQL-backed Docker Compose local setup with real LedgerOS;
 - LedgerOS adapter boundary with real LedgerOS as the only integration target;
 - deterministic local and LedgerOS health checks;
 - locked `LedgerOSSyncRecord` schema and uniqueness constraints;
@@ -18,11 +18,11 @@ This repository now includes the Epic 1 through Epic 3 Django foundation for Pro
 
 ## Environment variables
 
-Use [`.env.example`](./.env.example) as the single env template. Leave the LedgerOS values blank for PropertyLedger-only local work, or fill them in with the full-stack values below.
+Use [`.env.example`](./.env.example) as the single env template. Leave the LedgerOS values blank for PropertyLedger-only local work, or fill them in with the LedgerOS-enabled values below.
 
-Warning: in full-stack Docker mode, `LEDGEROS_BASE_URL` must be `http://ledgeros-web:8000`, not `localhost`.
+Warning: in the LedgerOS-enabled Docker setup, `LEDGEROS_BASE_URL` must be `http://ledgeros-web:8000`, not `localhost`.
 
-Quick full-stack starter values:
+Quick LedgerOS-enabled starter values:
 
 ```dotenv
 DJANGO_SECRET_KEY=change-me
@@ -58,12 +58,12 @@ If the sibling LedgerOS repo uses a different API client, change only:
 | `DATABASE_PASSWORD` | PropertyLedger database | PropertyLedger database password. | Yes | Yes | Change if your database credentials differ. |
 | `DATABASE_HOST` | PropertyLedger database | Database host or Docker Compose service name. | Yes | Yes | Change if the database host or service name changes. |
 | `DATABASE_PORT` | PropertyLedger database | Database port. | Yes | Yes | Change if PostgreSQL listens on a different port. |
-| `LEDGEROS_BASE_URL` | LedgerOS connection | Base URL PropertyLedger uses to reach LedgerOS. In full-stack Docker mode, use `http://ledgeros-web:8000`. | Yes for full-stack | Yes | Change when the LedgerOS host or service name changes. |
-| `LEDGEROS_CLIENT_ID` | LedgerOS authentication | Client ID sent with signed LedgerOS requests. Use the value configured in the LedgerOS repo, for example `propertyledger` if that client exists there. | Yes for full-stack | Yes | Change to match the client ID configured in LedgerOS. |
-| `LEDGEROS_HMAC_SECRET` | LedgerOS authentication | Shared secret value used to sign LedgerOS requests. It is not a variable name. | Yes for full-stack | Yes | Change to the secret value configured for the LedgerOS client. |
+| `LEDGEROS_BASE_URL` | LedgerOS connection | Base URL PropertyLedger uses to reach LedgerOS. In the LedgerOS-enabled Docker setup, use `http://ledgeros-web:8000`. | Yes for LedgerOS setup | Yes | Change when the LedgerOS host or service name changes. |
+| `LEDGEROS_CLIENT_ID` | LedgerOS authentication | Client ID sent with signed LedgerOS requests. Use the value configured in the LedgerOS repo, for example `propertyledger` if that client exists there. | Yes for LedgerOS setup | Yes | Change to match the client ID configured in LedgerOS. |
+| `LEDGEROS_HMAC_SECRET` | LedgerOS authentication | Shared secret value used to sign LedgerOS requests. It is not a variable name. | Yes for LedgerOS setup | Yes | Change to the secret value configured for the LedgerOS client. |
 | `LEDGEROS_API_KEY` | LedgerOS authentication | Optional bearer token for LedgerOS requests. Leave blank unless LedgerOS explicitly requires bearer auth. | No | Yes | Change only if your LedgerOS deployment requires bearer auth. |
-| `LEDGEROS_HEALTH_PATH` | Integration/idempotency behavior | LedgerOS health endpoint path used by the health check. | Yes for full-stack | Yes | Change when the LedgerOS health route changes. |
-| `LEDGEROS_TIMEOUT_SECONDS` | Integration/idempotency behavior | Timeout for LedgerOS health requests. | Yes for full-stack | Yes | Change if LedgerOS is slower or faster in your environment. |
+| `LEDGEROS_HEALTH_PATH` | Integration/idempotency behavior | LedgerOS health endpoint path used by the health check. | Yes for LedgerOS setup | Yes | Change when the LedgerOS health route changes. |
+| `LEDGEROS_TIMEOUT_SECONDS` | Integration/idempotency behavior | Timeout for LedgerOS health requests. | Yes for LedgerOS setup | Yes | Change if LedgerOS is slower or faster in your environment. |
 
 ## Included docs
 

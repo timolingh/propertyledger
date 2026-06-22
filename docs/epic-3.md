@@ -84,7 +84,7 @@ Use the same LedgerOS client values you already use for Epic 1 and Epic 2.
 
 Use Docker Compose only.
 
-1. Clone the LedgerOS repo in a sibling directory if you want the full-stack path. The bundled compose file expects it at `../ledgeros_v2`.
+1. Clone the LedgerOS repo in a sibling directory if you want the LedgerOS-enabled path. The bundled compose file expects it at `../ledgeros_v2`.
 2. Clone the PropertyLedger repo.
 3. Copy `.env.example` to `.env` if you want to override the defaults.
 4. Start the stack:
@@ -204,7 +204,7 @@ make check
 - `make down` - stop the stack
 - `make reset` - stop the stack and remove volumes
 - `make migrate` - run migrations for PropertyLedger and LedgerOS, then bootstrap saved connection settings, setup prerequisite rows, and demo account mappings
-- `make smoke` - verify the full-stack health checks
+- `make smoke` - verify the LedgerOS health checks
 - `make shell` - open a Django shell inside the PropertyLedger web container
 
 ## Notes

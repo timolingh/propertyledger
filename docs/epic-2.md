@@ -54,7 +54,7 @@ Epic 2 does not include:
 
 ## Required Environment Variables
 
-Copy `.env.example` to `.env` for the real LedgerOS full-stack setup.
+Copy `.env.example` to `.env` for the real LedgerOS setup.
 
 Required:
 
@@ -77,7 +77,7 @@ Optional:
 - `LEDGEROS_HEALTH_PATH`
 - `LEDGEROS_TIMEOUT_SECONDS`
 
-Full-stack in-container defaults:
+LedgerOS-enabled in-container defaults:
 
 - `DATABASE_HOST=propertyledger-db`
 - `LEDGEROS_BASE_URL=http://ledgeros-web:8000`
@@ -196,7 +196,7 @@ make check
 - `make down` - stop the stack
 - `make reset` - stop the stack and remove volumes
 - `make migrate` - run migrations for PropertyLedger and LedgerOS, then bootstrap saved connection settings, setup prerequisite rows, and demo account mappings
-- `make smoke` - verify the full-stack health checks
+- `make smoke` - verify the LedgerOS health checks
 - `make shell` - open a Django shell inside the PropertyLedger web container
 
 ## Setup Rules
@@ -284,7 +284,7 @@ Example mapping:
 After starting the stack, open the app and confirm:
 
 1. The local health check is healthy.
-2. The LedgerOS health check reflects the configured full-stack endpoint at `/api/v1/health/`.
+2. The LedgerOS health check reflects the configured endpoint at `/api/v1/health/`.
 3. The setup page shows setup status and account mapping status.
 4. The property, unit, owner, tenant, and lease pages load.
 5. You can create and archive a property without deleting its history.

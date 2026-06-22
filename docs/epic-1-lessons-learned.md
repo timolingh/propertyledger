@@ -14,7 +14,7 @@ This note captures the onboarding and setup issues that came up while finishing 
 ## What We Should Keep Doing
 
 - Keep one primary startup path for normal development.
-- Keep the full-stack path aligned with the current LedgerOS repo and its real API routes.
+- Keep the LedgerOS-enabled path aligned with the current LedgerOS repo and its real API routes.
 - Put human-readable explanation in the README, not in commented env files.
 - Keep env examples minimal and copyable.
 - Put reusable setup logic in Django management commands or application code, not in Makefile shell glue.
