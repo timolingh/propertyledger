@@ -8,11 +8,6 @@ ledgeros_repo_root=""
 ledgeros_bootstrap_selection_json=""
 declare -A value_sources=()
 
-if [[ ! -f "$env_file" ]]; then
-  echo "PropertyLedger env file not found: $env_file" >&2
-  exit 1
-fi
-
 source_env_file() {
   local file_path="$1"
   if [[ -f "$file_path" ]]; then
@@ -74,35 +69,6 @@ require_value() {
   fi
 }
 
-upsert_env() {
-  local key="$1"
-  local value="$2"
-  local tmp_file
-  tmp_file="$(mktemp)"
-  awk -v key="$key" -v value="$value" '
-    BEGIN { found = 0 }
-    $0 ~ "^[[:space:]]*#"
-      { print; next }
-    $0 ~ "^[[:space:]]*$"
-      { print; next }
-    {
-      split($0, parts, "=")
-      if (parts[1] == key) {
-      print key "=" value
-      found = 1
-      next
-      }
-    }
-    { print }
-    END {
-      if (!found) {
-        print key "=" value
-      }
-    }
-  ' "$env_file" > "$tmp_file"
-  mv "$tmp_file" "$env_file"
-}
-
 require_value LEDGEROS_BASE_URL
 require_value LEDGEROS_CLIENT_ID
 require_value LEDGEROS_HMAC_SECRET
@@ -112,15 +78,7 @@ echo "  LEDGEROS_BASE_URL from $(value_source_for LEDGEROS_BASE_URL)"
 echo "  LEDGEROS_CLIENT_ID from $(value_source_for LEDGEROS_CLIENT_ID)"
 echo "  LEDGEROS_HMAC_SECRET from $(value_source_for LEDGEROS_HMAC_SECRET)"
 
-upsert_env LEDGEROS_BASE_URL "$LEDGEROS_BASE_URL"
-upsert_env LEDGEROS_CLIENT_ID "$LEDGEROS_CLIENT_ID"
-upsert_env LEDGEROS_HMAC_SECRET "$LEDGEROS_HMAC_SECRET"
-
-if [[ -n "${LEDGEROS_API_KEY:-}" ]]; then
-  upsert_env LEDGEROS_API_KEY "$LEDGEROS_API_KEY"
-fi
-
-echo "Updated $env_file with the LedgerOS connection values."
+echo "Using environment values in-process only; $env_file is not modified."
 echo "Source of truth:"
 echo "  LEDGEROS_BASE_URL: the running LedgerOS URL"
 echo "  LEDGEROS_CLIENT_ID: the client id from LedgerOS api_clients.yml"

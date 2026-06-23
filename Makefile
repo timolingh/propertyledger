@@ -8,7 +8,7 @@ help:
 		'  make reset        - stop the PropertyLedger stack and remove volumes' \
 		'  make migrate      - run PropertyLedger migrations and local bootstrap commands' \
 		'  make smoke        - verify PropertyLedger and the configured LedgerOS endpoint' \
-		'  make dev-bootstrap - populate PropertyLedger env values and setup bootstrap rows' \
+		'  make dev-bootstrap - bootstrap LedgerOS-related setup rows without rewriting .env' \
 		'  make test         - run the Django test suite in Docker only' \
 		'  make check        - run Django checks in Docker only' \
 		'  make shell        - open a Django shell in the PropertyLedger web container'

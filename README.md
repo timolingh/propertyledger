@@ -158,7 +158,7 @@ Bootstrap principle: keep the user in PropertyLedger for setup and seed the Ledg
    ```bash
    ./scripts/dev-bootstrap.sh
    ```
-5. The script updates PropertyLedger's `.env`, boots the LedgerOS sample chart of accounts plus an open accounting period when the sibling LedgerOS repo is present, persists the selected LedgerOS entity and accounting period back into PropertyLedger, starts the PropertyLedger containers, runs migrations, and bootstraps the saved connection settings plus the required account mappings.
+5. The script uses the current shell environment plus any `.env` file you already have, boots the LedgerOS sample chart of accounts plus an open accounting period when the sibling LedgerOS repo is present, persists the selected LedgerOS entity and accounting period back into PropertyLedger, starts the PropertyLedger containers, runs migrations, and bootstraps the saved connection settings plus the required account mappings.
 6. Open the setup screen at `http://localhost:8000/` to finish the remaining PropertyLedger-specific setup. The LedgerOS entity and accounting period should already be selected by the bootstrap, so you should not need to pick them manually.
 7. Create the admin user if you do not already have one:
    ```bash
