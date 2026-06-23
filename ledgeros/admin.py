@@ -20,6 +20,7 @@ from ledgeros.models import (
 class LedgerOSConnectionSettingsAdmin(admin.ModelAdmin):
     fields = [
         "base_url",
+        "host_header",
         "client_id",
         "hmac_secret_env_var",
         "api_key_env_var",

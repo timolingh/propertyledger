@@ -26,7 +26,7 @@ require_value() {
     echo "Missing $key." >&2
     case "$key" in
       LEDGEROS_BASE_URL)
-        echo "Set this to the URL where LedgerOS is already running, such as http://localhost:8001 or your deployed LedgerOS URL." >&2
+        echo "Set this to the URL where LedgerOS is already running, such as http://host.docker.internal:8001 or your deployed LedgerOS URL." >&2
         ;;
       LEDGEROS_CLIENT_ID)
         echo "Set this to the LedgerOS API client id configured in the LedgerOS repo's api_clients.yml, such as api_full." >&2

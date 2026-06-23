@@ -68,13 +68,15 @@ Required:
 Optional:
 
 - `LEDGEROS_API_KEY`
+- `LEDGEROS_HOST_HEADER`
 - `LEDGEROS_HEALTH_PATH`
 - `LEDGEROS_TIMEOUT_SECONDS`
 
 Full-stack in-container defaults:
 
 - `DATABASE_HOST=propertyledger-db`
-- `LEDGEROS_BASE_URL=http://localhost:8001`
+- `LEDGEROS_BASE_URL=http://host.docker.internal:8001`
+- `LEDGEROS_HOST_HEADER=localhost:8001`
 - `LEDGEROS_HEALTH_PATH=/api/v1/health/`
 - `LEDGEROS_TIMEOUT_SECONDS=5`
 

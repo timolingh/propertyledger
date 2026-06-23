@@ -42,9 +42,10 @@ migrate:
 
 smoke:
 	docker compose -f docker-compose.yml up -d --build
+	docker compose -f docker-compose.yml exec -T propertyledger-web python manage.py migrate
 	docker compose -f docker-compose.yml exec -T propertyledger-web python manage.py bootstrap_ledgeros_connection_settings
 	docker compose -f docker-compose.yml exec -T propertyledger-web python manage.py bootstrap_ledgeros_account_mappings
-	docker compose -f docker-compose.yml exec -T propertyledger-web python manage.py shell -c "import json; import urllib.request; from django.db import connection; from ledgeros.services import LedgerOSHealthCheckService; response = urllib.request.urlopen('http://localhost:8000/api/health/local/'); payload = json.loads(response.read().decode('utf-8')); assert response.status == 200, response.read(); assert payload['healthy']; cursor = connection.cursor(); cursor.execute('SELECT 1'); assert cursor.fetchone()[0] == 1; cursor.close(); ledgeros = LedgerOSHealthCheckService.check(); assert ledgeros.healthy is True, ledgeros.details"
+	docker compose -f docker-compose.yml exec -T propertyledger-web python manage.py shell -c "from django.test import Client; from django.db import connection; from ledgeros.services import LedgerOSHealthCheckService; response = Client(HTTP_HOST='localhost').get('/api/health/local/'); payload = response.json(); assert response.status_code == 200, response.content; assert payload['healthy']; cursor = connection.cursor(); cursor.execute('SELECT 1'); assert cursor.fetchone()[0] == 1; cursor.close(); ledgeros = LedgerOSHealthCheckService.check(); assert ledgeros.healthy is True, ledgeros.details"
 
 dev-bootstrap:
 	./scripts/dev-bootstrap.sh

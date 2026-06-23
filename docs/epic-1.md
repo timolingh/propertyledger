@@ -59,13 +59,15 @@ Required:
 Optional:
 
 - `LEDGEROS_API_KEY`
+- `LEDGEROS_HOST_HEADER`
 - `LEDGEROS_HEALTH_PATH`
 - `LEDGEROS_TIMEOUT_SECONDS`
 
 PropertyLedger-only defaults with LedgerOS endpoint values:
 
 - `DATABASE_HOST=propertyledger-db`
-- `LEDGEROS_BASE_URL=http://localhost:8001`
+- `LEDGEROS_BASE_URL=http://host.docker.internal:8001`
+- `LEDGEROS_HOST_HEADER=localhost:8001`
 - `LEDGEROS_HEALTH_PATH=/api/v1/health/`
 - `LEDGEROS_TIMEOUT_SECONDS=5`
 - `LEDGEROS_CLIENT_ID=api_full` if that is the client configured in LedgerOS
@@ -84,7 +86,8 @@ DATABASE_USER=propertyledger
 DATABASE_PASSWORD=propertyledger
 DATABASE_HOST=propertyledger-db
 DATABASE_PORT=5432
-LEDGEROS_BASE_URL=http://localhost:8001
+LEDGEROS_BASE_URL=http://host.docker.internal:8001
+LEDGEROS_HOST_HEADER=localhost:8001
 LEDGEROS_CLIENT_ID=api_full
 LEDGEROS_HMAC_SECRET=change-me
 LEDGEROS_API_KEY=

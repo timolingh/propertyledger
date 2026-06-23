@@ -23,6 +23,10 @@ class LedgerOSConnectionSettingsForm(forms.ModelForm):
             "LedgerOS base URL, for example https://ledgeros.example.com or "
             "http://ledgeros-web:8000 in Docker"
         )
+        self.fields["host_header"].help_text = (
+            "Optional Host header override, for example localhost:8001 when Docker "
+            "connects to a host-run LedgerOS instance"
+        )
         self.fields["client_id"].help_text = "LedgerOS client identifier used by the adapter"
         self.fields["health_path"].help_text = (
             "LedgerOS health endpoint path, usually /api/v1/health/ for the real stack"
@@ -32,6 +36,7 @@ class LedgerOSConnectionSettingsForm(forms.ModelForm):
         model = LedgerOSConnectionSettings
         fields = [
             "base_url",
+            "host_header",
             "client_id",
             "hmac_secret_env_var",
             "api_key_env_var",

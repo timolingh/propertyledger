@@ -40,8 +40,6 @@ class HealthCheckResult:
     healthy: bool
     source: str
     details: dict[str, Any]
-
-
 class LocalHealthCheckService:
     @staticmethod
     def check() -> HealthCheckResult:
@@ -68,6 +66,7 @@ class LedgerOSHealthCheckService:
     def check() -> HealthCheckResult:
         connection_settings = LedgerOSConnectionSettings.load()
         base_url = connection_settings.base_url
+        host_header = connection_settings.host_header.strip()
         client_id = connection_settings.client_id
         secret_env_var = connection_settings.hmac_secret_env_var or "LEDGEROS_HMAC_SECRET"
         health_path = connection_settings.health_path
@@ -116,6 +115,8 @@ class LedgerOSHealthCheckService:
                 external_id=path,
             ),
         }
+        if host_header:
+            headers["Host"] = host_header
         if api_key:
             headers["Authorization"] = f"Bearer {api_key}"
 
@@ -239,6 +240,7 @@ class LedgerOSCustomerSyncService:
     def create_customer(*, customer_code: str, name: str) -> tuple[int, dict[str, Any]]:
         connection_settings = LedgerOSConnectionSettings.load()
         base_url = connection_settings.base_url
+        host_header = connection_settings.host_header.strip()
         client_id = connection_settings.client_id
         secret_env_var = connection_settings.hmac_secret_env_var or "LEDGEROS_HMAC_SECRET"
         timeout = connection_settings.timeout_seconds
@@ -291,6 +293,8 @@ class LedgerOSCustomerSyncService:
                 request_body=payload,
             ),
         }
+        if host_header:
+            headers["Host"] = host_header
         if api_key:
             headers["Authorization"] = f"Bearer {api_key}"
 
@@ -401,6 +405,7 @@ class LedgerOSInvoiceSyncService:
     ) -> tuple[int, dict[str, Any]]:
         connection_settings = LedgerOSConnectionSettings.load()
         base_url = connection_settings.base_url
+        host_header = connection_settings.host_header.strip()
         client_id = connection_settings.client_id
         secret_env_var = connection_settings.hmac_secret_env_var or "LEDGEROS_HMAC_SECRET"
         timeout = connection_settings.timeout_seconds
@@ -447,6 +452,8 @@ class LedgerOSInvoiceSyncService:
             "X-LedgerOS-Signature": signed.signature,
             "Idempotency-Key": sync_record.idempotency_key,
         }
+        if host_header:
+            headers["Host"] = host_header
         if api_key:
             headers["Authorization"] = f"Bearer {api_key}"
 

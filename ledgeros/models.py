@@ -25,6 +25,7 @@ class SingletonModel(models.Model):
 
 class LedgerOSConnectionSettings(SingletonModel):
     base_url = models.URLField(blank=True)
+    host_header = models.CharField(max_length=255, blank=True, default="")
     client_id = models.CharField(max_length=255, blank=True)
     hmac_secret_env_var = models.CharField(
         max_length=255, default="LEDGEROS_HMAC_SECRET"

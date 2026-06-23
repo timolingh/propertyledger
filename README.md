@@ -20,7 +20,7 @@ This repository now includes the Epic 1 through Epic 3 Django foundation for Pro
 
 Use [`.env.example`](./.env.example) as the single env template. Leave the LedgerOS values blank for PropertyLedger-only local work, or fill them in with the LedgerOS-enabled values below.
 
-Warning: `LEDGEROS_BASE_URL` should point at the running LedgerOS endpoint, such as `http://localhost:8001` for a sibling local LedgerOS repo.
+Warning: `LEDGEROS_BASE_URL` should point at the running LedgerOS endpoint, such as `http://host.docker.internal:8001` when LedgerOS is running on your host alongside Docker Compose.
 
 Quick LedgerOS-enabled starter values:
 
@@ -34,7 +34,8 @@ DATABASE_USER=propertyledger
 DATABASE_PASSWORD=propertyledger
 DATABASE_HOST=propertyledger-db
 DATABASE_PORT=5432
-LEDGEROS_BASE_URL=http://localhost:8001
+LEDGEROS_BASE_URL=http://host.docker.internal:8001
+LEDGEROS_HOST_HEADER=localhost:8001
 LEDGEROS_CLIENT_ID=api_full
 LEDGEROS_HMAC_SECRET=change-me
 LEDGEROS_API_KEY=
@@ -49,7 +50,8 @@ If the sibling LedgerOS repo uses a different API client, change only:
 
 Where to get the LedgerOS values:
 
-- `LEDGEROS_BASE_URL`: the URL where LedgerOS is already running, such as `http://localhost:8001` for a local sibling repo or your deployed LedgerOS URL.
+- `LEDGEROS_BASE_URL`: the URL where LedgerOS is already running, such as `http://host.docker.internal:8001` for a host-running local LedgerOS instance or your deployed LedgerOS URL.
+- `LEDGEROS_HOST_HEADER`: optional `Host` header override to send when the LedgerOS server expects a different host name than the connection URL, such as `localhost:8001` for a host-run local stack.
 - `LEDGEROS_CLIENT_ID`: the client id defined in the LedgerOS `api_clients.yml` file, such as `api_full`.
 - `LEDGEROS_HMAC_SECRET`: the matching secret value for that client, such as the LedgerOS env var `LEDGEROS_API_CLIENT_FULL_SECRET`.
 - `LEDGEROS_API_KEY`: only if your LedgerOS deployment explicitly requires bearer auth.
@@ -65,7 +67,8 @@ Where to get the LedgerOS values:
 | `DATABASE_PASSWORD` | PropertyLedger database | PropertyLedger database password. | Yes | Yes | Change if your database credentials differ. |
 | `DATABASE_HOST` | PropertyLedger database | Database host or Docker Compose service name. | Yes | Yes | Change if the database host or service name changes. |
 | `DATABASE_PORT` | PropertyLedger database | Database port. | Yes | Yes | Change if PostgreSQL listens on a different port. |
-| `LEDGEROS_BASE_URL` | LedgerOS connection | Base URL PropertyLedger uses to reach LedgerOS. For a local sibling LedgerOS repo, use `http://localhost:8001`. | Yes for LedgerOS setup | Yes | Change when the LedgerOS host or deployment URL changes. |
+| `LEDGEROS_BASE_URL` | LedgerOS connection | Base URL PropertyLedger uses to reach LedgerOS. For a local LedgerOS instance running on the host, use `http://host.docker.internal:8001`. | Yes for LedgerOS setup | Yes | Change when the LedgerOS host or deployment URL changes. |
+| `LEDGEROS_HOST_HEADER` | LedgerOS connection | Optional `Host` header override sent to LedgerOS. Leave blank for normal deployments; set it only when the server expects a different host name than the URL used to connect. | No | Yes | Change when the remote server rejects the default host header. |
 | `LEDGEROS_CLIENT_ID` | LedgerOS authentication | Client ID sent with signed LedgerOS requests. Use the value configured in the LedgerOS repo, for example `api_full` if that client exists there. | Yes for LedgerOS setup | Yes | Change to match the client ID configured in LedgerOS. |
 | `LEDGEROS_HMAC_SECRET` | LedgerOS authentication | Shared secret value used to sign LedgerOS requests. It is not a variable name. | Yes for LedgerOS setup | Yes | Change to the secret value configured for the LedgerOS client. |
 | `LEDGEROS_API_KEY` | LedgerOS authentication | Optional bearer token for LedgerOS requests. Leave blank unless LedgerOS explicitly requires bearer auth. | No | Yes | Change only if your LedgerOS deployment requires bearer auth. |

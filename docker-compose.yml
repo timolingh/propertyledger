@@ -20,6 +20,8 @@ services:
   propertyledger-web:
     build: .
     command: python manage.py runserver 0.0.0.0:8000
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     environment:
       DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:-propertyledger-dev-secret-key}
       DJANGO_DEBUG: ${DJANGO_DEBUG:-1}
@@ -31,6 +33,7 @@ services:
       DATABASE_HOST: ${DATABASE_HOST:-propertyledger-db}
       DATABASE_PORT: ${DATABASE_PORT:-5432}
       LEDGEROS_BASE_URL: ${LEDGEROS_BASE_URL:-}
+      LEDGEROS_HOST_HEADER: ${LEDGEROS_HOST_HEADER:-}
       LEDGEROS_CLIENT_ID: ${LEDGEROS_CLIENT_ID:-}
       LEDGEROS_HMAC_SECRET: ${LEDGEROS_HMAC_SECRET:-}
       LEDGEROS_API_KEY: ${LEDGEROS_API_KEY:-}
