@@ -1,11 +1,11 @@
 services:
   propertyledger-web:
     environment:
-      LEDGEROS_BASE_URL: http://ledgeros-web:8000
-      LEDGEROS_CLIENT_ID: propertyledger
-      LEDGEROS_HMAC_SECRET: change-me
-      LEDGEROS_API_KEY: ""
-      LEDGEROS_HEALTH_PATH: /api/v1/health/
+      LEDGEROS_BASE_URL: ${LEDGEROS_BASE_URL:-http://ledgeros-web:8000}
+      LEDGEROS_CLIENT_ID: ${LEDGEROS_CLIENT_ID:-propertyledger}
+      LEDGEROS_HMAC_SECRET: ${LEDGEROS_HMAC_SECRET:-change-me}
+      LEDGEROS_API_KEY: ${LEDGEROS_API_KEY:-}
+      LEDGEROS_HEALTH_PATH: ${LEDGEROS_HEALTH_PATH:-/api/v1/health/}
     depends_on:
       ledgeros-web:
         condition: service_started
@@ -29,9 +29,12 @@ services:
       context: ../ledgeros_v2
     command: python manage.py runserver 0.0.0.0:8000
     environment:
+      LEDGEROS_API_CLIENT_PROPERTYLEDGER_SECRET: ${LEDGEROS_HMAC_SECRET:-change-me}
       DJANGO_SECRET_KEY: ledgeros-dev-secret-key
       DJANGO_DEBUG: "1"
       DJANGO_ALLOWED_HOSTS: localhost,127.0.0.1,ledgeros-web
+      LEDGEROS_API_CLIENTS_CONFIG: ${LEDGEROS_API_CLIENTS_CONFIG:-/app/api_clients.yml}
+      LEDGEROS_API_CLIENT_FULL_SECRET: ${LEDGEROS_API_CLIENT_FULL_SECRET:-}
       POSTGRES_DB: ledgeros
       POSTGRES_USER: ledgeros
       POSTGRES_PASSWORD: ledgeros

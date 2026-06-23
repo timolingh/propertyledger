@@ -99,7 +99,12 @@ Write requests must include the HMAC headers used by the LedgerOS API client flo
 - `Idempotency-Key`
 - `Content-Type: application/json`
 
-The current PropertyLedger implementation derives invoice customer code from the tenant when present, otherwise it falls back to the property name. If the LedgerOS customer does not exist, LedgerOS should reject the request and PropertyLedger will mark the sync as failed.
+PropertyLedger provisions LedgerOS customers before creating properties and tenants. The invoice customer code is derived from the local object identity, not from the display name:
+
+- properties use `property-{property.pk}`
+- tenants use `tenant-{tenant.pk}`
+
+Tenant-charge invoice sync must reuse the same stable customer code rules so retry behavior stays deterministic.
 
 ## Sync mapping expectations
 

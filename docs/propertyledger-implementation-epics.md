@@ -60,7 +60,7 @@ docker compose run --rm propertyledger-web python manage.py test
 
 All automated verification is expected to run in Docker. Do not depend on host Python, host Django packages, or host database services for test execution.
 
-When a real LedgerOS instance is needed, use the LedgerOS-enabled compose flow documented in the README. The mock LedgerOS flow, if present, is secondary and does not satisfy the real LedgerOS acceptance checks.
+When a real LedgerOS instance is needed, point PropertyLedger at the running LedgerOS endpoint configured in the README. The mock LedgerOS flow, if present, is secondary and does not satisfy the real LedgerOS acceptance checks.
 
 ## LedgerOS boundary discipline
 
@@ -428,7 +428,7 @@ Create the base PropertyLedger app, containerized runtime, domain boundaries, Le
 - Django/DRF backend skeleton;
 - PostgreSQL database;
 - Docker Compose local development;
-- real LedgerOS startup path as the primary setup path;
+- real LedgerOS endpoint connectivity as the primary setup path;
 - mock LedgerOS mode only as a secondary isolated test mode, if present;
 - LedgerOS adapter interface;
 - LedgerOS HMAC signing helper;
@@ -459,7 +459,7 @@ Create the base PropertyLedger app, containerized runtime, domain boundaries, Le
 ## Acceptance criteria
 
 - App boots locally with Docker Compose.
-- The default setup path starts PropertyLedger and a real LedgerOS instance together.
+- The default setup path starts PropertyLedger and verifies connectivity to a real LedgerOS instance.
 - Local health check reports PropertyLedger app and database status.
 - LedgerOS health check reports healthy only for expected successful LedgerOS response.
 - App can create and persist a sync record.
@@ -473,9 +473,8 @@ Use the commands documented in the README for the current repo. At minimum, a re
 
 - PropertyLedger container starts;
 - PropertyLedger database is reachable;
-- LedgerOS container starts;
 - LedgerOS database is reachable;
-- PropertyLedger can call LedgerOS health endpoint from inside Docker;
+- PropertyLedger can call the configured LedgerOS health endpoint from inside Docker;
 - checks/tests run inside containers.
 
 ---

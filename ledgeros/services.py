@@ -23,8 +23,10 @@ from ledgeros.models import (
     LedgerOSConnectionSettings,
     LedgerOSSyncRecord,
     Lease,
+    Property,
     PropertyLedgerAccountMapping,
     PropertyLedgerSetup,
+    Tenant,
     TenantCharge,
 )
 from ledgeros.signing import sign_api_request, sign_request
@@ -170,8 +172,172 @@ class LedgerOSHealthCheckService:
             )
 
 
+class LedgerOSCustomerSyncService:
+    CUSTOMER_PATH = "/api/v1/customers/"
+
+    @staticmethod
+    def _format_http_error(exc: HTTPError) -> str:
+        body = ""
+        try:
+            raw_body = exc.read()
+        except Exception:
+            raw_body = b""
+
+        if raw_body:
+            try:
+                body = raw_body.decode("utf-8").strip()
+            except Exception:
+                body = raw_body.decode("utf-8", errors="replace").strip()
+
+        if body:
+            return f"LedgerOS returned HTTP {exc.code}: {body}"
+        return f"LedgerOS returned HTTP {exc.code}: {exc.reason}"
+
+    @staticmethod
+    def _canonical_json_bytes(payload: dict[str, Any]) -> bytes:
+        return json.dumps(
+            payload,
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=True,
+            default=str,
+        ).encode("utf-8")
+
+    @staticmethod
+    def _customer_code_for_property(property_obj: Property) -> str:
+        return f"property-{property_obj.pk}"
+
+    @staticmethod
+    def _customer_code_for_tenant(tenant: Tenant) -> str:
+        return f"tenant-{tenant.pk}"
+
+    @staticmethod
+    def _default_ar_account_code() -> str:
+        setup = PropertyLedgerSetup.load()
+        mapping = setup.account_mappings.filter(
+            mapping_key=PropertyLedgerAccountMapping.MappingKey.ACCOUNTS_RECEIVABLE
+        ).first()
+        if mapping is None or not mapping.ledgeros_account_id.strip():
+            raise ValidationError(
+                {
+                    "accounts_receivable": (
+                        "Accounts receivable mapping is required to create LedgerOS customers."
+                    )
+                }
+            )
+        return mapping.ledgeros_account_id.strip()
+
+    @staticmethod
+    def _build_customer_payload(*, customer_code: str, name: str) -> dict[str, Any]:
+        return {
+            "customer_code": customer_code,
+            "name": name,
+            "default_ar_account_code": LedgerOSCustomerSyncService._default_ar_account_code(),
+        }
+
+    @staticmethod
+    def create_customer(*, customer_code: str, name: str) -> tuple[int, dict[str, Any]]:
+        connection_settings = LedgerOSConnectionSettings.load()
+        base_url = connection_settings.base_url
+        client_id = connection_settings.client_id
+        secret_env_var = connection_settings.hmac_secret_env_var or "LEDGEROS_HMAC_SECRET"
+        timeout = connection_settings.timeout_seconds
+        api_key = os.environ.get(
+            connection_settings.api_key_env_var or "LEDGEROS_API_KEY",
+            "",
+        )
+        secret = os.environ.get(secret_env_var, "")
+
+        missing = []
+        if not base_url:
+            missing.append("base_url")
+        if not client_id:
+            missing.append("client_id")
+        if not secret:
+            missing.append(secret_env_var)
+        if missing:
+            raise ValidationError(
+                {"ledgeros": f"Missing LedgerOS configuration: {', '.join(missing)}"}
+            )
+
+        payload = LedgerOSCustomerSyncService._build_customer_payload(
+            customer_code=customer_code,
+            name=name,
+        )
+        body = LedgerOSCustomerSyncService._canonical_json_bytes(payload)
+        timestamp = str(int(time.time()))
+        nonce = uuid.uuid4().hex
+        signed = sign_api_request(
+            method="POST",
+            path=LedgerOSCustomerSyncService.CUSTOMER_PATH,
+            body=body,
+            timestamp=timestamp,
+            nonce=nonce,
+            client_id=client_id,
+            secret=secret,
+        )
+        url = f"{base_url.rstrip('/')}{LedgerOSCustomerSyncService.CUSTOMER_PATH}"
+        headers = {
+            "Content-Type": "application/json",
+            "X-LedgerOS-Client-Id": client_id,
+            "X-LedgerOS-Timestamp": timestamp,
+            "X-LedgerOS-Nonce": nonce,
+            "X-LedgerOS-Signature": signed.signature,
+            "Idempotency-Key": build_idempotency_key(
+                local_object_type="customer",
+                local_object_id=customer_code,
+                source_event_type="customer.upsert_requested",
+                external_id=customer_code,
+                request_body=payload,
+            ),
+        }
+        if api_key:
+            headers["Authorization"] = f"Bearer {api_key}"
+
+        request = Request(url, data=body, method="POST", headers=headers)
+
+        try:
+            with urlopen(request, timeout=timeout) as response:
+                response_payload_raw = response.read().decode("utf-8").strip()
+                if response.status not in {200, 201}:
+                    raise RuntimeError(
+                        f"LedgerOS returned HTTP {response.status}: {response_payload_raw}"
+                    )
+                try:
+                    response_payload = (
+                        json.loads(response_payload_raw) if response_payload_raw else {}
+                    )
+                except json.JSONDecodeError as exc:
+                    raise RuntimeError("LedgerOS customer response was not valid JSON.") from exc
+                if not isinstance(response_payload, dict):
+                    raise RuntimeError("LedgerOS customer response must be a JSON object.")
+                return response.status, response_payload
+        except HTTPError as exc:
+            raise RuntimeError(LedgerOSCustomerSyncService._format_http_error(exc)) from exc
+        except (URLError, TimeoutError, OSError, ValueError) as exc:
+            raise RuntimeError(str(exc)) from exc
+
+
 class LedgerOSInvoiceSyncService:
     INVOICE_PATH = "/api/v1/invoices/"
+
+    @staticmethod
+    def _format_http_error(exc: HTTPError) -> str:
+        body = ""
+        try:
+            raw_body = exc.read()
+        except Exception:
+            raw_body = b""
+
+        if raw_body:
+            try:
+                body = raw_body.decode("utf-8").strip()
+            except Exception:
+                body = raw_body.decode("utf-8", errors="replace").strip()
+
+        if body:
+            return f"LedgerOS returned HTTP {exc.code}: {body}"
+        return f"LedgerOS returned HTTP {exc.code}: {exc.reason}"
 
     @staticmethod
     def _canonical_json_bytes(payload: dict[str, Any]) -> bytes:
@@ -185,9 +351,9 @@ class LedgerOSInvoiceSyncService:
 
     @staticmethod
     def _customer_code_for_charge(charge: TenantCharge) -> str:
-        if charge.tenant_id and charge.tenant.name.strip():
-            return charge.tenant.name.strip()
-        return charge.property.name.strip()
+        if charge.tenant_id:
+            return f"tenant-{charge.tenant_id}"
+        return f"property-{charge.property_id}"
 
     @staticmethod
     def _rental_income_account_code() -> str:
@@ -302,7 +468,9 @@ class LedgerOSInvoiceSyncService:
                 if not isinstance(response_payload, dict):
                     raise RuntimeError("LedgerOS invoice response must be a JSON object.")
                 return response.status, response_payload
-        except (HTTPError, URLError, TimeoutError, OSError, ValueError) as exc:
+        except HTTPError as exc:
+            raise RuntimeError(LedgerOSInvoiceSyncService._format_http_error(exc)) from exc
+        except (URLError, TimeoutError, OSError, ValueError) as exc:
             raise RuntimeError(str(exc)) from exc
 
 

@@ -3,9 +3,11 @@ from __future__ import annotations
 import json
 from typing import Any
 
+from django.core.exceptions import ValidationError
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.http import HttpResponseRedirect
 from django.urls import reverse, reverse_lazy
+from django.db import transaction
 from django.views.generic import CreateView, DeleteView, ListView, TemplateView, UpdateView
 from rest_framework import generics
 from rest_framework.response import Response
@@ -34,10 +36,25 @@ from ledgeros.models import (
 )
 from ledgeros.serializers import LedgerOSSyncRecordSerializer
 from ledgeros.services import (
+    LedgerOSCustomerSyncService,
     LedgerOSHealthCheckService,
     LocalHealthCheckService,
     TenantChargeService,
 )
+
+
+def _add_form_error_from_exception(form, exc: Exception) -> None:
+    if isinstance(exc, ValidationError):
+        message_dict = getattr(exc, "message_dict", None)
+        if isinstance(message_dict, dict):
+            for field, messages in message_dict.items():
+                for message in messages:
+                    form.add_error(field if field in form.fields else None, message)
+            return
+        for message in getattr(exc, "messages", [str(exc)]):
+            form.add_error(None, message)
+        return
+    form.add_error(None, str(exc))
 
 
 class LedgerOSAppContextMixin:
@@ -427,6 +444,25 @@ class PropertyCreateView(LedgerOSCrudFormView, CreateView):
             "create_gate_label": "Go to owners",
         }
 
+    def form_valid(self, form):
+        validation_failed = False
+        with transaction.atomic():
+            self.object = form.save()
+            try:
+                LedgerOSCustomerSyncService.create_customer(
+                    customer_code=LedgerOSCustomerSyncService._customer_code_for_property(
+                        self.object
+                    ),
+                    name=self.object.name,
+                )
+            except (ValidationError, RuntimeError) as exc:
+                _add_form_error_from_exception(form, exc)
+                transaction.set_rollback(True)
+                validation_failed = True
+        if validation_failed:
+            return self.form_invalid(form)
+        return HttpResponseRedirect(reverse(self.list_url_name))
+
 
 class PropertyUpdateView(LedgerOSCrudFormView, UpdateView):
     model = Property
@@ -537,6 +573,25 @@ class TenantCreateView(LedgerOSCrudFormView, CreateView):
     page_title = "Add tenant"
     page_action = "Create tenant"
     list_url_name = "tenant-list"
+
+    def form_valid(self, form):
+        validation_failed = False
+        with transaction.atomic():
+            self.object = form.save()
+            try:
+                LedgerOSCustomerSyncService.create_customer(
+                    customer_code=LedgerOSCustomerSyncService._customer_code_for_tenant(
+                        self.object
+                    ),
+                    name=self.object.name,
+                )
+            except (ValidationError, RuntimeError) as exc:
+                _add_form_error_from_exception(form, exc)
+                transaction.set_rollback(True)
+                validation_failed = True
+        if validation_failed:
+            return self.form_invalid(form)
+        return HttpResponseRedirect(reverse(self.list_url_name))
 
 
 class TenantUpdateView(LedgerOSCrudFormView, UpdateView):

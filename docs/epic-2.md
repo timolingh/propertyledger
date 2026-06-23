@@ -54,7 +54,7 @@ Epic 2 does not include:
 
 ## Required Environment Variables
 
-Copy `.env.example` to `.env` for the real LedgerOS setup.
+Copy `.env.example` to `.env` and set the LedgerOS connection values from your running LedgerOS environment.
 
 Required:
 
@@ -77,10 +77,10 @@ Optional:
 - `LEDGEROS_HEALTH_PATH`
 - `LEDGEROS_TIMEOUT_SECONDS`
 
-LedgerOS-enabled in-container defaults:
+PropertyLedger-only defaults with LedgerOS endpoint values:
 
 - `DATABASE_HOST=propertyledger-db`
-- `LEDGEROS_BASE_URL=http://ledgeros-web:8000`
+- `LEDGEROS_BASE_URL=http://localhost:8001`
 - `LEDGEROS_HEALTH_PATH=/api/v1/health/`
 - `LEDGEROS_TIMEOUT_SECONDS=5`
 
@@ -88,11 +88,11 @@ If the sibling LedgerOS repo uses a different client configuration, update the L
 
 ## Start Up
 
-Use Docker Compose only. The default Epic 2 path starts PropertyLedger and real LedgerOS together.
+Use Docker Compose only. The default Epic 2 path starts PropertyLedger only and uses a separate running LedgerOS endpoint.
 
-1. Clone the LedgerOS repo in a sibling directory. The bundled compose file expects it at `../ledgeros_v2`.
-2. Clone the PropertyLedger repo.
-3. Copy `.env.example` to `.env`.
+1. Clone the PropertyLedger repo.
+2. Copy `.env.example` to `.env` if you want a local file to edit.
+3. Set the LedgerOS connection values in `.env` or export them in your shell.
 4. Run the stack:
 
 ```bash
@@ -117,25 +117,16 @@ The main app UI will be available at:
 
 ## Admin Access
 
-Create a superuser in each repo before using the admin screens:
-
-- PropertyLedger:
+Create a superuser in PropertyLedger before using the admin screens:
 
 ```bash
-docker compose -f docker-compose.yml -f docker-compose.ledgeros.yml exec propertyledger-web python manage.py createsuperuser
-```
-
-- LedgerOS:
-
-```bash
-cd ../ledgeros_v2
-docker compose exec web python manage.py createsuperuser
+docker compose -f docker-compose.yml run --rm propertyledger-web python manage.py createsuperuser
 ```
 
 Admin URLs:
 
 - PropertyLedger admin: `http://localhost:8000/admin/`
-- LedgerOS admin: `http://localhost:8001/admin/`
+- LedgerOS admin is managed separately in the LedgerOS repo or deployment.
 
 App URLs:
 
@@ -192,11 +183,11 @@ make check
 ## Useful Commands
 
 - `make help` - show available Make targets
-- `make up` - start PropertyLedger plus real LedgerOS
+- `make up` - start PropertyLedger only
 - `make down` - stop the stack
 - `make reset` - stop the stack and remove volumes
-- `make migrate` - run migrations for PropertyLedger and LedgerOS, then bootstrap saved connection settings, setup prerequisite rows, and demo account mappings
-- `make smoke` - verify the LedgerOS health checks
+- `make migrate` - run PropertyLedger migrations, then bootstrap saved connection settings and setup prerequisite rows
+- `make smoke` - verify the configured LedgerOS health check and the PropertyLedger runtime
 - `make shell` - open a Django shell inside the PropertyLedger web container
 
 ## Setup Rules
