@@ -83,6 +83,8 @@ Do not:
 - bypass LedgerOS APIs/services for accounting mutations;
 - assume PropertyLedger local records are posted accounting facts until LedgerOS sync succeeds.
 
+When PropertyLedger is the active context, keep LedgerOS setup and bootstrap flows inside PropertyLedger where possible. Do not force the user to switch to the LedgerOS repo or UI to complete configuration that PropertyLedger already knows it needs; use LedgerOS APIs or supported commands from the PropertyLedger-side bootstrap instead.
+
 ## Anti-Slop Engineering Principles
 
 1. **Run the code, not just the generator.**  

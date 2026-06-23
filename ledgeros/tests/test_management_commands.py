@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import json
 from unittest.mock import patch
 
 from django.core.management import call_command
@@ -72,3 +73,28 @@ class BootstrapLedgerOSAccountMappingsCommandTests(TestCase):
             len(PropertyLedgerSetup.REQUIRED_ACCOUNT_MAPPING_KEYS)
             + len(PropertyLedgerSetup.OPTIONAL_ACCOUNT_MAPPING_KEYS),
         )
+
+
+class BootstrapLedgerOSSetupSelectionCommandTests(TestCase):
+    @patch.dict(
+        os.environ,
+        {
+            "LEDGEROS_BOOTSTRAP_SELECTION_JSON": json.dumps(
+                {
+                    "entity_id": "entity_1",
+                    "entity_name": "Default Entity",
+                    "accounting_period_id": "period_1",
+                    "accounting_period_name": "Bootstrap FY2026",
+                }
+            )
+        },
+        clear=False,
+    )
+    def test_command_persists_selected_entity_and_period(self):
+        call_command("bootstrap_ledgeros_setup_selection")
+
+        setup = PropertyLedgerSetup.load()
+        self.assertEqual(setup.ledgeros_entity_id, "entity_1")
+        self.assertEqual(setup.ledgeros_entity_name, "Default Entity")
+        self.assertEqual(setup.ledgeros_accounting_period_id, "period_1")
+        self.assertEqual(setup.ledgeros_accounting_period_name, "Bootstrap FY2026")

@@ -143,6 +143,8 @@ Deferred or post-MVP:
 
 PropertyLedger is started on its own. LedgerOS is assumed to already be running at a separate endpoint.
 
+Bootstrap principle: keep the user in PropertyLedger for setup and seed the LedgerOS prerequisites from the PropertyLedger-side bootstrap flow whenever possible. Avoid making the user switch into the LedgerOS repo or UI just to complete setup that PropertyLedger already knows is required.
+
 1. Copy `.env.example` to `.env` if you want a local file to edit.
 2. Set the LedgerOS values in `.env` or export them in your shell:
    - `LEDGEROS_BASE_URL`
@@ -156,8 +158,8 @@ PropertyLedger is started on its own. LedgerOS is assumed to already be running 
    ```bash
    ./scripts/dev-bootstrap.sh
    ```
-5. The script updates PropertyLedger's `.env`, starts the PropertyLedger containers, runs migrations, and bootstraps the saved connection settings plus the required account mappings.
-6. Open the setup screen at `http://localhost:8000/` and select the LedgerOS entity and accounting period separately. The script does not choose those for you.
+5. The script updates PropertyLedger's `.env`, boots the LedgerOS sample chart of accounts plus an open accounting period when the sibling LedgerOS repo is present, persists the selected LedgerOS entity and accounting period back into PropertyLedger, starts the PropertyLedger containers, runs migrations, and bootstraps the saved connection settings plus the required account mappings.
+6. Open the setup screen at `http://localhost:8000/` to finish the remaining PropertyLedger-specific setup. The LedgerOS entity and accounting period should already be selected by the bootstrap, so you should not need to pick them manually.
 7. Create the admin user if you do not already have one:
    ```bash
    docker compose -f docker-compose.yml run --rm propertyledger-web python manage.py createsuperuser
