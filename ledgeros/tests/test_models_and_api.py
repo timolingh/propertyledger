@@ -1,7 +1,13 @@
 from __future__ import annotations
 
+import os
 from datetime import date
 from decimal import Decimal
+import json
+from io import BytesIO
+from urllib.error import HTTPError
+from types import SimpleNamespace
+from unittest.mock import patch
 from django.core.exceptions import ValidationError
 from django.contrib.auth import get_user_model
 from django.db import IntegrityError, transaction
@@ -18,8 +24,53 @@ from ledgeros.models import (
     PropertyLedgerAccountMapping,
     PropertyLedgerSetup,
     Tenant,
+    TenantCharge,
     Unit,
 )
+from ledgeros.services import TenantChargeService
+
+
+class _FakeResponse:
+    def __init__(self, *, status: int, payload: bytes):
+        self.status = status
+        self.payload = payload
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        return False
+
+    def read(self):
+        return self.payload
+
+
+def _configure_ledgeros_invoice_sync():
+    settings_obj = LedgerOSConnectionSettings.load()
+    settings_obj.base_url = "http://ledgeros-web:8000"
+    settings_obj.client_id = "propertyledger"
+    settings_obj.hmac_secret_env_var = "LEDGEROS_HMAC_SECRET"
+    settings_obj.save()
+
+    setup = PropertyLedgerSetup.load()
+    PropertyLedgerAccountMapping.objects.update_or_create(
+        setup=setup,
+        mapping_key=PropertyLedgerAccountMapping.MappingKey.RENTAL_INCOME,
+        defaults={
+            "ledgeros_account_id": "4000",
+            "ledgeros_account_name": "Rental income",
+            "ledgeros_account_type": "revenue",
+        },
+    )
+    PropertyLedgerAccountMapping.objects.update_or_create(
+        setup=setup,
+        mapping_key=PropertyLedgerAccountMapping.MappingKey.ACCOUNTS_RECEIVABLE,
+        defaults={
+            "ledgeros_account_id": "1200",
+            "ledgeros_account_name": "Accounts receivable",
+            "ledgeros_account_type": "asset",
+        },
+    )
 
 
 class LedgerOSSyncRecordModelTests(TestCase):
@@ -116,9 +167,13 @@ class LedgerOSSetupViewTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "PropertyLedger Setup")
+        self.assertContains(response, "What Must Be Configured")
+        self.assertContains(response, "LedgerOS connection saved")
+        self.assertContains(response, "Required account mappings configured")
         self.assertContains(response, "Setup Status")
         self.assertContains(response, "Recommended Order")
         self.assertContains(response, "Create owners")
+        self.assertContains(response, "Create tenant charges")
 
         post_response = self.client.post(
             reverse("ledgeros-setup"),
@@ -143,6 +198,7 @@ class LedgerOSSetupViewTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "Required account mappings")
         self.assertContains(response, "LedgerOS health")
+        self.assertContains(response, "Blocking Issues")
         self.assertNotContains(response, "required_account_mappings:")
         self.assertNotContains(response, "ledgeros_health:")
 
@@ -170,6 +226,137 @@ class PropertyLedgerDomainModelTests(TestCase):
 
         self.assertEqual(str(lease.rent_effective_date), "2026-01-01")
         self.assertIsNone(lease.lease_end_date)
+
+    def test_tenant_charge_can_be_property_level_manual_charge(self):
+        owner = Owner.objects.create(name="Owner One")
+        property_obj = Property.objects.create(
+            name="Property One",
+            primary_owner=owner,
+        )
+
+        charge = TenantCharge(
+            property=property_obj,
+            charge_type=TenantCharge.ChargeType.UTILITY_REIMBURSEMENT,
+            charge_date=date(2026, 1, 15),
+            due_date=date(2026, 1, 31),
+            amount=Decimal("125.00"),
+            description="Water reimbursement",
+        )
+        charge.full_clean()
+        charge.save()
+
+        self.assertIsNone(charge.lease_id)
+        self.assertEqual(charge.get_charge_scope_summary(), "Property One")
+
+    def test_base_rent_charge_infers_scope_from_lease(self):
+        owner = Owner.objects.create(name="Owner One")
+        property_obj = Property.objects.create(
+            name="Property One",
+            primary_owner=owner,
+        )
+        unit = Unit.objects.create(property=property_obj, name="101")
+        tenant = Tenant.objects.create(name="Tenant One")
+        lease = Lease.objects.create(
+            unit=unit,
+            tenant=tenant,
+            lease_start_date=date(2026, 1, 1),
+            base_monthly_rent_amount=Decimal("1500.00"),
+            deposit_required_amount=Decimal("500.00"),
+        )
+
+        charge = TenantCharge(
+            lease=lease,
+            charge_type=TenantCharge.ChargeType.BASE_RENT,
+            billing_period_start=date(2026, 1, 1),
+            billing_period_end=date(2026, 1, 31),
+            charge_date=date(2026, 1, 1),
+            due_date=date(2026, 1, 31),
+            amount=Decimal("1500.00"),
+            description="January rent",
+        )
+        charge.full_clean()
+        charge.save()
+
+        self.assertEqual(charge.property, property_obj)
+        self.assertEqual(charge.unit, unit)
+        self.assertEqual(charge.tenant, tenant)
+
+    def test_rent_generation_is_prorated_for_mid_month_start(self):
+        owner = Owner.objects.create(name="Owner One")
+        property_obj = Property.objects.create(
+            name="Property One",
+            primary_owner=owner,
+        )
+        unit = Unit.objects.create(property=property_obj, name="101")
+        tenant = Tenant.objects.create(name="Tenant One")
+        Lease.objects.create(
+            unit=unit,
+            tenant=tenant,
+            lease_start_date=date(2026, 1, 16),
+            base_monthly_rent_amount=Decimal("3100.00"),
+            deposit_required_amount=Decimal("500.00"),
+            status=Lease.Status.ACTIVE,
+        )
+
+        created = TenantChargeService.generate_base_rent_for_month(date(2026, 1, 1))
+        self.assertEqual(len(created), 1)
+        charge = created[0]
+        self.assertEqual(charge.amount, Decimal("1600.00"))
+        self.assertEqual(charge.status, TenantCharge.Status.DRAFT)
+        self.assertEqual(TenantCharge.objects.count(), 1)
+
+        duplicate = TenantChargeService.generate_base_rent_for_month(date(2026, 1, 1))
+        self.assertEqual(duplicate, [])
+        self.assertEqual(TenantCharge.objects.count(), 1)
+
+    @patch.dict(os.environ, {"LEDGEROS_HMAC_SECRET": "secret"}, clear=False)
+    @patch("ledgeros.services.urlopen")
+    def test_approving_charge_posts_invoice_and_sets_synced_status(self, mock_urlopen):
+        _configure_ledgeros_invoice_sync()
+
+        owner = Owner.objects.create(name="Owner One")
+        property_obj = Property.objects.create(
+            name="Property One",
+            primary_owner=owner,
+        )
+        tenant = Tenant.objects.create(name="Tenant One")
+
+        charge = TenantCharge.objects.create(
+            property=property_obj,
+            tenant=tenant,
+            charge_type=TenantCharge.ChargeType.LATE_FEE_MANUAL,
+            charge_date=date(2026, 1, 15),
+            due_date=date(2026, 1, 31),
+            amount=Decimal("25.00"),
+            description="Late fee",
+            status=TenantCharge.Status.DRAFT,
+        )
+        mock_urlopen.return_value = _FakeResponse(
+            status=201,
+            payload=json.dumps(
+                {
+                    "invoice": {
+                        "id": "inv_1",
+                        "invoice_number": "API-INV-0001",
+                    },
+                    "journal_entry": {"id": "je_1"},
+                }
+            ).encode("utf-8"),
+        )
+
+        TenantChargeService.approve_charge(charge)
+        charge.refresh_from_db()
+
+        self.assertEqual(charge.status, TenantCharge.Status.SYNCED)
+        self.assertIsNotNone(charge.sync_record_id)
+        self.assertEqual(charge.sync_record.status, LedgerOSSyncRecord.Status.SUCCEEDED)
+        self.assertEqual(charge.sync_record.ledgeros_resource_id, "inv_1")
+        self.assertEqual(charge.sync_record.ledgeros_journal_entry_id, "je_1")
+        request = mock_urlopen.call_args.args[0]
+        self.assertEqual(request.full_url, "http://ledgeros-web:8000/api/v1/invoices/")
+        payload = json.loads(request.data.decode("utf-8"))
+        self.assertEqual(payload["customer_code"], f"tenant-{tenant.pk}")
+        self.assertEqual(payload["lines"][0]["account_code"], "4000")
 
     def test_setup_completion_validation_requires_required_state(self):
         setup = PropertyLedgerSetup.load()
@@ -233,8 +420,44 @@ class PropertyLedgerCrudViewTests(TestCase):
         )
         self.client.force_login(self.user)
 
-    def test_property_unit_tenant_and_lease_crud_flow(self):
+    def _create_rental_income_mapping(self):
+        _configure_ledgeros_invoice_sync()
+
+    @patch.dict(os.environ, {"LEDGEROS_HMAC_SECRET": "secret"}, clear=False)
+    @patch("ledgeros.views.LedgerOSHealthCheckService.check")
+    @patch("ledgeros.services.urlopen")
+    def test_property_unit_tenant_and_lease_crud_flow(self, mock_urlopen, mock_health_check):
         owner = Owner.objects.create(name="Owner One", is_active=True)
+        self._create_rental_income_mapping()
+        mock_health_check.return_value = SimpleNamespace(
+            healthy=True,
+            source="ledgeros",
+            details={"status": "healthy"},
+        )
+        customer_response = _FakeResponse(
+            status=201,
+            payload=json.dumps(
+                {
+                    "customer": {
+                        "id": "cus_1",
+                        "customer_code": "property-1",
+                    }
+                }
+            ).encode("utf-8"),
+        )
+        invoice_response = _FakeResponse(
+            status=201,
+            payload=json.dumps(
+                {
+                    "invoice": {
+                        "id": "inv_2",
+                        "invoice_number": "API-INV-0002",
+                    },
+                    "journal_entry": {"id": "je_2"},
+                }
+            ).encode("utf-8"),
+        )
+        mock_urlopen.side_effect = [customer_response, customer_response, invoice_response]
 
         property_response = self.client.post(
             reverse("property-create"),
@@ -295,11 +518,209 @@ class PropertyLedgerCrudViewTests(TestCase):
         self.assertEqual(self.client.get(reverse("unit-list")).status_code, 200)
         self.assertEqual(self.client.get(reverse("tenant-list")).status_code, 200)
         self.assertEqual(self.client.get(reverse("lease-list")).status_code, 200)
+        self.assertEqual(self.client.get(reverse("charge-list")).status_code, 200)
+
+        charge_response = self.client.post(
+            reverse("charge-create"),
+            {
+                "lease": lease.pk,
+                "charge_type": TenantCharge.ChargeType.UTILITY_REIMBURSEMENT,
+                "billing_period_start": "",
+                "billing_period_end": "",
+                "charge_date": "2026-01-15",
+                "due_date": "2026-01-31",
+                "amount": "125.00",
+                "description": "Water reimbursement",
+                "status": TenantCharge.Status.DRAFT,
+            },
+        )
+        self.assertEqual(charge_response.status_code, 302)
+        charge = TenantCharge.objects.get(description="Water reimbursement")
+        self.assertEqual(charge.property, property_obj)
+        self.assertEqual(charge.unit, unit)
+        self.assertEqual(charge.tenant, tenant)
+
+        charge_list_response = self.client.get(reverse("charge-list"))
+        self.assertEqual(charge_list_response.status_code, 200)
+        self.assertContains(charge_list_response, 'name="selected_charge_ids"')
+        self.assertContains(charge_list_response, "Approve selected")
+        self.assertContains(charge_list_response, "Archive selected")
+
+        approve_response = self.client.post(
+            reverse("charge-list"),
+            {
+                "bulk_action": "approve",
+                "selected_charge_ids": [charge.pk],
+            },
+        )
+        self.assertEqual(approve_response.status_code, 302)
+        charge.refresh_from_db()
+        self.assertEqual(charge.status, TenantCharge.Status.SYNCED)
+        self.assertIsNotNone(charge.sync_record_id)
+        self.assertEqual(charge.sync_record.status, LedgerOSSyncRecord.Status.SUCCEEDED)
+        self.assertEqual(charge.sync_record.ledgeros_resource_id, "inv_2")
+
+        archive_response = self.client.post(
+            reverse("charge-list"),
+            {
+                "bulk_action": "archive",
+                "selected_charge_ids": [charge.pk],
+            },
+        )
+        self.assertEqual(archive_response.status_code, 302)
+        charge.refresh_from_db()
+        self.assertEqual(charge.status, TenantCharge.Status.VOIDED)
+        self.assertEqual(mock_urlopen.call_count, 3)
+
+        property_customer_payload = json.loads(mock_urlopen.call_args_list[0].args[0].data.decode("utf-8"))
+        tenant_customer_payload = json.loads(mock_urlopen.call_args_list[1].args[0].data.decode("utf-8"))
+        invoice_payload = json.loads(mock_urlopen.call_args_list[2].args[0].data.decode("utf-8"))
+        self.assertEqual(property_customer_payload["customer_code"], f"property-{property_obj.pk}")
+        self.assertEqual(tenant_customer_payload["customer_code"], f"tenant-{tenant.pk}")
+        self.assertEqual(invoice_payload["customer_code"], f"tenant-{tenant.pk}")
+        self.assertEqual(property_customer_payload["default_ar_account_code"], "1200")
+        self.assertEqual(tenant_customer_payload["default_ar_account_code"], "1200")
 
         archive_response = self.client.post(reverse("property-archive", args=[property_obj.pk]))
         self.assertEqual(archive_response.status_code, 302)
         property_obj.refresh_from_db()
         self.assertEqual(property_obj.status, Property.Status.ARCHIVED)
+
+    @patch("ledgeros.views.LedgerOSHealthCheckService.check")
+    @patch("ledgeros.views.LedgerOSCustomerSyncService.create_customer")
+    def test_property_create_rolls_back_when_customer_sync_fails(self, mock_create_customer, mock_health_check):
+        owner = Owner.objects.create(name="Owner One", is_active=True)
+        self._create_rental_income_mapping()
+        mock_health_check.return_value = SimpleNamespace(
+            healthy=True,
+            source="ledgeros",
+            details={"status": "healthy"},
+        )
+        mock_create_customer.side_effect = ValidationError(
+            {"ledgeros": "LedgerOS customer sync failed."}
+        )
+
+        response = self.client.post(
+            reverse("property-create"),
+            {
+                "name": "Property One",
+                "primary_owner": owner.pk,
+                "status": Property.Status.ACTIVE,
+                "notes": "Test property",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "LedgerOS customer sync failed.")
+        self.assertFalse(Property.objects.filter(name="Property One").exists())
+        self.assertEqual(mock_create_customer.call_count, 1)
+
+    @patch("ledgeros.views.LedgerOSHealthCheckService.check")
+    @patch("ledgeros.views.LedgerOSCustomerSyncService.create_customer")
+    def test_tenant_create_rolls_back_when_customer_sync_fails(self, mock_create_customer, mock_health_check):
+        self._create_rental_income_mapping()
+        mock_health_check.return_value = SimpleNamespace(
+            healthy=True,
+            source="ledgeros",
+            details={"status": "healthy"},
+        )
+        mock_create_customer.side_effect = ValidationError(
+            {"ledgeros": "LedgerOS customer sync failed."}
+        )
+
+        response = self.client.post(
+            reverse("tenant-create"),
+            {
+                "name": "Tenant One",
+                "email": "tenant@example.com",
+                "phone": "555-1212",
+                "is_active": True,
+                "notes": "",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "LedgerOS customer sync failed.")
+        self.assertFalse(Tenant.objects.filter(name="Tenant One").exists())
+        self.assertEqual(mock_create_customer.call_count, 1)
+
+    @patch.dict(os.environ, {"LEDGEROS_HMAC_SECRET": "secret"}, clear=False)
+    @patch("ledgeros.services.urlopen")
+    def test_charge_list_shows_sync_error_log(self, mock_urlopen):
+        self._create_rental_income_mapping()
+        owner = Owner.objects.create(name="Owner One", is_active=True)
+        property_obj = Property.objects.create(
+            name="Property One",
+            primary_owner=owner,
+        )
+        charge = TenantCharge.objects.create(
+            property=property_obj,
+            charge_type=TenantCharge.ChargeType.UTILITY_REIMBURSEMENT,
+            charge_date=date(2026, 1, 1),
+            due_date=date(2026, 1, 31),
+            amount=Decimal("125.00"),
+            description="Water reimbursement",
+            status=TenantCharge.Status.DRAFT,
+        )
+        mock_urlopen.return_value = _FakeResponse(
+            status=400,
+            payload=b'{"error":"Unknown customer"}',
+        )
+
+        TenantChargeService.approve_charge(charge)
+        charge.refresh_from_db()
+
+        self.assertEqual(charge.status, TenantCharge.Status.SYNC_FAILED)
+        response = self.client.get(reverse("charge-list"))
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Sync log")
+        self.assertContains(response, "LedgerOS returned HTTP 400")
+        self.assertContains(response, "Unknown customer")
+
+    @patch.dict(os.environ, {"LEDGEROS_HMAC_SECRET": "secret"}, clear=False)
+    @patch("ledgeros.services.urlopen")
+    def test_http_error_body_is_preserved_in_sync_failure(self, mock_urlopen):
+        self._create_rental_income_mapping()
+        owner = Owner.objects.create(name="Owner One", is_active=True)
+        property_obj = Property.objects.create(
+            name="Property One",
+            primary_owner=owner,
+        )
+        charge = TenantCharge.objects.create(
+            property=property_obj,
+            charge_type=TenantCharge.ChargeType.UTILITY_REIMBURSEMENT,
+            charge_date=date(2026, 1, 1),
+            due_date=date(2026, 1, 31),
+            amount=Decimal("125.00"),
+            description="Water reimbursement",
+            status=TenantCharge.Status.DRAFT,
+        )
+        mock_urlopen.side_effect = HTTPError(
+            url="http://ledgeros-web:8000/api/v1/invoices/",
+            code=403,
+            msg="Forbidden",
+            hdrs=None,
+            fp=BytesIO(b'{"error":"Missing or invalid authorization"}'),
+        )
+
+        TenantChargeService.approve_charge(charge)
+        charge.refresh_from_db()
+
+        self.assertEqual(charge.status, TenantCharge.Status.SYNC_FAILED)
+        self.assertIn(
+            "LedgerOS returned HTTP 403: {\"error\":\"Missing or invalid authorization\"}",
+            charge.sync_record.last_error,
+        )
+        self.assertEqual(
+            charge.sync_record.response_payload,
+            {
+                "status": "failed",
+                "error": (
+                    "LedgerOS returned HTTP 403: "
+                    '{"error":"Missing or invalid authorization"}'
+                ),
+            },
+        )
 
     def test_create_pages_explain_required_setup_order(self):
         property_response = self.client.get(reverse("property-create"))
@@ -321,6 +742,12 @@ class PropertyLedgerCrudViewTests(TestCase):
             lease_response, "Create a unit and a tenant before adding a lease."
         )
 
+        charge_response = self.client.get(reverse("charge-create"))
+        self.assertEqual(charge_response.status_code, 200)
+        self.assertContains(
+            charge_response, "Create a property before adding charges."
+        )
+
     def test_lease_form_uses_date_inputs(self):
         owner = Owner.objects.create(name="Owner One", is_active=True)
         property_obj = Property.objects.create(
@@ -333,6 +760,21 @@ class PropertyLedgerCrudViewTests(TestCase):
         lease_response = self.client.get(reverse("lease-create"))
         self.assertEqual(lease_response.status_code, 200)
         self.assertContains(lease_response, 'type="date"', count=3)
+
+    def test_charge_form_uses_date_inputs(self):
+        owner = Owner.objects.create(name="Owner One", is_active=True)
+        property_obj = Property.objects.create(
+            name="Property One",
+            primary_owner=owner,
+        )
+
+        response = self.client.get(reverse("charge-create"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'type="date"', count=4)
+        self.assertNotContains(response, 'name="property"')
+        self.assertNotContains(response, 'name="unit"')
+        self.assertNotContains(response, 'name="tenant"')
 
     def test_admin_lease_add_uses_date_inputs(self):
         User = get_user_model()

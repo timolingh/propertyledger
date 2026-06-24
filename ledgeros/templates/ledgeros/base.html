@@ -57,6 +57,30 @@
         padding: 1rem 1.25rem;
         margin-bottom: 1rem;
       }
+      .messages {
+        list-style: none;
+        padding: 0;
+        margin: 0 0 1rem;
+      }
+      .messages li {
+        border-radius: 10px;
+        border: 1px solid var(--border);
+        padding: 0.75rem 1rem;
+        margin-bottom: 0.5rem;
+        background: #fff;
+      }
+      .messages .success {
+        background: #eef7f1;
+        border-color: #c3e0cd;
+      }
+      .messages .warning {
+        background: #fff6e8;
+        border-color: #ecd8ab;
+      }
+      .messages .error {
+        background: #fff1f1;
+        border-color: #efc2c2;
+      }
       .muted {
         color: var(--muted);
       }
@@ -125,6 +149,7 @@
       <a href="{% url 'unit-list' %}">Units</a>
       <a href="{% url 'tenant-list' %}">Tenants</a>
       <a href="{% url 'lease-list' %}">Leases</a>
+      <a href="{% url 'charge-list' %}">Charges</a>
       <a href="/admin/">Admin</a>
     </header>
     <main>
@@ -157,6 +182,13 @@
           <strong>Setup complete</strong>
           <div class="muted">PropertyLedger is ready for Epic 2 workflows.</div>
         </div>
+      {% endif %}
+      {% if messages %}
+        <ul class="messages">
+          {% for message in messages %}
+            <li class="{{ message.tags }}">{{ message }}</li>
+          {% endfor %}
+        </ul>
       {% endif %}
       {% block content %}{% endblock %}
     </main>

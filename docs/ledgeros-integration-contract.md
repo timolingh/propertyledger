@@ -56,7 +56,7 @@ The local health check is deterministic and verifies only the PropertyLedger app
 The LedgerOS health check is deterministic and:
 
 - calls the configured LedgerOS health endpoint;
-- defaults to `/api/v1/health/` for the real LedgerOS full-stack setup;
+- defaults to `/api/v1/health/` for the real LedgerOS setup;
 - uses the configured timeout;
 - returns healthy only when the response is HTTP 200 with JSON payload `{"status":"ok"}` or `{"status":"healthy"}`;
 - reports any missing config, timeout, authentication failure, connection error, non-2xx response, or malformed payload as unhealthy.
@@ -68,6 +68,43 @@ PropertyLedger signs LedgerOS-bound requests with the configured HMAC secret.
 Idempotency keys must be deterministic for the same logical outbound event.
 
 Idempotency keys must be stable across retries and must be stored with the sync record.
+
+## Invoice submission contract
+
+PropertyLedger submits tenant-charge invoices to:
+
+- `POST /api/v1/invoices/`
+
+The request body must include:
+
+- `customer_code`
+- `external_invoice_number`
+- `invoice_date`
+- `due_date`
+- `total_amount`
+- `lines`
+
+Each invoice line must include:
+
+- `account_code`
+- `line_description`
+- `amount`
+
+Write requests must include the HMAC headers used by the LedgerOS API client flow:
+
+- `X-LedgerOS-Client-Id`
+- `X-LedgerOS-Timestamp`
+- `X-LedgerOS-Nonce`
+- `X-LedgerOS-Signature`
+- `Idempotency-Key`
+- `Content-Type: application/json`
+
+PropertyLedger provisions LedgerOS customers before creating properties and tenants. The invoice customer code is derived from the local object identity, not from the display name:
+
+- properties use `property-{property.pk}`
+- tenants use `tenant-{tenant.pk}`
+
+Tenant-charge invoice sync must reuse the same stable customer code rules so retry behavior stays deterministic.
 
 ## Sync mapping expectations
 

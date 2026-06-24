@@ -1,10 +1,14 @@
 from __future__ import annotations
 
+import json
 from typing import Any
 
+from django.contrib import messages
+from django.core.exceptions import ValidationError
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.http import HttpResponseRedirect
 from django.urls import reverse, reverse_lazy
+from django.db import transaction
 from django.views.generic import CreateView, DeleteView, ListView, TemplateView, UpdateView
 from rest_framework import generics
 from rest_framework.response import Response
@@ -15,6 +19,7 @@ from ledgeros.forms import (
     LedgerOSConnectionSettingsForm,
     OwnerForm,
     PropertyForm,
+    TenantChargeForm,
     TenantForm,
     UnitForm,
 )
@@ -24,15 +29,42 @@ from ledgeros.models import (
     LedgerOSSyncRecord,
     Owner,
     Property,
+    PropertyLedgerAccountMapping,
     PropertyLedgerSetup,
     Tenant,
+    TenantCharge,
     Unit,
 )
 from ledgeros.serializers import LedgerOSSyncRecordSerializer
-from ledgeros.services import LedgerOSHealthCheckService, LocalHealthCheckService
+from ledgeros.services import (
+    LedgerOSCustomerSyncService,
+    LedgerOSHealthCheckService,
+    LocalHealthCheckService,
+    TenantChargeService,
+)
+
+
+def _add_form_error_from_exception(form, exc: Exception) -> None:
+    if isinstance(exc, ValidationError):
+        message_dict = getattr(exc, "message_dict", None)
+        if isinstance(message_dict, dict):
+            for field, messages in message_dict.items():
+                for message in messages:
+                    form.add_error(field if field in form.fields else None, message)
+            return
+        for message in getattr(exc, "messages", [str(exc)]):
+            form.add_error(None, message)
+        return
+    form.add_error(None, str(exc))
 
 
 class LedgerOSAppContextMixin:
+    def _mapping_label(self, mapping_key: str) -> str:
+        try:
+            return PropertyLedgerAccountMapping.MappingKey(mapping_key).label
+        except ValueError:
+            return mapping_key.replace("_", " ").title()
+
     def get_setup_flow_steps(self) -> list[dict[str, Any]]:
         setup_obj = PropertyLedgerSetup.load()
         connection_settings = LedgerOSConnectionSettings.load()
@@ -77,8 +109,87 @@ class LedgerOSAppContextMixin:
                 "summary": "Finish the operational record chain.",
                 "complete": Lease.objects.exists(),
             },
+            {
+                "label": "Create tenant charges",
+                "url": reverse("charge-list"),
+                "summary": "Manual charges may be property-level or linked to a lease.",
+                "complete": TenantCharge.objects.exists(),
+            },
         ]
         return steps
+
+    def get_setup_prerequisites(self) -> list[dict[str, Any]]:
+        setup_obj = PropertyLedgerSetup.load()
+        connection_settings = LedgerOSConnectionSettings.load()
+        missing_required_mappings = [
+            self._mapping_label(mapping_key)
+            for mapping_key in setup_obj.missing_required_account_mappings()
+        ]
+
+        return [
+            {
+                "label": "LedgerOS connection saved",
+                "complete": bool(
+                    connection_settings.base_url and connection_settings.client_id
+                ),
+                "summary": (
+                    "Base URL and client ID must be present in the saved connection settings."
+                ),
+                "details": (
+                    f"Base URL: {connection_settings.base_url or 'missing'}; "
+                    f"Client ID: {connection_settings.client_id or 'missing'}"
+                ),
+            },
+            {
+                "label": "LedgerOS health check passes",
+                "complete": LedgerOSHealthCheckService.check().healthy,
+                "summary": (
+                    "The configured LedgerOS health endpoint must return a healthy response."
+                ),
+                "details": (
+                    "Run the LedgerOS health check from the setup page after saving connection settings."
+                ),
+            },
+            {
+                "label": "LedgerOS entity selected",
+                "complete": setup_obj.has_selected_ledgeros_entity,
+                "summary": "Select the LedgerOS entity that owns the PropertyLedger books.",
+                "details": (
+                    setup_obj.ledgeros_entity_name or "No LedgerOS entity has been selected yet."
+                ),
+            },
+            {
+                "label": "Accounting period selected",
+                "complete": setup_obj.has_selected_accounting_period,
+                "summary": "Select the open accounting period to receive posted activity.",
+                "details": (
+                    setup_obj.ledgeros_accounting_period_name
+                    or "No accounting period has been selected yet."
+                ),
+            },
+            {
+                "label": "Required account mappings configured",
+                "complete": not missing_required_mappings,
+                "summary": (
+                    "All required LedgerOS account mappings must exist and be valid before setup can complete."
+                ),
+                "details": (
+                    ", ".join(missing_required_mappings)
+                    if missing_required_mappings
+                    else "All required mappings are present."
+                ),
+            },
+            {
+                "label": "Setup smoke passes",
+                "complete": setup_obj.last_setup_smoke_healthy,
+                "summary": (
+                    "The smoke check confirms the full setup path is usable end to end."
+                ),
+                "details": (
+                    "Run make smoke after configuring LedgerOS, the entity, the period, and the required mappings."
+                ),
+            },
+        ]
 
     def get_app_context(self) -> dict[str, Any]:
         setup_obj = PropertyLedgerSetup.load()
@@ -89,6 +200,7 @@ class LedgerOSAppContextMixin:
             "setup_is_complete": (
                 setup_obj.setup_status == PropertyLedgerSetup.Status.COMPLETE
             ),
+            "setup_prerequisites": self.get_setup_prerequisites(),
             "setup_flow_steps": setup_flow_steps,
             "setup_next_step": next(
                 (step for step in setup_flow_steps if not step["complete"]),
@@ -333,6 +445,25 @@ class PropertyCreateView(LedgerOSCrudFormView, CreateView):
             "create_gate_label": "Go to owners",
         }
 
+    def form_valid(self, form):
+        validation_failed = False
+        with transaction.atomic():
+            self.object = form.save()
+            try:
+                LedgerOSCustomerSyncService.create_customer(
+                    customer_code=LedgerOSCustomerSyncService._customer_code_for_property(
+                        self.object
+                    ),
+                    name=self.object.name,
+                )
+            except (ValidationError, RuntimeError) as exc:
+                _add_form_error_from_exception(form, exc)
+                transaction.set_rollback(True)
+                validation_failed = True
+        if validation_failed:
+            return self.form_invalid(form)
+        return HttpResponseRedirect(reverse(self.list_url_name))
+
 
 class PropertyUpdateView(LedgerOSCrudFormView, UpdateView):
     model = Property
@@ -444,6 +575,25 @@ class TenantCreateView(LedgerOSCrudFormView, CreateView):
     page_action = "Create tenant"
     list_url_name = "tenant-list"
 
+    def form_valid(self, form):
+        validation_failed = False
+        with transaction.atomic():
+            self.object = form.save()
+            try:
+                LedgerOSCustomerSyncService.create_customer(
+                    customer_code=LedgerOSCustomerSyncService._customer_code_for_tenant(
+                        self.object
+                    ),
+                    name=self.object.name,
+                )
+            except (ValidationError, RuntimeError) as exc:
+                _add_form_error_from_exception(form, exc)
+                transaction.set_rollback(True)
+                validation_failed = True
+        if validation_failed:
+            return self.form_invalid(form)
+        return HttpResponseRedirect(reverse(self.list_url_name))
+
 
 class TenantUpdateView(LedgerOSCrudFormView, UpdateView):
     model = Tenant
@@ -549,4 +699,199 @@ class LeaseArchiveView(LedgerOSCrudArchiveView):
 
     def archive_object(self, obj):
         obj.status = Lease.Status.CANCELLED
+        obj.save(update_fields=["status", "updated_at"])
+
+
+class TenantChargeListView(LedgerOSCrudListView):
+    model = TenantCharge
+    page_title = "Tenant Charges"
+    create_url_name = "charge-create"
+    create_label = "Add charge"
+    bulk_action_choices = [
+        ("approve", "Approve selected"),
+        ("archive", "Archive selected"),
+    ]
+
+    def get_create_gate_context(self) -> dict[str, Any]:
+        if Property.objects.exists():
+            return super().get_create_gate_context()
+        return {
+            "create_available": False,
+            "create_gate_message": "Create a property before adding charges.",
+            "create_gate_url": reverse("property-list"),
+            "create_gate_label": "Go to properties",
+        }
+
+    def get_rows(self, objects):
+        return [
+            {
+                "object": obj,
+                "summary": (
+                    f"{obj.get_charge_scope_summary()} | {obj.get_charge_type_display()} "
+                    f"| {obj.amount} | {obj.get_status_display()}"
+                ),
+                "edit_url": reverse("charge-edit", kwargs={"pk": obj.pk}),
+            }
+            for obj in objects
+        ]
+
+    def post(self, request, *args, **kwargs):
+        action = request.POST.get("bulk_action", "").strip()
+        selected_ids = [
+            value
+            for value in request.POST.getlist("selected_charge_ids")
+            if value.strip().isdigit()
+        ]
+        if not action:
+            messages.error(request, "Choose a bulk action before submitting.")
+            return HttpResponseRedirect(reverse("charge-list"))
+        if not selected_ids:
+            messages.error(request, "Select at least one charge first.")
+            return HttpResponseRedirect(reverse("charge-list"))
+
+        charges_by_id = {
+            str(charge.pk): charge
+            for charge in TenantCharge.objects.filter(pk__in=selected_ids)
+        }
+        missing_ids = [pk for pk in selected_ids if pk not in charges_by_id]
+        if missing_ids:
+            messages.error(
+                request,
+                f"Could not find charge(s): {', '.join(missing_ids)}.",
+            )
+            return HttpResponseRedirect(reverse("charge-list"))
+
+        charges = list(charges_by_id.values())
+        if action == "approve":
+            approved_count = 0
+            skipped_ids: list[str] = []
+            for charge in charges:
+                if charge.status in {
+                    TenantCharge.Status.SYNCED,
+                    TenantCharge.Status.VOIDED,
+                }:
+                    skipped_ids.append(str(charge.pk))
+                    continue
+                TenantChargeService.approve_charge(charge)
+                approved_count += 1
+            if approved_count:
+                messages.success(
+                    request,
+                    f"Approved {approved_count} charge"
+                    f"{'' if approved_count == 1 else 's'}.",
+                )
+            if skipped_ids:
+                messages.warning(
+                    request,
+                    f"Skipped already finalized charge(s): {', '.join(skipped_ids)}.",
+                )
+            return HttpResponseRedirect(reverse("charge-list"))
+
+        if action == "archive":
+            archived_count = 0
+            for charge in charges:
+                if charge.status != TenantCharge.Status.VOIDED:
+                    charge.status = TenantCharge.Status.VOIDED
+                    charge.save(update_fields=["status", "updated_at"])
+                    archived_count += 1
+            messages.success(
+                request,
+                f"Archived {archived_count} charge"
+                f"{'' if archived_count == 1 else 's'}.",
+            )
+            return HttpResponseRedirect(reverse("charge-list"))
+
+        messages.error(request, f"Unknown bulk action: {action}.")
+        return HttpResponseRedirect(reverse("charge-list"))
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        failed_charges = (
+            TenantCharge.objects.select_related("sync_record", "property", "tenant", "lease")
+            .filter(sync_record__status=LedgerOSSyncRecord.Status.FAILED)
+            .order_by("-updated_at", "-id")[:5]
+        )
+        context["sync_log_entries"] = [
+            {
+                "title": f"Charge {charge.pk} sync failed",
+                "object": charge,
+                "status": charge.sync_record.status if charge.sync_record else "",
+                "error": charge.sync_record.last_error if charge.sync_record else "",
+                "response_text": (
+                    json.dumps(charge.sync_record.response_payload, indent=2, sort_keys=True)
+                    if charge.sync_record and charge.sync_record.response_payload is not None
+                    else ""
+                ),
+                "updated_at": charge.sync_record.updated_at if charge.sync_record else charge.updated_at,
+            }
+            for charge in failed_charges
+            if charge.sync_record is not None
+        ]
+        return context
+
+
+class TenantChargeCreateView(LedgerOSCrudFormView, CreateView):
+    model = TenantCharge
+    form_class = TenantChargeForm
+    page_title = "Add charge"
+    page_action = "Create charge"
+    list_url_name = "charge-list"
+
+    def get_create_gate_context(self) -> dict[str, Any]:
+        if Property.objects.exists():
+            return super().get_create_gate_context()
+        return {
+            "create_available": False,
+            "create_gate_message": "Create a property before adding charges.",
+            "create_gate_url": reverse("property-list"),
+            "create_gate_label": "Go to properties",
+        }
+
+    def form_valid(self, form):
+        self.object = form.save()
+        if self.object.status == TenantCharge.Status.APPROVED:
+            TenantChargeService.approve_charge(self.object)
+        return HttpResponseRedirect(reverse(self.list_url_name))
+
+
+class TenantChargeUpdateView(LedgerOSCrudFormView, UpdateView):
+    model = TenantCharge
+    form_class = TenantChargeForm
+    page_title = "Edit charge"
+    page_action = "Save charge"
+    list_url_name = "charge-list"
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        if getattr(self, "object", None) and self.object.sync_record:
+            context["sync_log_entries"] = [
+                {
+                    "title": f"Charge {self.object.pk} sync status",
+                    "object": self.object,
+                    "status": self.object.sync_record.status,
+                    "error": self.object.sync_record.last_error or "",
+                    "response_text": (
+                        json.dumps(self.object.sync_record.response_payload, indent=2, sort_keys=True)
+                        if self.object.sync_record.response_payload is not None
+                        else ""
+                    ),
+                    "updated_at": self.object.sync_record.updated_at,
+                }
+            ]
+        return context
+
+    def form_valid(self, form):
+        self.object = form.save()
+        if self.object.status == TenantCharge.Status.APPROVED:
+            TenantChargeService.approve_charge(self.object)
+        return HttpResponseRedirect(reverse(self.list_url_name))
+
+
+class TenantChargeArchiveView(LedgerOSCrudArchiveView):
+    model = TenantCharge
+    page_title = "Archive charge"
+    list_url_name = "charge-list"
+
+    def archive_object(self, obj):
+        obj.status = TenantCharge.Status.VOIDED
         obj.save(update_fields=["status", "updated_at"])

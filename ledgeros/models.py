@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import builtins
+from datetime import date
 from decimal import Decimal
 
 from django.core.exceptions import ValidationError
 from django.db import models
+from django.db.models import Q
 
 
 class SingletonModel(models.Model):
@@ -22,6 +25,7 @@ class SingletonModel(models.Model):
 
 class LedgerOSConnectionSettings(SingletonModel):
     base_url = models.URLField(blank=True)
+    host_header = models.CharField(max_length=255, blank=True, default="")
     client_id = models.CharField(max_length=255, blank=True)
     hmac_secret_env_var = models.CharField(
         max_length=255, default="LEDGEROS_HMAC_SECRET"
@@ -411,6 +415,142 @@ class Lease(TimestampedModel):
 
     def __str__(self) -> str:
         return f"{self.unit} - {self.tenant}"
+
+
+class TenantCharge(TimestampedModel):
+    class ChargeType(models.TextChoices):
+        BASE_RENT = "base_rent", "Base rent"
+        UTILITY_REIMBURSEMENT = "utility_reimbursement", "Utility reimbursement"
+        LATE_FEE_MANUAL = "late_fee_manual", "Late fee manual"
+        OTHER_MANUAL = "other_manual", "Other manual"
+
+    class Status(models.TextChoices):
+        DRAFT = "draft", "Draft"
+        APPROVED = "approved", "Approved"
+        SYNC_PENDING = "sync_pending", "Sync pending"
+        SYNCED = "synced", "Synced"
+        SYNC_FAILED = "sync_failed", "Sync failed"
+        VOIDED = "voided", "Voided"
+
+    property = models.ForeignKey(
+        Property,
+        on_delete=models.PROTECT,
+        related_name="tenant_charges",
+    )
+    unit = models.ForeignKey(
+        Unit,
+        on_delete=models.PROTECT,
+        related_name="tenant_charges",
+        blank=True,
+        null=True,
+    )
+    tenant = models.ForeignKey(
+        Tenant,
+        on_delete=models.PROTECT,
+        related_name="tenant_charges",
+        blank=True,
+        null=True,
+    )
+    lease = models.ForeignKey(
+        Lease,
+        on_delete=models.PROTECT,
+        related_name="tenant_charges",
+        blank=True,
+        null=True,
+    )
+    charge_type = models.CharField(max_length=64, choices=ChargeType.choices)
+    billing_period_start = models.DateField(blank=True, null=True)
+    billing_period_end = models.DateField(blank=True, null=True)
+    charge_date = models.DateField()
+    due_date = models.DateField()
+    amount = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        default=Decimal("0.00"),
+    )
+    description = models.TextField(blank=True, default="")
+    status = models.CharField(
+        max_length=20, choices=Status.choices, default=Status.DRAFT
+    )
+    sync_record = models.OneToOneField(
+        "LedgerOSSyncRecord",
+        on_delete=models.SET_NULL,
+        blank=True,
+        null=True,
+        related_name="tenant_charge",
+    )
+
+    class Meta:
+        ordering = ["-charge_date", "-id"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["lease", "billing_period_start", "billing_period_end"],
+                condition=Q(charge_type="base_rent"),
+                name="uniq_base_rent_charge_period",
+            )
+        ]
+
+    def clean(self):
+        super().clean()
+        if self.lease_id:
+            self.property = self.lease.unit.property
+            self.unit = self.lease.unit
+            self.tenant = self.lease.tenant
+            if self.charge_type == self.ChargeType.BASE_RENT:
+                if not self.billing_period_start or not self.billing_period_end:
+                    raise ValidationError(
+                        {
+                            "billing_period_start": "Billing period is required for base rent.",
+                            "billing_period_end": "Billing period is required for base rent.",
+                        }
+                    )
+            return
+
+        if not self.property_id:
+            raise ValidationError({"property": "Property is required."})
+
+        if self.charge_type == self.ChargeType.BASE_RENT:
+            raise ValidationError({"lease": "Base rent charges require a lease."})
+
+    def clean_fields(self, exclude=None):
+        exclude_set = set(exclude or [])
+        if self.lease_id:
+            exclude_set.update({"property", "unit", "tenant"})
+        super().clean_fields(exclude=exclude_set)
+
+    @builtins.property
+    def is_editable_after_sync(self) -> bool:
+        return self.status != self.Status.SYNCED
+
+    def get_charge_scope_summary(self) -> str:
+        if self.lease_id:
+            return f"{self.property.name} / {self.unit.name} -> {self.tenant.name}"
+        if self.unit_id and self.tenant_id:
+            return f"{self.property.name} / {self.unit.name} -> {self.tenant.name}"
+        return self.property.name
+
+    @classmethod
+    def prorated_amount_for_period(
+        cls,
+        *,
+        monthly_amount: Decimal,
+        period_start: date,
+        period_end: date,
+        occupied_start: date,
+        occupied_end: date | None = None,
+    ) -> Decimal:
+        occupied_end = occupied_end or period_end
+        effective_start = max(period_start, occupied_start)
+        effective_end = min(period_end, occupied_end)
+        if effective_end < effective_start:
+            return Decimal("0.00")
+        days_in_period = (period_end - period_start).days + 1
+        occupied_days = (effective_end - effective_start).days + 1
+        prorated = (monthly_amount * Decimal(occupied_days)) / Decimal(days_in_period)
+        return prorated.quantize(Decimal("0.01"))
+
+    def __str__(self) -> str:
+        return f"{self.get_charge_type_display()} | {self.property.name}"
 
 
 class LedgerOSSyncRecord(models.Model):

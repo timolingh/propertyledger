@@ -38,6 +38,7 @@ class LedgerOSHealthCheckTests(TestCase):
     def setUp(self):
         self.settings_obj = LedgerOSConnectionSettings.load()
         self.settings_obj.base_url = "http://ledgeros.example"
+        self.settings_obj.host_header = ""
         self.settings_obj.client_id = "propertyledger"
         self.settings_obj.hmac_secret_env_var = "TEST_LEDGEROS_HMAC_SECRET"
         self.settings_obj.health_path = "/health/"
@@ -68,6 +69,23 @@ class LedgerOSHealthCheckTests(TestCase):
         self.assertEqual(result.source, "ledgeros")
         self.assertEqual(result.details["http_status"], 200)
         self.assertEqual(result.details["payload"], {"status": "ok"})
+
+    @patch.dict(os.environ, {"TEST_LEDGEROS_HMAC_SECRET": "secret"}, clear=False)
+    @patch("ledgeros.services.urlopen")
+    def test_host_gateway_base_url_uses_localhost_host_header(self, mock_urlopen):
+        self.settings_obj.base_url = "http://host.docker.internal:8001"
+        self.settings_obj.host_header = "localhost:8001"
+        self.settings_obj.save()
+        mock_urlopen.return_value = _FakeResponse(
+            status=200,
+            payload=b'{"status":"ok"}',
+        )
+
+        result = LedgerOSHealthCheckService.check()
+
+        request = mock_urlopen.call_args.args[0]
+        self.assertTrue(result.healthy)
+        self.assertEqual(request.get_header("Host"), "localhost:8001")
 
     @patch.dict(os.environ, {"TEST_LEDGEROS_HMAC_SECRET": "secret"}, clear=False)
     @patch("ledgeros.services.urlopen")

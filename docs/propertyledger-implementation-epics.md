@@ -60,7 +60,7 @@ docker compose run --rm propertyledger-web python manage.py test
 
 All automated verification is expected to run in Docker. Do not depend on host Python, host Django packages, or host database services for test execution.
 
-When a real LedgerOS instance is needed, use the full-stack compose flow documented in the README. The mock LedgerOS flow, if present, is secondary and does not satisfy full-stack acceptance checks.
+When a real LedgerOS instance is needed, point PropertyLedger at the running LedgerOS endpoint configured in the README. The mock LedgerOS flow, if present, is secondary and does not satisfy the real LedgerOS acceptance checks.
 
 ## LedgerOS boundary discipline
 
@@ -120,7 +120,6 @@ For each new model, the epic must define required fields, nullable fields, defau
 Money fields must specify:
 
 - decimal amount field;
-- currency field;
 - whether negative amounts are allowed;
 - rounding behavior;
 - whether the value is user-entered, generated, imported, or calculated.
@@ -283,7 +282,7 @@ LedgerOS provides accounting-source-of-truth reports and statuses. PropertyLedge
 
 ### Money fields
 
-Use decimal money amounts, not floats. Store currency where the amount can reasonably cross currency boundaries or where future compatibility requires it. MVP default currency is `USD`.
+Use decimal money amounts, not floats. Do not store currency fields in MVP. Treat all money amounts as project-default currency amounts.
 
 Unless an epic explicitly permits negative amounts, user-entered money fields must be non-negative and direction must be expressed through workflow type, side, or accounting treatment.
 
@@ -354,6 +353,12 @@ Optional/deferred:
 
 Setup cannot be marked complete if a required mapping is missing, inactive, or mapped to an invalid LedgerOS account type.
 
+Example required mapping:
+
+| Mapping key | LedgerOS account id | LedgerOS account name | LedgerOS account type |
+| --- | --- | --- | --- |
+| `operating_bank_account` | `1000` | `Operating Bank` | `asset` |
+
 ### LedgerOSSyncRecord standard
 
 Every LedgerOS-bound accounting event must create or update a `LedgerOSSyncRecord`.
@@ -423,7 +428,7 @@ Create the base PropertyLedger app, containerized runtime, domain boundaries, Le
 - Django/DRF backend skeleton;
 - PostgreSQL database;
 - Docker Compose local development;
-- real LedgerOS full-stack startup path as the primary setup path;
+- real LedgerOS endpoint connectivity as the primary setup path;
 - mock LedgerOS mode only as a secondary isolated test mode, if present;
 - LedgerOS adapter interface;
 - LedgerOS HMAC signing helper;
@@ -454,7 +459,7 @@ Create the base PropertyLedger app, containerized runtime, domain boundaries, Le
 ## Acceptance criteria
 
 - App boots locally with Docker Compose.
-- The default setup path starts PropertyLedger and a real LedgerOS instance together.
+- The default setup path starts PropertyLedger and verifies connectivity to a real LedgerOS instance.
 - Local health check reports PropertyLedger app and database status.
 - LedgerOS health check reports healthy only for expected successful LedgerOS response.
 - App can create and persist a sync record.
@@ -464,13 +469,12 @@ Create the base PropertyLedger app, containerized runtime, domain boundaries, Le
 
 ## Docker/manual checks
 
-Use the commands documented in the README for the current repo. At minimum, a full-stack acceptance path must verify:
+Use the commands documented in the README for the current repo. At minimum, a real LedgerOS acceptance path must verify:
 
 - PropertyLedger container starts;
 - PropertyLedger database is reachable;
-- LedgerOS container starts;
 - LedgerOS database is reachable;
-- PropertyLedger can call LedgerOS health endpoint from inside Docker;
+- PropertyLedger can call the configured LedgerOS health endpoint from inside Docker;
 - checks/tests run inside containers.
 
 ---
@@ -625,6 +629,7 @@ Do not implement Epic 3 if these items are unresolved.
 - generate base monthly rent charges from active leases;
 - prevent duplicate rent generation for the same lease and billing period;
 - manual one-off tenant charges;
+- property-level manual charges not attached to a lease;
 - tenant charge statuses;
 - charge approval/post-to-LedgerOS action;
 - LedgerOS invoice sync through adapter;
@@ -650,7 +655,7 @@ Required fields:
 
 - property;
 - unit, required for lease-based rent, optional for property-level manual charges;
-- tenant;
+- tenant, required for lease-based rent, optional for manual charges;
 - lease, required for lease-based rent, optional for manual charges;
 - charge_type;
 - billing_period_start;
@@ -658,7 +663,6 @@ Required fields:
 - charge_date;
 - due_date;
 - amount;
-- currency, default `USD`;
 - description;
 - status;
 - created_at;
@@ -667,12 +671,8 @@ Required fields:
 Allowed charge types:
 
 - `base_rent`
-- `repair_chargeback`
 - `utility_reimbursement`
 - `late_fee_manual`
-- `parking_manual`
-- `storage_manual`
-- `deposit_adjustment_manual`
 - `other_manual`
 
 Allowed charge statuses:
@@ -709,12 +709,16 @@ A generated base rent charge is unique by:
 
 Duplicate generation for the same lease/month must be blocked unless a future approved correction workflow explicitly permits it.
 
+Base rent for a lease that starts or ends mid-month must be prorated for the affected billing period.
+
 ## Required account mappings
 
 - `accounts_receivable`
 - `rental_income`
 
 Manual charge types may require additional optional mappings only if implemented. If a manual charge type lacks a valid mapping, the charge may be saved as draft but cannot be approved for LedgerOS sync.
+
+Approving a charge immediately starts LedgerOS sync. After sync, only `due_date` and `description` remain editable.
 
 ## LedgerOS sync contract
 
@@ -745,6 +749,7 @@ Required response fields from LedgerOS:
 - User can generate rent for a selected month from active leases.
 - Rent generation is idempotent for lease/month.
 - User can create manual one-off charge.
+- User can create manual charge not attached to a lease.
 - Charge cannot sync without required mappings.
 - Synced charge creates a LedgerOS invoice through the adapter.
 - Retried sync does not duplicate the LedgerOS invoice.
@@ -814,7 +819,6 @@ Required fields:
 - tenant;
 - payment_date;
 - amount;
-- currency, default `USD`;
 - payment_method;
 - reference, optional;
 - status;
@@ -861,7 +865,6 @@ Required fields:
 - event_type;
 - event_date;
 - amount;
-- currency, default `USD`;
 - description;
 - status;
 - sync record reference where applicable.
@@ -978,7 +981,6 @@ Required fields:
 - bill_date;
 - due_date, optional;
 - amount;
-- currency, default `USD`;
 - expense_category;
 - maintenance_category, optional;
 - repair_notes, optional;
@@ -1004,7 +1006,6 @@ Required fields:
 - vendor bill;
 - payment_date;
 - amount;
-- currency, default `USD`;
 - payment_method;
 - bank_account or credit_card_account, depending on payment method;
 - memo, optional;
@@ -1039,7 +1040,6 @@ Required fields:
 - total_amount;
 - principal_amount;
 - interest_amount;
-- currency, default `USD`;
 - loan liability account mapping;
 - interest expense account mapping;
 - payment account;
@@ -1274,7 +1274,6 @@ Required fields:
 - event_type;
 - event_date;
 - amount;
-- currency, default `USD`;
 - payment_account or bank account reference;
 - description;
 - status;
@@ -1535,7 +1534,7 @@ Before coding Epic 10, define which API surface is actually public for PropertyL
 - duplicate handling;
 - request/response logging and secret redaction;
 - local object IDs versus LedgerOS resource IDs;
-- sandbox/full-stack startup path;
+- sandbox/LedgerOS startup path;
 - examples for tenant charge, tenant payment, vendor bill, and manually recorded management-fee expense.
 
 ## Acceptance criteria

@@ -9,6 +9,7 @@ from ledgeros.models import (
     Property,
     PropertyLedgerSetup,
     Tenant,
+    TenantCharge,
     Unit,
 )
 
@@ -22,6 +23,10 @@ class LedgerOSConnectionSettingsForm(forms.ModelForm):
             "LedgerOS base URL, for example https://ledgeros.example.com or "
             "http://ledgeros-web:8000 in Docker"
         )
+        self.fields["host_header"].help_text = (
+            "Optional Host header override, for example localhost:8001 when Docker "
+            "connects to a host-run LedgerOS instance"
+        )
         self.fields["client_id"].help_text = "LedgerOS client identifier used by the adapter"
         self.fields["health_path"].help_text = (
             "LedgerOS health endpoint path, usually /api/v1/health/ for the real stack"
@@ -31,6 +36,7 @@ class LedgerOSConnectionSettingsForm(forms.ModelForm):
         model = LedgerOSConnectionSettings
         fields = [
             "base_url",
+            "host_header",
             "client_id",
             "hmac_secret_env_var",
             "api_key_env_var",
@@ -93,6 +99,59 @@ class LeaseForm(forms.ModelForm):
         self.fields["tenant"].queryset = Tenant.objects.filter(is_active=True)
         self.fields["rent_effective_date"].required = False
         self.fields["lease_end_date"].required = False
+
+
+class TenantChargeForm(forms.ModelForm):
+    class Meta:
+        model = TenantCharge
+        fields = [
+            "lease",
+            "charge_type",
+            "billing_period_start",
+            "billing_period_end",
+            "charge_date",
+            "due_date",
+            "amount",
+            "description",
+            "status",
+        ]
+        widgets = {
+            "billing_period_start": forms.DateInput(attrs={"type": "date"}),
+            "billing_period_end": forms.DateInput(attrs={"type": "date"}),
+            "charge_date": forms.DateInput(attrs={"type": "date"}),
+            "due_date": forms.DateInput(attrs={"type": "date"}),
+        }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["lease"].queryset = Lease.objects.select_related(
+            "unit__property", "tenant"
+        ).all()
+        self.fields["lease"].required = True
+        self.fields["billing_period_start"].required = False
+        self.fields["billing_period_end"].required = False
+        self.fields["lease"].help_text = (
+            "Select a lease to auto-fill property, unit, and tenant."
+        )
+        if (
+            self.instance
+            and self.instance.pk
+            and self.instance.status == TenantCharge.Status.SYNCED
+        ):
+            for name in self.fields:
+                if name not in {"due_date", "description"}:
+                    self.fields[name].disabled = True
+
+    def clean(self):
+        cleaned_data = super().clean()
+        lease = cleaned_data.get("lease")
+        if lease is None:
+            raise forms.ValidationError({"lease": "Lease is required."})
+
+        cleaned_data["property"] = lease.unit.property
+        cleaned_data["unit"] = lease.unit
+        cleaned_data["tenant"] = lease.tenant
+        return cleaned_data
 
 
 class PropertyLedgerSetupForm(forms.ModelForm):
