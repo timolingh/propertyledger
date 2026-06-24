@@ -105,9 +105,6 @@ class TenantChargeForm(forms.ModelForm):
     class Meta:
         model = TenantCharge
         fields = [
-            "property",
-            "unit",
-            "tenant",
             "lease",
             "charge_type",
             "billing_period_start",
@@ -127,22 +124,35 @@ class TenantChargeForm(forms.ModelForm):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.fields["property"].queryset = Property.objects.all()
-        self.fields["unit"].queryset = Unit.objects.select_related("property").all()
-        self.fields["tenant"].queryset = Tenant.objects.all()
         self.fields["lease"].queryset = Lease.objects.select_related(
             "unit__property", "tenant"
         ).all()
-        self.fields["property"].required = False
-        self.fields["unit"].required = False
-        self.fields["tenant"].required = False
-        self.fields["lease"].required = False
+        self.fields["lease"].required = True
         self.fields["billing_period_start"].required = False
         self.fields["billing_period_end"].required = False
-        if self.instance and self.instance.pk and self.instance.status == TenantCharge.Status.SYNCED:
+        self.fields["lease"].help_text = (
+            "Select a lease to auto-fill property, unit, and tenant."
+        )
+        if (
+            self.instance
+            and self.instance.pk
+            and self.instance.status == TenantCharge.Status.SYNCED
+        ):
             for name in self.fields:
                 if name not in {"due_date", "description"}:
                     self.fields[name].disabled = True
+
+    def clean(self):
+        cleaned_data = super().clean()
+        lease = cleaned_data.get("lease")
+        if lease is None:
+            raise forms.ValidationError({"lease": "Lease is required."})
+
+        cleaned_data["property"] = lease.unit.property
+        cleaned_data["unit"] = lease.unit
+        cleaned_data["tenant"] = lease.tenant
+        return cleaned_data
+
 
 class PropertyLedgerSetupForm(forms.ModelForm):
     class Meta:

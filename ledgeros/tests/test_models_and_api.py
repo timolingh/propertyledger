@@ -523,10 +523,7 @@ class PropertyLedgerCrudViewTests(TestCase):
         charge_response = self.client.post(
             reverse("charge-create"),
             {
-                "property": property_obj.pk,
-                "unit": "",
-                "tenant": "",
-                "lease": "",
+                "lease": lease.pk,
                 "charge_type": TenantCharge.ChargeType.UTILITY_REIMBURSEMENT,
                 "billing_period_start": "",
                 "billing_period_end": "",
@@ -539,30 +536,40 @@ class PropertyLedgerCrudViewTests(TestCase):
         )
         self.assertEqual(charge_response.status_code, 302)
         charge = TenantCharge.objects.get(description="Water reimbursement")
+        self.assertEqual(charge.property, property_obj)
+        self.assertEqual(charge.unit, unit)
+        self.assertEqual(charge.tenant, tenant)
 
-        update_response = self.client.post(
-            reverse("charge-edit", args=[charge.pk]),
+        charge_list_response = self.client.get(reverse("charge-list"))
+        self.assertEqual(charge_list_response.status_code, 200)
+        self.assertContains(charge_list_response, 'name="selected_charge_ids"')
+        self.assertContains(charge_list_response, "Approve selected")
+        self.assertContains(charge_list_response, "Archive selected")
+
+        approve_response = self.client.post(
+            reverse("charge-list"),
             {
-                "property": property_obj.pk,
-                "unit": "",
-                "tenant": "",
-                "lease": "",
-                "charge_type": TenantCharge.ChargeType.UTILITY_REIMBURSEMENT,
-                "billing_period_start": "",
-                "billing_period_end": "",
-                "charge_date": "2026-01-15",
-                "due_date": "2026-01-31",
-                "amount": "125.00",
-                "description": "Water reimbursement",
-                "status": TenantCharge.Status.APPROVED,
+                "bulk_action": "approve",
+                "selected_charge_ids": [charge.pk],
             },
         )
-        self.assertEqual(update_response.status_code, 302)
+        self.assertEqual(approve_response.status_code, 302)
         charge.refresh_from_db()
         self.assertEqual(charge.status, TenantCharge.Status.SYNCED)
         self.assertIsNotNone(charge.sync_record_id)
         self.assertEqual(charge.sync_record.status, LedgerOSSyncRecord.Status.SUCCEEDED)
         self.assertEqual(charge.sync_record.ledgeros_resource_id, "inv_2")
+
+        archive_response = self.client.post(
+            reverse("charge-list"),
+            {
+                "bulk_action": "archive",
+                "selected_charge_ids": [charge.pk],
+            },
+        )
+        self.assertEqual(archive_response.status_code, 302)
+        charge.refresh_from_db()
+        self.assertEqual(charge.status, TenantCharge.Status.VOIDED)
         self.assertEqual(mock_urlopen.call_count, 3)
 
         property_customer_payload = json.loads(mock_urlopen.call_args_list[0].args[0].data.decode("utf-8"))
@@ -570,7 +577,7 @@ class PropertyLedgerCrudViewTests(TestCase):
         invoice_payload = json.loads(mock_urlopen.call_args_list[2].args[0].data.decode("utf-8"))
         self.assertEqual(property_customer_payload["customer_code"], f"property-{property_obj.pk}")
         self.assertEqual(tenant_customer_payload["customer_code"], f"tenant-{tenant.pk}")
-        self.assertEqual(invoice_payload["customer_code"], f"property-{property_obj.pk}")
+        self.assertEqual(invoice_payload["customer_code"], f"tenant-{tenant.pk}")
         self.assertEqual(property_customer_payload["default_ar_account_code"], "1200")
         self.assertEqual(tenant_customer_payload["default_ar_account_code"], "1200")
 
@@ -765,6 +772,9 @@ class PropertyLedgerCrudViewTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, 'type="date"', count=4)
+        self.assertNotContains(response, 'name="property"')
+        self.assertNotContains(response, 'name="unit"')
+        self.assertNotContains(response, 'name="tenant"')
 
     def test_admin_lease_add_uses_date_inputs(self):
         User = get_user_model()

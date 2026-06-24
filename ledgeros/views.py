@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
+from django.contrib import messages
 from django.core.exceptions import ValidationError
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.http import HttpResponseRedirect
@@ -706,6 +707,10 @@ class TenantChargeListView(LedgerOSCrudListView):
     page_title = "Tenant Charges"
     create_url_name = "charge-create"
     create_label = "Add charge"
+    bulk_action_choices = [
+        ("approve", "Approve selected"),
+        ("archive", "Archive selected"),
+    ]
 
     def get_create_gate_context(self) -> dict[str, Any]:
         if Property.objects.exists():
@@ -726,10 +731,78 @@ class TenantChargeListView(LedgerOSCrudListView):
                     f"| {obj.amount} | {obj.get_status_display()}"
                 ),
                 "edit_url": reverse("charge-edit", kwargs={"pk": obj.pk}),
-                "archive_url": reverse("charge-archive", kwargs={"pk": obj.pk}),
             }
             for obj in objects
         ]
+
+    def post(self, request, *args, **kwargs):
+        action = request.POST.get("bulk_action", "").strip()
+        selected_ids = [
+            value
+            for value in request.POST.getlist("selected_charge_ids")
+            if value.strip().isdigit()
+        ]
+        if not action:
+            messages.error(request, "Choose a bulk action before submitting.")
+            return HttpResponseRedirect(reverse("charge-list"))
+        if not selected_ids:
+            messages.error(request, "Select at least one charge first.")
+            return HttpResponseRedirect(reverse("charge-list"))
+
+        charges_by_id = {
+            str(charge.pk): charge
+            for charge in TenantCharge.objects.filter(pk__in=selected_ids)
+        }
+        missing_ids = [pk for pk in selected_ids if pk not in charges_by_id]
+        if missing_ids:
+            messages.error(
+                request,
+                f"Could not find charge(s): {', '.join(missing_ids)}.",
+            )
+            return HttpResponseRedirect(reverse("charge-list"))
+
+        charges = list(charges_by_id.values())
+        if action == "approve":
+            approved_count = 0
+            skipped_ids: list[str] = []
+            for charge in charges:
+                if charge.status in {
+                    TenantCharge.Status.SYNCED,
+                    TenantCharge.Status.VOIDED,
+                }:
+                    skipped_ids.append(str(charge.pk))
+                    continue
+                TenantChargeService.approve_charge(charge)
+                approved_count += 1
+            if approved_count:
+                messages.success(
+                    request,
+                    f"Approved {approved_count} charge"
+                    f"{'' if approved_count == 1 else 's'}.",
+                )
+            if skipped_ids:
+                messages.warning(
+                    request,
+                    f"Skipped already finalized charge(s): {', '.join(skipped_ids)}.",
+                )
+            return HttpResponseRedirect(reverse("charge-list"))
+
+        if action == "archive":
+            archived_count = 0
+            for charge in charges:
+                if charge.status != TenantCharge.Status.VOIDED:
+                    charge.status = TenantCharge.Status.VOIDED
+                    charge.save(update_fields=["status", "updated_at"])
+                    archived_count += 1
+            messages.success(
+                request,
+                f"Archived {archived_count} charge"
+                f"{'' if archived_count == 1 else 's'}.",
+            )
+            return HttpResponseRedirect(reverse("charge-list"))
+
+        messages.error(request, f"Unknown bulk action: {action}.")
+        return HttpResponseRedirect(reverse("charge-list"))
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)

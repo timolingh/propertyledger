@@ -34,32 +34,50 @@
     </div>
   {% endif %}
   <div class="card">
-    <table>
-      <thead>
-        <tr>
-          <th>Name</th>
-          <th>Summary</th>
-          <th>Actions</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for row in rows %}
+    <form method="post">
+      {% csrf_token %}
+      <div style="display:flex; gap:1rem; align-items:end; flex-wrap:wrap;">
+        <label style="margin-top:0;">
+          Bulk action
+          <select name="bulk_action">
+            <option value="">Choose action</option>
+            {% for action_value, action_label in view.bulk_action_choices %}
+              <option value="{{ action_value }}">{{ action_label }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <button type="submit">Apply</button>
+      </div>
+      <table>
+        <thead>
           <tr>
-            <td>
-              <strong>{{ row.object }}</strong>
-            </td>
-            <td>{{ row.summary }}</td>
-            <td class="actions">
-              <a href="{{ row.edit_url }}">Edit</a>
-              <a href="{{ row.archive_url }}">Archive</a>
-            </td>
+            <th>Select</th>
+            <th>Name</th>
+            <th>Summary</th>
+            <th>Actions</th>
           </tr>
-        {% empty %}
-          <tr>
-            <td colspan="3" class="muted">No records yet.</td>
-          </tr>
-        {% endfor %}
-      </tbody>
-    </table>
+        </thead>
+        <tbody>
+          {% for row in rows %}
+            <tr>
+              <td>
+                <input type="checkbox" name="selected_charge_ids" value="{{ row.object.pk }}">
+              </td>
+              <td>
+                <strong>{{ row.object }}</strong>
+              </td>
+              <td>{{ row.summary }}</td>
+              <td class="actions">
+                <a href="{{ row.edit_url }}">Edit</a>
+              </td>
+            </tr>
+          {% empty %}
+            <tr>
+              <td colspan="4" class="muted">No records yet.</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </form>
   </div>
 {% endblock %}
