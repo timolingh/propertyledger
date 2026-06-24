@@ -152,7 +152,7 @@ Admin URLs:
 - `GET /` - setup screen for LedgerOS connection settings
 - `GET /api/health/local/` - deterministic local app/database health check
 - `GET /api/health/ledgeros/` - deterministic LedgerOS connectivity check
-- `POST /api/sync-records/` - create a `LedgerOSSyncRecord`
+- `POST /api/v1/sync-events/` - create a generic LedgerOS sync event record
 
 ## Testing
 

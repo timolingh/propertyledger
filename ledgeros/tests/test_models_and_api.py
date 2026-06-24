@@ -132,27 +132,54 @@ class LedgerOSApiTests(TestCase):
     def setUp(self):
         self.client = APIClient()
 
-    def test_create_sync_record_endpoint_persists_record(self):
+    def test_create_sync_event_endpoint_persists_record(self):
         response = self.client.post(
-            reverse("ledgeros-sync-record-create"),
+            reverse("ledgeros-sync-event-create"),
             {
-                "local_object_type": "tenant_charge",
-                "local_object_id": "1",
-                "ledgeros_resource_type": "invoice",
-                "ledgeros_resource_id": "inv_1",
-                "ledgeros_journal_entry_id": "je_1",
-                "source_event_type": "invoice_created",
-                "external_id": "ext_1",
-                "idempotency_key": "idem_1",
-                "request_hash": "hash_1",
-                "status": LedgerOSSyncRecord.Status.PENDING,
-                "attempt_count": 0,
+                "source_system": "propertyledger",
+                "domain_event_type": "tenant_payment.received",
+                "external_id": "tenant-payment:1",
+                "source_object_type": "tenant_payment",
+                "source_object_id": "1",
+                "occurred_at": "2026-01-15T12:00:00Z",
+                "payload": {"amount": "100.00", "payment_method": "cash"},
             },
             format="json",
+            HTTP_IDEMPOTENCY_KEY="idem_1",
         )
 
         self.assertEqual(response.status_code, 201)
         self.assertEqual(LedgerOSSyncRecord.objects.count(), 1)
+        self.assertEqual(LedgerOSSyncRecord.objects.first().source_event_type, "tenant_payment.received")
+
+    def test_create_sync_event_endpoint_replays_identically(self):
+        payload = {
+            "source_system": "propertyledger",
+            "domain_event_type": "security_deposit.received",
+            "external_id": "security-deposit:1",
+            "source_object_type": "security_deposit_event",
+            "source_object_id": "1",
+            "occurred_at": "2026-01-15T12:00:00Z",
+            "payload": {"amount": "500.00", "event_type": "received"},
+        }
+
+        first = self.client.post(
+            reverse("ledgeros-sync-event-create"),
+            payload,
+            format="json",
+            HTTP_IDEMPOTENCY_KEY="idem_2",
+        )
+        second = self.client.post(
+            reverse("ledgeros-sync-event-create"),
+            payload,
+            format="json",
+            HTTP_IDEMPOTENCY_KEY="idem_2",
+        )
+
+        self.assertEqual(first.status_code, 201)
+        self.assertEqual(second.status_code, 200)
+        self.assertEqual(LedgerOSSyncRecord.objects.count(), 1)
+        self.assertEqual(LedgerOSSyncRecord.objects.first().source_event_type, "security_deposit.received")
 
     def test_local_health_endpoint_is_healthy(self):
         response = self.client.get(reverse("local-health"))

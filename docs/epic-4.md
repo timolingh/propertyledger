@@ -91,19 +91,21 @@ make smoke
 
 ## LedgerOS Contract
 
-Epic 4 expects the sibling LedgerOS repo to expose these dedicated API endpoints:
+Epic 4 expects the sibling LedgerOS repo to expose a generic sync-event API:
 
-- `POST /api/v1/payments/`
-- `POST /api/v1/payment-applications/`
-- `POST /api/v1/security-deposit-events/`
+- `POST /api/v1/sync-events/`
 
-PropertyLedger sends:
+PropertyLedger sends one generic event envelope per downstream accounting event:
 
-- tenant payment header data to `/api/v1/payments/`;
-- one payload per allocation to `/api/v1/payment-applications/`;
-- one payload per security-deposit event to `/api/v1/security-deposit-events/`.
+- `source_system = "propertyledger"`
+- `domain_event_type` for the business event name, such as `tenant_payment.received` or `security_deposit.received`
+- `external_id` as a stable unique ID for the local object, event, or version
+- `source_object_type` as the local model name
+- `source_object_id` as the local primary key
+- `occurred_at` as the original event timestamp
+- `payload` as the full property-specific event details
 
-If those endpoints are missing in LedgerOS, update the sibling LedgerOS repo first. PropertyLedger should not fall back to a journal-only implementation for Epic 4 sync.
+If that endpoint is missing in LedgerOS, update the sibling LedgerOS repo first. PropertyLedger should not fall back to a journal-only implementation for Epic 4 sync.
 
 ## Testing
 

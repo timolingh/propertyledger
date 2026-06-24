@@ -891,21 +891,15 @@ For security deposits:
 
 ## LedgerOS sync contract
 
-LedgerOS must expose dedicated payment and security-deposit endpoints for Epic 4.
+LedgerOS must expose a generic sync-event endpoint for Epic 4.
 
-Required LedgerOS resources and expected request shapes:
+Required LedgerOS resource and expected request shape:
 
-- `POST /api/v1/payments/`
-  - creates the tenant payment header;
-  - request includes customer code, external payment number, payment date, payment method, reference, total amount, and application summaries.
-- `POST /api/v1/payment-applications/`
-  - creates one payment application per open charge allocation;
-  - request includes external payment number, external charge number, and applied amount.
-- `POST /api/v1/security-deposit-events/`
-  - creates one security-deposit event per required/received/deducted/refunded event;
-  - request includes customer code, external deposit event number, event type, event date, total amount, and description.
+- `POST /api/v1/sync-events/`
+  - persists one downstream accounting event;
+  - request includes `source_system`, `domain_event_type`, `external_id`, `source_object_type`, `source_object_id`, `occurred_at`, and `payload`.
 
-If the sibling LedgerOS repo does not yet expose these endpoints, update LedgerOS first and keep the PropertyLedger app pointed at the real LedgerOS instance. Do not route Epic 4 payment or deposit sync through a journal fallback in PropertyLedger.
+The `payload` body carries the property-specific details for tenant payments, payment allocations, and security deposit events. Keep PropertyLedger business logic local and send only generic sync events to LedgerOS. Do not route Epic 4 payment or deposit sync through a journal fallback in PropertyLedger.
 
 Required source event types:
 

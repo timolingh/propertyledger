@@ -10,7 +10,7 @@ from django.core.exceptions import ValidationError
 from django.core.management import call_command
 from django.test import TestCase
 
-from ledgeros.models import LedgerOSConnectionSettings, LedgerOSSyncRecord, Owner, Property, Tenant, TenantCharge
+from ledgeros.models import LedgerOSConnectionSettings, LedgerOSSyncRecord, Owner, Property, Tenant, TenantCharge, Unit
 from payments.models import PaymentWorkflowSettings, SecurityDepositEvent, TenantPayment
 from payments.services import SecurityDepositLedgerService, TenantPaymentService
 
@@ -36,6 +36,11 @@ def _configure_ledgeros_settings():
     settings_obj.client_id = "propertyledger"
     settings_obj.hmac_secret_env_var = "LEDGEROS_HMAC_SECRET"
     settings_obj.save()
+
+
+def _decode_mock_request(mock_call):
+    request = mock_call.args[0]
+    return request.full_url, json.loads(request.data.decode("utf-8"))
 
 
 class PaymentWorkflowSettingsCommandTests(TestCase):
@@ -92,9 +97,9 @@ class TenantPaymentServiceTests(TestCase):
         )
 
         mock_urlopen.side_effect = [
-            _FakeResponse(status=201, payload=json.dumps({"payment_application": {"id": "ap_1"}}).encode("utf-8")),
-            _FakeResponse(status=201, payload=json.dumps({"payment_application": {"id": "ap_2"}}).encode("utf-8")),
-            _FakeResponse(status=201, payload=json.dumps({"payment_application": {"id": "ap_3"}}).encode("utf-8")),
+            _FakeResponse(status=201, payload=json.dumps({"sync_event": {"id": "sync_1"}}).encode("utf-8")),
+            _FakeResponse(status=201, payload=json.dumps({"sync_event": {"id": "sync_2"}}).encode("utf-8")),
+            _FakeResponse(status=201, payload=json.dumps({"sync_event": {"id": "sync_3"}}).encode("utf-8")),
         ]
 
         payment = TenantPayment.objects.create(
@@ -116,6 +121,12 @@ class TenantPaymentServiceTests(TestCase):
         self.assertEqual([allocation.amount_applied for allocation in allocations], [Decimal("30.00"), Decimal("40.00"), Decimal("15.00")])
         self.assertTrue(all(allocation.sync_record and allocation.sync_record.status == LedgerOSSyncRecord.Status.SUCCEEDED for allocation in allocations))
         self.assertEqual(mock_urlopen.call_count, 3)
+        self.assertTrue(all(_decode_mock_request(call)[0].endswith("/api/v1/sync-events/") for call in mock_urlopen.call_args_list))
+        first_payload = _decode_mock_request(mock_urlopen.call_args_list[0])[1]
+        self.assertEqual(first_payload["source_system"], "propertyledger")
+        self.assertEqual(first_payload["domain_event_type"], "tenant_payment.application_applied")
+        self.assertEqual(first_payload["source_object_type"], "tenant_payment_application")
+        self.assertEqual(first_payload["payload"]["charge"]["description"], "Utility old")
 
     @patch.dict(os.environ, {"LEDGEROS_HMAC_SECRET": "secret"}, clear=False)
     @patch("payments.services.urlopen")
@@ -145,7 +156,7 @@ class TenantPaymentServiceTests(TestCase):
 
         mock_urlopen.return_value = _FakeResponse(
             status=201,
-            payload=json.dumps({"payment_application": {"id": "ap_1"}}).encode("utf-8"),
+            payload=json.dumps({"sync_event": {"id": "sync_1"}}).encode("utf-8"),
         )
 
         payment = TenantPaymentService.allocate_payment(payment)
@@ -169,8 +180,8 @@ class TenantPaymentServiceTests(TestCase):
             description="Utility",
         )
         mock_urlopen.side_effect = [
-            _FakeResponse(status=201, payload=json.dumps({"payment_application": {"id": "ap_1"}}).encode("utf-8")),
-            _FakeResponse(status=201, payload=json.dumps({"payment": {"id": "pay_1"}}).encode("utf-8")),
+            _FakeResponse(status=201, payload=json.dumps({"sync_event": {"id": "sync_1"}}).encode("utf-8")),
+            _FakeResponse(status=201, payload=json.dumps({"sync_event": {"id": "sync_2"}}).encode("utf-8")),
         ]
 
         payment = TenantPayment.objects.create(
@@ -192,9 +203,103 @@ class TenantPaymentServiceTests(TestCase):
         self.assertEqual(payment.status, TenantPayment.Status.SYNCED)
         self.assertIsNotNone(payment.sync_record_id)
         self.assertEqual(payment.sync_record.status, LedgerOSSyncRecord.Status.SUCCEEDED)
+        self.assertEqual(payment.sync_record.ledgeros_resource_id, "sync_2")
         self.assertEqual(payment.applications.count(), 1)
         self.assertEqual(payment.applications.first().sync_record.status, LedgerOSSyncRecord.Status.SUCCEEDED)
         self.assertEqual(mock_urlopen.call_count, 2)
+        first_path, first_payload = _decode_mock_request(mock_urlopen.call_args_list[0])
+        second_path, second_payload = _decode_mock_request(mock_urlopen.call_args_list[1])
+        self.assertEqual(first_path, "http://ledgeros-web:8000/api/v1/sync-events/")
+        self.assertEqual(second_path, "http://ledgeros-web:8000/api/v1/sync-events/")
+        self.assertEqual(first_payload["domain_event_type"], "tenant_payment.application_applied")
+        self.assertEqual(second_payload["domain_event_type"], "tenant_payment.received")
+        self.assertEqual(second_payload["payload"]["payment_method"], TenantPayment.PaymentMethod.CHECK)
+        self.assertEqual(second_payload["payload"]["applications"][0]["charge_id"], charge.pk)
+
+    @patch.dict(os.environ, {"LEDGEROS_HMAC_SECRET": "secret"}, clear=False)
+    @patch("payments.services.urlopen")
+    def test_payment_sync_replays_with_same_idempotency_key_and_no_duplicate_sync_record(self, mock_urlopen):
+        charge = TenantCharge.objects.create(
+            property=self.property,
+            tenant=self.tenant,
+            charge_type=TenantCharge.ChargeType.UTILITY_REIMBURSEMENT,
+            charge_date=date(2026, 1, 1),
+            due_date=date(2026, 1, 10),
+            amount=Decimal("50.00"),
+            description="Utility",
+        )
+        mock_urlopen.side_effect = [
+            _FakeResponse(status=201, payload=json.dumps({"sync_event": {"id": "sync_1"}}).encode("utf-8")),
+            _FakeResponse(status=201, payload=json.dumps({"sync_event": {"id": "sync_2"}}).encode("utf-8")),
+            _FakeResponse(status=201, payload=json.dumps({"sync_event": {"id": "sync_2"}}).encode("utf-8")),
+        ]
+
+        payment = TenantPayment.objects.create(
+            property=self.property,
+            tenant=self.tenant,
+            payment_date=date(2026, 1, 15),
+            amount=Decimal("50.00"),
+            payment_method=TenantPayment.PaymentMethod.CASH,
+            reference="cash",
+            status=TenantPayment.Status.DRAFT,
+        )
+
+        TenantPaymentService.allocate_payment(payment)
+        TenantPaymentService.sync_payment(payment)
+        payment.refresh_from_db()
+        first_sync_record_id = payment.sync_record_id
+        first_idempotency_key = payment.sync_record.idempotency_key
+        first_request_count = mock_urlopen.call_count
+
+        TenantPaymentService.sync_payment(payment)
+        payment.refresh_from_db()
+
+        self.assertEqual(payment.status, TenantPayment.Status.SYNCED)
+        self.assertEqual(payment.sync_record_id, first_sync_record_id)
+        self.assertEqual(payment.sync_record.idempotency_key, first_idempotency_key)
+        self.assertEqual(LedgerOSSyncRecord.objects.filter(local_object_type="tenant_payment").count(), 1)
+        self.assertEqual(mock_urlopen.call_count, first_request_count + 1)
+        replay_payload = _decode_mock_request(mock_urlopen.call_args_list[-1])[1]
+        self.assertEqual(replay_payload["external_id"], f"tenant-payment:{payment.pk}")
+        self.assertEqual(replay_payload["source_system"], "propertyledger")
+
+    @patch.dict(os.environ, {"LEDGEROS_HMAC_SECRET": "secret"}, clear=False)
+    @patch("payments.services.urlopen")
+    def test_security_deposit_sync_uses_generic_sync_event_endpoint(self, mock_urlopen):
+        mock_urlopen.return_value = _FakeResponse(
+            status=201,
+            payload=json.dumps({"sync_event": {"id": "sync_3"}}).encode("utf-8"),
+        )
+
+        unit = Unit.objects.create(property=self.property, name="101")
+        lease = unit.leases.create(
+            tenant=self.tenant,
+            lease_start_date=date(2026, 1, 1),
+            base_monthly_rent_amount=Decimal("1000.00"),
+            deposit_required_amount=Decimal("500.00"),
+            status="active",
+        )
+        event = SecurityDepositEvent.objects.create(
+            property=self.property,
+            unit=unit,
+            tenant=self.tenant,
+            lease=lease,
+            event_type=SecurityDepositEvent.EventType.RECEIVED,
+            event_date=date(2026, 1, 5),
+            amount=Decimal("500.00"),
+            description="Deposit received",
+        )
+
+        TenantPaymentService.sync_security_deposit_event(event)
+        event.refresh_from_db()
+
+        self.assertEqual(event.status, SecurityDepositEvent.Status.SYNCED)
+        self.assertEqual(event.sync_record.ledgeros_resource_id, "sync_3")
+        request_path, payload = _decode_mock_request(mock_urlopen.call_args_list[0])
+        self.assertEqual(request_path, "http://ledgeros-web:8000/api/v1/sync-events/")
+        self.assertEqual(payload["domain_event_type"], "security_deposit.received")
+        self.assertEqual(payload["source_object_type"], "security_deposit_event")
+        self.assertEqual(payload["payload"]["lease_id"], lease.pk)
 
 
 class SecurityDepositLedgerServiceTests(TestCase):

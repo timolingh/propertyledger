@@ -7,7 +7,7 @@ from ledgeros.views import (
     LeaseUpdateView,
     LedgerOSHealthAPIView,
     LedgerOSSetupView,
-    LedgerOSSyncRecordCreateAPIView,
+    LedgerOSSyncEventCreateAPIView,
     OwnerArchiveView,
     OwnerCreateView,
     OwnerListView,
@@ -97,8 +97,8 @@ urlpatterns = [
         name="ledgeros-health",
     ),
     path(
-        "api/sync-records/",
-        LedgerOSSyncRecordCreateAPIView.as_view(),
-        name="ledgeros-sync-record-create",
+        "api/v1/sync-events/",
+        LedgerOSSyncEventCreateAPIView.as_view(),
+        name="ledgeros-sync-event-create",
     ),
 ]

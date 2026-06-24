@@ -14,7 +14,7 @@ class SigningTests(SimpleTestCase):
     def test_sign_request_is_deterministic_and_matches_hmac_sha256(self):
         kwargs = dict(
             method="post",
-            path="api/sync-records/",
+            path="api/v1/sync-events/",
             body=b'{"hello":"world"}',
             timestamp="1970-01-01T00:00:00Z",
             client_id="propertyledger",

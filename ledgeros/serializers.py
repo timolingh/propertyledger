@@ -2,29 +2,17 @@ from __future__ import annotations
 
 from rest_framework import serializers
 
-from ledgeros.models import LedgerOSSyncRecord
 
+class LedgerOSSyncEventSerializer(serializers.Serializer):
+    source_system = serializers.CharField()
+    domain_event_type = serializers.CharField()
+    external_id = serializers.CharField()
+    source_object_type = serializers.CharField()
+    source_object_id = serializers.CharField()
+    occurred_at = serializers.DateTimeField()
+    payload = serializers.JSONField()
 
-class LedgerOSSyncRecordSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = LedgerOSSyncRecord
-        fields = [
-            "id",
-            "local_object_type",
-            "local_object_id",
-            "ledgeros_resource_type",
-            "ledgeros_resource_id",
-            "ledgeros_journal_entry_id",
-            "source_event_type",
-            "external_id",
-            "idempotency_key",
-            "request_hash",
-            "response_payload",
-            "status",
-            "last_error",
-            "attempt_count",
-            "last_synced_at",
-            "created_at",
-            "updated_at",
-        ]
-        read_only_fields = ["id", "created_at", "updated_at"]
+    def validate_source_system(self, value: str) -> str:
+        if value != "propertyledger":
+            raise serializers.ValidationError("source_system must be 'propertyledger'.")
+        return value

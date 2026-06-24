@@ -18,7 +18,14 @@ from django.db import models, transaction
 from django.utils import timezone
 
 from ledgeros.idempotency import build_idempotency_key
-from ledgeros.models import LedgerOSConnectionSettings, LedgerOSSyncRecord, PropertyLedgerAccountMapping, PropertyLedgerSetup, TenantCharge, Lease
+from ledgeros.models import (
+    LedgerOSConnectionSettings,
+    LedgerOSSyncRecord,
+    PropertyLedgerAccountMapping,
+    PropertyLedgerSetup,
+    TenantCharge,
+    Lease,
+)
 from ledgeros.signing import sign_api_request
 from payments.models import PaymentWorkflowSettings, SecurityDepositEvent, TenantPayment, TenantPaymentApplication
 
@@ -32,10 +39,8 @@ class SyncResult:
     payload: dict[str, Any]
 
 
-class LedgerOSPaymentsSyncService:
-    PAYMENT_PATH = "/api/v1/payments/"
-    PAYMENT_APPLICATION_PATH = "/api/v1/payment-applications/"
-    SECURITY_DEPOSIT_EVENT_PATH = "/api/v1/security-deposit-events/"
+class LedgerOSSyncEventService:
+    SYNC_EVENT_PATH = "/api/v1/sync-events/"
 
     @staticmethod
     def _canonical_json_bytes(payload: dict[str, Any]) -> bytes:
@@ -79,8 +84,8 @@ class LedgerOSPaymentsSyncService:
 
     @staticmethod
     def _submit(*, method: str, path: str, payload: dict[str, Any], idempotency_key: str) -> SyncResult:
-        base_url, host_header, client_id, secret, timeout, api_key = LedgerOSPaymentsSyncService._connection_values()
-        body = LedgerOSPaymentsSyncService._canonical_json_bytes(payload)
+        base_url, host_header, client_id, secret, timeout, api_key = LedgerOSSyncEventService._connection_values()
+        body = LedgerOSSyncEventService._canonical_json_bytes(payload)
         timestamp = str(int(time.time()))
         nonce = uuid.uuid4().hex
         signed = sign_api_request(
@@ -119,25 +124,26 @@ class LedgerOSPaymentsSyncService:
                     raise RuntimeError("LedgerOS response must be a JSON object.")
                 return SyncResult(status_code=response.status, payload=response_payload)
         except HTTPError as exc:
-            raise RuntimeError(LedgerOSPaymentsSyncService._format_http_error(exc)) from exc
+            raise RuntimeError(LedgerOSSyncEventService._format_http_error(exc)) from exc
         except (URLError, TimeoutError, OSError, ValueError) as exc:
             raise RuntimeError(str(exc)) from exc
 
 
 class TenantPaymentService:
     @staticmethod
-    def _payment_request_payload(payment: TenantPayment) -> dict[str, Any]:
+    def _payment_event_details(payment: TenantPayment) -> dict[str, Any]:
         return {
-            "customer_code": f"tenant-{payment.tenant_id}",
-            "external_payment_number": f"tenant-payment:{payment.pk}",
+            "property_id": payment.property_id,
+            "tenant_id": payment.tenant_id,
             "payment_date": payment.payment_date.isoformat(),
             "total_amount": str(payment.amount.quantize(Decimal("0.01"))),
             "payment_method": payment.payment_method,
             "reference": payment.reference,
+            "notes": payment.notes,
             "applications": [
                 {
-                    "application_external_id": f"tenant-payment-application:{application.pk}",
-                    "charge_external_id": f"tenant-charge:{application.charge_id}",
+                    "payment_application_id": application.pk,
+                    "charge_id": application.charge_id,
                     "amount": str(application.amount_applied.quantize(Decimal("0.01"))),
                 }
                 for application in payment.applications.select_related("charge").order_by("charge__due_date", "charge__charge_date", "id")
@@ -145,23 +151,59 @@ class TenantPaymentService:
         }
 
     @staticmethod
-    def _application_request_payload(application: TenantPaymentApplication) -> dict[str, Any]:
+    def _payment_application_event_details(application: TenantPaymentApplication) -> dict[str, Any]:
         return {
-            "external_application_number": f"tenant-payment-application:{application.pk}",
-            "external_payment_number": f"tenant-payment:{application.payment_id}",
-            "external_charge_number": f"tenant-charge:{application.charge_id}",
+            "payment_id": application.payment_id,
+            "charge_id": application.charge_id,
             "applied_amount": str(application.amount_applied.quantize(Decimal("0.01"))),
+            "payment": {
+                "payment_date": application.payment.payment_date.isoformat(),
+                "payment_method": application.payment.payment_method,
+                "reference": application.payment.reference,
+                "amount": str(application.payment.amount.quantize(Decimal("0.01"))),
+            },
+            "charge": {
+                "charge_type": application.charge.charge_type,
+                "charge_date": application.charge.charge_date.isoformat(),
+                "due_date": application.charge.due_date.isoformat(),
+                "amount": str(application.charge.amount.quantize(Decimal("0.01"))),
+                "description": application.charge.description,
+            },
         }
 
     @staticmethod
-    def _deposit_request_payload(event: SecurityDepositEvent) -> dict[str, Any]:
+    def _security_deposit_event_details(event: SecurityDepositEvent) -> dict[str, Any]:
         return {
-            "customer_code": f"tenant-{event.tenant_id}",
-            "external_deposit_event_number": f"security-deposit:{event.pk}",
+            "property_id": event.property_id,
+            "unit_id": event.unit_id,
+            "tenant_id": event.tenant_id,
+            "lease_id": event.lease_id,
             "event_type": event.event_type,
             "event_date": event.event_date.isoformat(),
             "total_amount": str(event.amount.quantize(Decimal("0.01"))),
             "description": event.description,
+            "notes": event.notes,
+        }
+
+    @staticmethod
+    def _build_sync_event_payload(
+        *,
+        source_system: str,
+        domain_event_type: str,
+        external_id: str,
+        source_object_type: str,
+        source_object_id: str,
+        occurred_at: str,
+        payload: dict[str, Any],
+    ) -> dict[str, Any]:
+        return {
+            "source_system": source_system,
+            "domain_event_type": domain_event_type,
+            "external_id": external_id,
+            "source_object_type": source_object_type,
+            "source_object_id": source_object_id,
+            "occurred_at": occurred_at,
+            "payload": payload,
         }
 
     @staticmethod
@@ -169,13 +211,13 @@ class TenantPaymentService:
         return hashlib.sha256(json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode("utf-8")).hexdigest()
 
     @staticmethod
-    def _build_sync_record(*, local_object_type: str, local_object_id: str, ledgeros_resource_type: str, source_event_type: str, external_id: str, request_payload: dict[str, Any]) -> LedgerOSSyncRecord:
+    def _build_sync_record(*, local_object_type: str, local_object_id: str, source_event_type: str, external_id: str, request_payload: dict[str, Any]) -> LedgerOSSyncRecord:
         sync_record, _ = LedgerOSSyncRecord.objects.get_or_create(
             local_object_type=local_object_type,
             local_object_id=local_object_id,
             source_event_type=source_event_type,
             defaults={
-                "ledgeros_resource_type": ledgeros_resource_type,
+                "ledgeros_resource_type": "sync_event",
                 "external_id": external_id,
                 "idempotency_key": build_idempotency_key(
                     local_object_type=local_object_type,
@@ -189,7 +231,7 @@ class TenantPaymentService:
             },
         )
         if not sync_record.ledgeros_resource_type:
-            sync_record.ledgeros_resource_type = ledgeros_resource_type
+            sync_record.ledgeros_resource_type = "sync_event"
         sync_record.external_id = external_id
         sync_record.idempotency_key = build_idempotency_key(
             local_object_type=local_object_type,
@@ -292,11 +334,18 @@ class TenantPaymentService:
     @staticmethod
     @transaction.atomic
     def sync_payment_application(application: TenantPaymentApplication) -> TenantPaymentApplication:
-        request_payload = TenantPaymentService._application_request_payload(application)
+        request_payload = TenantPaymentService._build_sync_event_payload(
+            source_system="propertyledger",
+            domain_event_type="tenant_payment.application_applied",
+            external_id=f"tenant-payment-application:{application.pk}",
+            source_object_type="tenant_payment_application",
+            source_object_id=str(application.pk),
+            occurred_at=application.created_at.isoformat(),
+            payload=TenantPaymentService._payment_application_event_details(application),
+        )
         sync_record = TenantPaymentService._build_sync_record(
             local_object_type="tenant_payment_application",
             local_object_id=str(application.pk),
-            ledgeros_resource_type="payment_application",
             source_event_type="tenant_payment.application_applied",
             external_id=f"tenant-payment-application:{application.pk}",
             request_payload=request_payload,
@@ -310,9 +359,9 @@ class TenantPaymentService:
         sync_record.save(update_fields=["status", "attempt_count", "last_error", "updated_at"])
 
         try:
-            result = LedgerOSPaymentsSyncService._submit(
+            result = LedgerOSSyncEventService._submit(
                 method="POST",
-                path=LedgerOSPaymentsSyncService.PAYMENT_APPLICATION_PATH,
+                path=LedgerOSSyncEventService.SYNC_EVENT_PATH,
                 payload=request_payload,
                 idempotency_key=sync_record.idempotency_key,
             )
@@ -326,7 +375,7 @@ class TenantPaymentService:
 
         sync_record.status = LedgerOSSyncRecord.Status.SUCCEEDED
         sync_record.ledgeros_resource_id = str(
-            result.payload.get("payment_application", {}).get("id")
+            result.payload.get("sync_event", {}).get("id")
             or result.payload.get("id")
             or sync_record.external_id
         )
@@ -346,11 +395,18 @@ class TenantPaymentService:
         if pending_applications.exists():
             raise ValidationError({"payment": "All payment allocations must sync successfully before the payment can sync."})
 
-        request_payload = TenantPaymentService._payment_request_payload(payment)
+        request_payload = TenantPaymentService._build_sync_event_payload(
+            source_system="propertyledger",
+            domain_event_type="tenant_payment.received",
+            external_id=f"tenant-payment:{payment.pk}",
+            source_object_type="tenant_payment",
+            source_object_id=str(payment.pk),
+            occurred_at=payment.created_at.isoformat(),
+            payload=TenantPaymentService._payment_event_details(payment),
+        )
         sync_record = TenantPaymentService._build_sync_record(
             local_object_type="tenant_payment",
             local_object_id=str(payment.pk),
-            ledgeros_resource_type="payment",
             source_event_type="tenant_payment.received",
             external_id=f"tenant-payment:{payment.pk}",
             request_payload=request_payload,
@@ -366,9 +422,9 @@ class TenantPaymentService:
         payment.save(update_fields=["status", "updated_at"])
 
         try:
-            result = LedgerOSPaymentsSyncService._submit(
+            result = LedgerOSSyncEventService._submit(
                 method="POST",
-                path=LedgerOSPaymentsSyncService.PAYMENT_PATH,
+                path=LedgerOSSyncEventService.SYNC_EVENT_PATH,
                 payload=request_payload,
                 idempotency_key=sync_record.idempotency_key,
             )
@@ -384,7 +440,7 @@ class TenantPaymentService:
 
         sync_record.status = LedgerOSSyncRecord.Status.SUCCEEDED
         sync_record.ledgeros_resource_id = str(
-            result.payload.get("payment", {}).get("id")
+            result.payload.get("sync_event", {}).get("id")
             or result.payload.get("id")
             or sync_record.external_id
         )
@@ -398,11 +454,18 @@ class TenantPaymentService:
     @staticmethod
     @transaction.atomic
     def sync_security_deposit_event(event: SecurityDepositEvent) -> SecurityDepositEvent:
-        request_payload = TenantPaymentService._deposit_request_payload(event)
+        request_payload = TenantPaymentService._build_sync_event_payload(
+            source_system="propertyledger",
+            domain_event_type=f"security_deposit.{event.event_type}",
+            external_id=f"security-deposit:{event.pk}",
+            source_object_type="security_deposit_event",
+            source_object_id=str(event.pk),
+            occurred_at=event.created_at.isoformat(),
+            payload=TenantPaymentService._security_deposit_event_details(event),
+        )
         sync_record = TenantPaymentService._build_sync_record(
             local_object_type="security_deposit_event",
             local_object_id=str(event.pk),
-            ledgeros_resource_type="security_deposit_event",
             source_event_type=f"security_deposit.{event.event_type}",
             external_id=f"security-deposit:{event.pk}",
             request_payload=request_payload,
@@ -418,9 +481,9 @@ class TenantPaymentService:
         event.save(update_fields=["status", "updated_at"])
 
         try:
-            result = LedgerOSPaymentsSyncService._submit(
+            result = LedgerOSSyncEventService._submit(
                 method="POST",
-                path=LedgerOSPaymentsSyncService.SECURITY_DEPOSIT_EVENT_PATH,
+                path=LedgerOSSyncEventService.SYNC_EVENT_PATH,
                 payload=request_payload,
                 idempotency_key=sync_record.idempotency_key,
             )
@@ -436,7 +499,7 @@ class TenantPaymentService:
 
         sync_record.status = LedgerOSSyncRecord.Status.SUCCEEDED
         sync_record.ledgeros_resource_id = str(
-            result.payload.get("security_deposit_event", {}).get("id")
+            result.payload.get("sync_event", {}).get("id")
             or result.payload.get("id")
             or sync_record.external_id
         )

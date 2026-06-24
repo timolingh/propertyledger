@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 from typing import Any
 
@@ -8,7 +9,7 @@ from django.core.exceptions import ValidationError
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.http import HttpResponseRedirect
 from django.urls import reverse, reverse_lazy
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.views.generic import CreateView, DeleteView, ListView, TemplateView, UpdateView
 from rest_framework import generics
 from rest_framework.response import Response
@@ -35,7 +36,7 @@ from ledgeros.models import (
     TenantCharge,
     Unit,
 )
-from ledgeros.serializers import LedgerOSSyncRecordSerializer
+from ledgeros.serializers import LedgerOSSyncEventSerializer
 from ledgeros.services import (
     LedgerOSCustomerSyncService,
     LedgerOSHealthCheckService,
@@ -353,9 +354,91 @@ class LedgerOSHealthAPIView(APIView):
         )
 
 
-class LedgerOSSyncRecordCreateAPIView(generics.CreateAPIView):
-    queryset = LedgerOSSyncRecord.objects.all()
-    serializer_class = LedgerOSSyncRecordSerializer
+class LedgerOSSyncEventCreateAPIView(APIView):
+    serializer_class = LedgerOSSyncEventSerializer
+
+    @staticmethod
+    def _canonical_json_bytes(payload: dict[str, Any]) -> bytes:
+        return json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True, default=str).encode("utf-8")
+
+    def post(self, request, *args, **kwargs):
+        serializer = self.serializer_class(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        idempotency_key = request.headers.get("Idempotency-Key", "").strip()
+        if not idempotency_key:
+            return Response(
+                {"idempotency_key": ["This header is required."]},
+                status=400,
+            )
+
+        validated = serializer.validated_data
+        envelope = {
+            "source_system": validated["source_system"],
+            "domain_event_type": validated["domain_event_type"],
+            "external_id": validated["external_id"],
+            "source_object_type": validated["source_object_type"],
+            "source_object_id": validated["source_object_id"],
+            "occurred_at": validated["occurred_at"].isoformat(),
+            "payload": validated["payload"],
+        }
+        request_hash = hashlib.sha256(self._canonical_json_bytes(envelope)).hexdigest()
+
+        try:
+            with transaction.atomic():
+                sync_record, created = LedgerOSSyncRecord.objects.get_or_create(
+                    idempotency_key=idempotency_key,
+                    defaults={
+                        "local_object_type": validated["source_object_type"],
+                        "local_object_id": validated["source_object_id"],
+                        "ledgeros_resource_type": "sync_event",
+                        "source_event_type": validated["domain_event_type"],
+                        "external_id": validated["external_id"],
+                        "request_hash": request_hash,
+                        "response_payload": envelope,
+                        "status": LedgerOSSyncRecord.Status.PENDING,
+                    },
+                )
+        except IntegrityError:
+            sync_record = LedgerOSSyncRecord.objects.filter(idempotency_key=idempotency_key).first()
+            if sync_record is None:
+                sync_record = LedgerOSSyncRecord.objects.filter(
+                    external_id=validated["external_id"],
+                    source_event_type=validated["domain_event_type"],
+                ).first()
+            if sync_record is None:
+                raise
+            created = False
+
+        if sync_record.request_hash != request_hash:
+            return Response(
+                {"idempotency_key": ["This key was already used for a different sync event."]},
+                status=409,
+            )
+
+        response_data = {
+            "id": sync_record.pk,
+            "source_system": envelope["source_system"],
+            "domain_event_type": sync_record.source_event_type,
+            "external_id": sync_record.external_id,
+            "source_object_type": sync_record.local_object_type,
+            "source_object_id": sync_record.local_object_id,
+            "occurred_at": envelope["occurred_at"],
+            "payload": envelope["payload"],
+            "idempotency_key": sync_record.idempotency_key,
+            "request_hash": sync_record.request_hash,
+            "ledgeros_resource_type": sync_record.ledgeros_resource_type,
+            "ledgeros_resource_id": sync_record.ledgeros_resource_id,
+            "ledgeros_journal_entry_id": sync_record.ledgeros_journal_entry_id,
+            "response_payload": sync_record.response_payload,
+            "status": sync_record.status,
+            "last_error": sync_record.last_error,
+            "attempt_count": sync_record.attempt_count,
+            "last_synced_at": sync_record.last_synced_at,
+            "created_at": sync_record.created_at,
+            "updated_at": sync_record.updated_at,
+        }
+        status_code = 201 if created else 200
+        return Response(response_data, status=status_code)
 
 
 class OwnerListView(LedgerOSCrudListView):
