@@ -37,6 +37,7 @@ Epic 3 does not include:
 - [`docs/epic-2.md`](../docs/epic-2.md)
 - [`docs/epic-1-lessons-learned.md`](../docs/epic-1-lessons-learned.md)
 - [`docs/epic-2-lessons-learned.md`](../docs/epic-2-lessons-learned.md)
+- [`docs/epic-3-lessons-learned.md`](../docs/epic-3-lessons-learned.md)
 - [`ledgeros/models.py`](../ledgeros/models.py)
 - [`ledgeros/forms.py`](../ledgeros/forms.py)
 - [`ledgeros/services.py`](../ledgeros/services.py)
