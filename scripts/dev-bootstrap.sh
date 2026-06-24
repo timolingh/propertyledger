@@ -152,6 +152,7 @@ docker compose -f docker-compose.yml up -d --build
 docker compose -f docker-compose.yml run --rm propertyledger-web python manage.py migrate
 docker compose -f docker-compose.yml run --rm propertyledger-web python manage.py bootstrap_ledgeros_connection_settings
 docker compose -f docker-compose.yml run --rm propertyledger-web python manage.py bootstrap_ledgeros_account_mappings
+docker compose -f docker-compose.yml run --rm propertyledger-web python manage.py bootstrap_payment_workflow_settings
 
 echo "PropertyLedger setup bootstrapped."
 echo "Next manual steps:"

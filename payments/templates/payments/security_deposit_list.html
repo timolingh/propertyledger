@@ -1,0 +1,47 @@
+{% extends "ledgeros/base.html" %}
+
+{% block title %}Security Deposits | PropertyLedger{% endblock %}
+
+{% block content %}
+  <div class="card">
+    <h1>Security Deposits</h1>
+    <a class="button primary" href="{% url 'security-deposit-create' %}">Add deposit event</a>
+  </div>
+  <div class="card">
+    <table>
+      <thead>
+        <tr>
+          <th>Tenant</th>
+          <th>Property</th>
+          <th>Unit</th>
+          <th>Lease</th>
+          <th>Type</th>
+          <th>Date</th>
+          <th>Amount</th>
+          <th>Status</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for event in events %}
+          <tr>
+            <td>{{ event.tenant }}</td>
+            <td>{{ event.property }}</td>
+            <td>{{ event.unit }}</td>
+            <td>{{ event.lease }}</td>
+            <td>{{ event.get_event_type_display }}</td>
+            <td>{{ event.event_date }}</td>
+            <td>{{ event.amount }}</td>
+            <td>{{ event.get_status_display }}</td>
+            <td class="actions">
+              <a href="{% url 'security-deposit-detail' event.pk %}">View</a>
+            </td>
+          </tr>
+        {% empty %}
+          <tr><td colspan="9" class="muted">No deposit events yet.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+{% endblock %}
+

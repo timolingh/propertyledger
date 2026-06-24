@@ -1,0 +1,45 @@
+{% extends "ledgeros/base.html" %}
+
+{% block title %}Tenant Payments | PropertyLedger{% endblock %}
+
+{% block content %}
+  <div class="card">
+    <h1>Tenant Payments</h1>
+    <a class="button primary" href="{% url 'tenant-payment-create' %}">Add payment</a>
+  </div>
+  <div class="card">
+    <table>
+      <thead>
+        <tr>
+          <th>Tenant</th>
+          <th>Property</th>
+          <th>Date</th>
+          <th>Amount</th>
+          <th>Status</th>
+          <th>Allocated</th>
+          <th>Remaining</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for payment in payments %}
+          <tr>
+            <td>{{ payment.tenant }}</td>
+            <td>{{ payment.property }}</td>
+            <td>{{ payment.payment_date }}</td>
+            <td>{{ payment.amount }}</td>
+            <td>{{ payment.get_status_display }}</td>
+            <td>{{ payment.allocated_amount }}</td>
+            <td>{{ payment.remaining_amount }}</td>
+            <td class="actions">
+              <a href="{% url 'tenant-payment-detail' payment.pk %}">View</a>
+            </td>
+          </tr>
+        {% empty %}
+          <tr><td colspan="8" class="muted">No payments yet.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+{% endblock %}
+

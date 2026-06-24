@@ -1,0 +1,72 @@
+{% extends "ledgeros/base.html" %}
+
+{% block title %}Payment {{ payment.pk }} | PropertyLedger{% endblock %}
+
+{% block content %}
+  <div class="card">
+    <h1>Tenant Payment {{ payment.pk }}</h1>
+    <p><strong>Tenant:</strong> {{ payment.tenant }}</p>
+    <p><strong>Property:</strong> {{ payment.property }}</p>
+    <p><strong>Status:</strong> {{ payment.get_status_display }}</p>
+    <p><strong>Allocated:</strong> {{ payment.allocated_amount }}</p>
+    <p><strong>Remaining:</strong> {{ payment.remaining_amount }}</p>
+    <p><strong>Notes:</strong> {{ payment.notes|default:"-" }}</p>
+    <div style="display:flex; gap:1rem; flex-wrap:wrap;">
+      <a class="button" href="{% url 'tenant-payment-list' %}">Back</a>
+      <a class="button" href="{% url 'tenant-payment-create' %}">New payment</a>
+      <a class="button" href="{% url 'tenant-payment-edit' payment.pk %}">Edit draft</a>
+    </div>
+  </div>
+  <div class="card">
+    <h2>Allocations</h2>
+    <form method="post">
+      {% csrf_token %}
+      <input type="hidden" name="action" value="allocate">
+      <input type="hidden" name="payment_id" value="{{ payment.pk }}">
+      <button type="submit" class="button primary">Auto allocate remaining</button>
+    </form>
+    <table>
+      <thead>
+        <tr>
+          <th>Charge</th>
+          <th>Type</th>
+          <th>Due</th>
+          <th>Applied</th>
+          <th>Sync</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for application in payment.applications.all %}
+          <tr>
+            <td>{{ application.charge }}</td>
+            <td>{{ application.charge.get_charge_type_display }}</td>
+            <td>{{ application.charge.due_date }}</td>
+            <td>{{ application.amount_applied }}</td>
+            <td>{{ application.sync_record.status|default:"-" }}</td>
+          </tr>
+        {% empty %}
+          <tr><td colspan="5" class="muted">No allocations yet.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <div class="card">
+    <h2>LedgerOS Sync</h2>
+    <form method="post">
+      {% csrf_token %}
+      <input type="hidden" name="action" value="sync">
+      <input type="hidden" name="payment_id" value="{{ payment.pk }}">
+      <button type="submit" class="button primary">Sync payment</button>
+    </form>
+    {% if sync_log_entries %}
+      {% for entry in sync_log_entries %}
+        <div class="card">
+          <strong>{{ entry.title }}</strong>
+          <div class="muted">{{ entry.updated_at }} | {{ entry.status }}</div>
+          {% if entry.error %}<pre>{{ entry.error }}</pre>{% endif %}
+          {% if entry.response_text %}<pre>{{ entry.response_text }}</pre>{% endif %}
+        </div>
+      {% endfor %}
+    {% endif %}
+  </div>
+{% endblock %}

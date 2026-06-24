@@ -15,6 +15,7 @@ This repository now includes the Epic 1 through Epic 3 Django foundation for Pro
 - locked `LedgerOSSyncRecord` schema and uniqueness constraints;
 - admin/setup screen plus Epic 2 CRUD pages for properties, units, owners, tenants, and leases;
 - Epic 3 tenant-charge workflow for base rent generation and manual charges.
+- Epic 4 payments app for tenant payments, payment applications, and security deposits.
 
 ## Environment variables
 
@@ -86,6 +87,7 @@ Where to get the LedgerOS values:
 - `docs/epic-1.md` — Epic 1 runbook for setup and verification.
 - `docs/epic-2.md` — Epic 2 runbook for setup and CRUD workflows.
 - `docs/epic-3.md` — Epic 3 runbook for rent generation and tenant charges.
+- `docs/epic-4.md` — Epic 4 runbook for tenant payments, credits, and security deposits.
 - `CLAUDE.md` — guidance for AI agents working on the PropertyLedger repo.
 
 ## Testing
@@ -160,6 +162,7 @@ Bootstrap principle: keep the user in PropertyLedger for setup and seed the Ledg
    ./scripts/dev-bootstrap.sh
    ```
 5. The script uses the current shell environment plus any `.env` file you already have, boots the LedgerOS sample chart of accounts plus an open accounting period when the sibling LedgerOS repo is present, persists the selected LedgerOS entity and accounting period back into PropertyLedger, starts the PropertyLedger containers, runs migrations, and bootstraps the saved connection settings plus the required account mappings.
+   It also bootstraps the global payment workflow settings used by the Epic 4 payments app.
 6. Open the setup screen at `http://localhost:8000/` to finish the remaining PropertyLedger-specific setup. The LedgerOS entity and accounting period should already be selected by the bootstrap, so you should not need to pick them manually.
 7. Create the admin user if you do not already have one:
    ```bash

@@ -115,6 +115,12 @@ class LedgerOSAppContextMixin:
                 "summary": "Manual charges may be property-level or linked to a lease.",
                 "complete": TenantCharge.objects.exists(),
             },
+            {
+                "label": "Record tenant payments",
+                "url": reverse("payments-home"),
+                "summary": "Record tenant payments and security deposit events.",
+                "complete": False,
+            },
         ]
         return steps
 
