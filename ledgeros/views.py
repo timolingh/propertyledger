@@ -118,7 +118,7 @@ class LedgerOSAppContextMixin:
             },
             {
                 "label": "Record tenant payments",
-                "url": reverse("payments-home"),
+                "url": reverse("tenant-payment-create"),
                 "summary": "Record tenant payments and security deposit events.",
                 "complete": False,
             },

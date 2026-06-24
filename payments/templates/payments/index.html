@@ -7,9 +7,10 @@
     <h1>Payments</h1>
     <p class="muted">Separate tenant payment and security deposit workflows live here.</p>
     <div style="display:flex; gap:1rem; flex-wrap:wrap;">
+      <a class="button primary" href="{% url 'tenant-payment-create' %}">Record tenant payment</a>
+      <a class="button primary" href="{% url 'security-deposit-create' %}">Record deposit event</a>
       <a class="button primary" href="{% url 'tenant-payment-list' %}">Tenant payments</a>
       <a class="button primary" href="{% url 'security-deposit-list' %}">Security deposits</a>
     </div>
   </div>
 {% endblock %}
-

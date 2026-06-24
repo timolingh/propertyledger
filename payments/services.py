@@ -52,13 +52,36 @@ class LedgerOSSyncEventService:
             raw_body = exc.read()
         except Exception:
             raw_body = b""
+        parsed_body: dict[str, Any] | None = None
         if raw_body:
             try:
                 body = raw_body.decode("utf-8").strip()
             except Exception:
                 body = raw_body.decode("utf-8", errors="replace").strip()
             if body:
-                return f"LedgerOS returned HTTP {exc.code}: {body}"
+                try:
+                    parsed = json.loads(body)
+                except json.JSONDecodeError:
+                    parsed = None
+                if isinstance(parsed, dict):
+                    parsed_body = parsed
+                    detail = parsed.get("detail") or parsed.get("error") or parsed.get("message")
+                    if detail:
+                        message = f"LedgerOS returned HTTP {exc.code}: {detail}"
+                    else:
+                        message = f"LedgerOS returned HTTP {exc.code}: {body}"
+                else:
+                    message = f"LedgerOS returned HTTP {exc.code}: {body}"
+
+                if exc.code == 403:
+                    permission_hint = (
+                        f"LedgerOS denied POST {LedgerOSSyncEventService.SYNC_EVENT_PATH} for this client. "
+                        "Check the LedgerOS API client permissions for sync-event writes."
+                    )
+                    if parsed_body and parsed_body.get("detail") and parsed_body["detail"] != body:
+                        return f"{message} {permission_hint}"
+                    return f"{message} {permission_hint}"
+                return message
         return f"LedgerOS returned HTTP {exc.code}: {exc.reason}"
 
     @staticmethod

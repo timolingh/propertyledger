@@ -49,6 +49,17 @@
         {% endfor %}
       </tbody>
     </table>
+    {% if allocation_sync_log_entries %}
+      <h3>Allocation Sync Log</h3>
+      {% for entry in allocation_sync_log_entries %}
+        <div class="card">
+          <strong>{{ entry.title }}</strong>
+          <div class="muted">{{ entry.updated_at }} | {{ entry.status }}</div>
+          {% if entry.error %}<pre>{{ entry.error }}</pre>{% endif %}
+          {% if entry.response_text %}<pre>{{ entry.response_text }}</pre>{% endif %}
+        </div>
+      {% endfor %}
+    {% endif %}
   </div>
   <div class="card">
     <h2>LedgerOS Sync</h2>

@@ -229,6 +229,15 @@ class LedgerOSSetupViewTests(TestCase):
         self.assertNotContains(response, "required_account_mappings:")
         self.assertNotContains(response, "ledgeros_health:")
 
+    def test_setup_view_links_record_tenant_payments_to_create_form(self):
+        response = self.client.get(reverse("ledgeros-setup"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(
+            response,
+            f'href="{reverse("tenant-payment-create")}"',
+        )
+
 
 class PropertyLedgerDomainModelTests(TestCase):
     def test_property_plural_name_is_properties(self):

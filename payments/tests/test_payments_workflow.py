@@ -4,11 +4,15 @@ import json
 import os
 from datetime import date
 from decimal import Decimal
+from io import BytesIO
+from urllib.error import HTTPError, URLError
 from unittest.mock import patch
 
 from django.core.exceptions import ValidationError
 from django.core.management import call_command
+from django.contrib.auth import get_user_model
 from django.test import TestCase
+from django.urls import reverse
 
 from ledgeros.models import LedgerOSConnectionSettings, LedgerOSSyncRecord, Owner, Property, Tenant, TenantCharge, Unit
 from payments.models import PaymentWorkflowSettings, SecurityDepositEvent, TenantPayment
@@ -58,12 +62,156 @@ class PaymentWorkflowSettingsCommandTests(TestCase):
         )
 
 
+class PaymentsLandingViewTests(TestCase):
+    def test_landing_page_exposes_record_payment_cta(self):
+        response = self.client.get(reverse("payments-home"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, reverse("tenant-payment-create"))
+        self.assertContains(response, "Record tenant payment")
+
+
+class TenantPaymentViewTests(TestCase):
+    def setUp(self):
+        _configure_ledgeros_settings()
+        self.owner = Owner.objects.create(name="Owner One")
+        self.property = Property.objects.create(name="Property One", primary_owner=self.owner)
+        self.tenant = Tenant.objects.create(name="Tenant One")
+        self.user = get_user_model().objects.create_user(username="tester", password="password")
+        self.client.force_login(self.user)
+
+    @patch.dict(os.environ, {"LEDGEROS_HMAC_SECRET": "secret"}, clear=False)
+    @patch("payments.services.urlopen")
+    def test_allocate_payment_failure_shows_error_message(self, mock_urlopen):
+        mock_urlopen.side_effect = URLError("LedgerOS is unavailable")
+
+        payment = TenantPayment.objects.create(
+            property=self.property,
+            tenant=self.tenant,
+            payment_date=date(2026, 1, 15),
+            amount=Decimal("100.00"),
+            payment_method=TenantPayment.PaymentMethod.CASH,
+            reference="cash",
+            status=TenantPayment.Status.DRAFT,
+        )
+        TenantCharge.objects.create(
+            property=self.property,
+            tenant=self.tenant,
+            charge_type=TenantCharge.ChargeType.BASE_RENT,
+            charge_date=date(2026, 1, 1),
+            due_date=date(2026, 1, 10),
+            amount=Decimal("100.00"),
+            description="Base rent",
+        )
+
+        response = self.client.post(
+            reverse("tenant-payment-detail", args=[payment.pk]),
+            {"action": "allocate", "payment_id": payment.pk},
+            follow=True,
+        )
+
+        payment.refresh_from_db()
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Payment allocations refreshed, but one or more syncs failed.")
+        self.assertContains(response, "LedgerOS is unavailable")
+        self.assertContains(response, "Allocation Sync Log")
+        self.assertEqual(payment.status, TenantPayment.Status.SYNC_FAILED)
+
+    @patch.dict(os.environ, {"LEDGEROS_HMAC_SECRET": "secret"}, clear=False)
+    @patch("payments.services.urlopen")
+    def test_sync_payment_failure_shows_error_message(self, mock_urlopen):
+        charge = TenantCharge.objects.create(
+            property=self.property,
+            tenant=self.tenant,
+            charge_type=TenantCharge.ChargeType.BASE_RENT,
+            charge_date=date(2026, 1, 1),
+            due_date=date(2026, 1, 10),
+            amount=Decimal("100.00"),
+            description="Base rent",
+        )
+        mock_urlopen.side_effect = [
+            _FakeResponse(status=201, payload=json.dumps({"sync_event": {"id": "sync_app"}}).encode("utf-8")),
+            URLError("LedgerOS is unavailable"),
+        ]
+
+        payment = TenantPayment.objects.create(
+            property=self.property,
+            tenant=self.tenant,
+            payment_date=date(2026, 1, 15),
+            amount=Decimal("100.00"),
+            payment_method=TenantPayment.PaymentMethod.CASH,
+            reference="cash",
+            status=TenantPayment.Status.DRAFT,
+        )
+        TenantPaymentService.allocate_payment(payment)
+        payment.refresh_from_db()
+
+        response = self.client.post(
+            reverse("tenant-payment-detail", args=[payment.pk]),
+            {"action": "sync", "payment_id": payment.pk},
+            follow=True,
+        )
+
+        payment.refresh_from_db()
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Payment sync failed.")
+        self.assertContains(response, "LedgerOS is unavailable")
+        self.assertEqual(payment.status, TenantPayment.Status.SYNC_FAILED)
+
+
 class TenantPaymentServiceTests(TestCase):
     def setUp(self):
         _configure_ledgeros_settings()
         self.owner = Owner.objects.create(name="Owner One")
         self.property = Property.objects.create(name="Property One", primary_owner=self.owner)
         self.tenant = Tenant.objects.create(name="Tenant One")
+
+    @patch.dict(os.environ, {"LEDGEROS_HMAC_SECRET": "secret"}, clear=False)
+    @patch("payments.services.urlopen")
+    def test_payment_sync_403_reports_permission_hint(self, mock_urlopen):
+        charge = TenantCharge.objects.create(
+            property=self.property,
+            tenant=self.tenant,
+            charge_type=TenantCharge.ChargeType.BASE_RENT,
+            charge_date=date(2026, 1, 1),
+            due_date=date(2026, 1, 10),
+            amount=Decimal("100.00"),
+            description="Base rent",
+        )
+        mock_urlopen.side_effect = [
+            _FakeResponse(status=201, payload=json.dumps({"sync_event": {"id": "sync_app"}}).encode("utf-8")),
+            HTTPError(
+                url="http://ledgeros-web:8000/api/v1/sync-events/",
+                code=403,
+                msg="Forbidden",
+                hdrs=None,
+                fp=BytesIO(b'{"detail":"API client is not allowed to perform this action."}'),
+            ),
+        ]
+
+        payment = TenantPayment.objects.create(
+            property=self.property,
+            tenant=self.tenant,
+            payment_date=date(2026, 1, 15),
+            amount=Decimal("100.00"),
+            payment_method=TenantPayment.PaymentMethod.CASH,
+            reference="cash",
+            status=TenantPayment.Status.DRAFT,
+        )
+        TenantPaymentService.allocate_payment(payment)
+        payment.refresh_from_db()
+
+        TenantPaymentService.sync_payment(payment)
+        payment.refresh_from_db()
+
+        self.assertEqual(payment.status, TenantPayment.Status.SYNC_FAILED)
+        self.assertIn("API client is not allowed to perform this action.", payment.sync_record.last_error)
+        self.assertIn("POST /api/v1/sync-events/", payment.sync_record.last_error)
+        self.assertIn("Check the LedgerOS API client permissions for sync-event writes.", payment.sync_record.last_error)
+        self.assertEqual(
+            payment.sync_record.response_payload["error"],
+            payment.sync_record.last_error,
+        )
 
     @patch.dict(os.environ, {"LEDGEROS_HMAC_SECRET": "secret"}, clear=False)
     @patch("payments.services.urlopen")
