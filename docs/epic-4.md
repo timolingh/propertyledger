@@ -7,7 +7,7 @@ This document contains the working guide for Epic 4 in PropertyLedger.
 Epic 4 adds the payments app and its two core workflows:
 
 - manual tenant payments;
-- payment allocation across open tenant charges;
+- payment application to open tenant invoices;
 - payment sync handoff to LedgerOS;
 - security deposit events;
 - security deposit balance tracking derived from event records;
@@ -77,12 +77,12 @@ make smoke
 
 ### Tenant payments
 
-- Payments may be saved as draft without allocations.
-- Allocations happen after save on the payment detail screen.
-- Allocation uses a global charge-type priority order.
-- Within each charge type, oldest charges are allocated first.
+- Payments may be saved as draft without invoice applications.
+- Invoice applications are added after save on the payment detail screen.
+- Application uses a global invoice-type priority order.
+- Within each invoice type, oldest open invoices are applied first.
 - Synced payments are immutable except for the non-accounting note field.
-- Payment sync requires full allocation and successful application syncs.
+- Payment sync requires full application and successful invoice-application syncs.
 - Payment sync is only complete when LedgerOS has posted the accounting effect of the receipt.
 
 ### Security deposits
@@ -131,9 +131,9 @@ make check
 ## Manual Checks
 
 - Create a draft tenant payment.
-- Add allocations on the detail page.
-- Confirm allocation order follows the configured category priority.
-- Confirm sync is blocked until the payment is fully allocated.
+- Add invoice applications on the detail page.
+- Confirm application order follows the configured invoice-type priority.
+- Confirm sync is blocked until the payment is fully applied to open invoices.
 - Confirm a successful payment sync changes LedgerOS posted balances, not just the sync event log.
 - Record security deposit events and confirm the balance is derived from the event stream.
 
