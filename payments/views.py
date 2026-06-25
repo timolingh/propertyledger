@@ -9,11 +9,12 @@ from django.core.exceptions import ValidationError
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.http import HttpResponseRedirect
 from django.urls import reverse, reverse_lazy
+from django.utils import timezone
 from django.views.generic import CreateView, DetailView, ListView, TemplateView, UpdateView
 
 from ledgeros.models import TenantCharge
 from ledgeros.views import LedgerOSAppContextMixin, LedgerOSCrudArchiveView
-from payments.forms import SecurityDepositEventForm, TenantPaymentForm
+from payments.forms import InvoicePaymentForm, SecurityDepositEventForm, TenantPaymentForm
 from payments.models import SecurityDepositEvent, TenantPayment
 from payments.services import SecurityDepositLedgerService, TenantPaymentService
 
@@ -21,13 +22,13 @@ from payments.services import SecurityDepositLedgerService, TenantPaymentService
 class PaymentsAppContextMixin(LedgerOSAppContextMixin):
     def get_setup_flow_steps(self) -> list[dict[str, Any]]:
         steps = super().get_setup_flow_steps()
-        if any(step["label"] == "Record tenant payments" for step in steps):
+        if any(step["label"] == "Record tenant invoices and payments" for step in steps):
             return steps
         steps.append(
             {
-                "label": "Record tenant payments",
-                "url": reverse("tenant-payment-create"),
-                "summary": "Record tenant payments and security deposits in the new payments app.",
+                "label": "Record tenant invoices and payments",
+                "url": reverse("invoice-list"),
+                "summary": "Review invoices, record payments against them, and track security deposits in the new payments app.",
                 "complete": TenantPayment.objects.exists() or SecurityDepositEvent.objects.exists(),
             }
         )
@@ -36,8 +37,8 @@ class PaymentsAppContextMixin(LedgerOSAppContextMixin):
     def get_app_context(self) -> dict[str, Any]:
         context = super().get_app_context()
         context["payments_next_step"] = {
-            "tenant_payment_create_url": reverse("tenant-payment-create"),
-            "tenant_payment_url": reverse("tenant-payment-list"),
+            "invoice_list_url": reverse("invoice-list"),
+            "invoice_history_url": reverse("tenant-payment-list"),
             "security_deposit_create_url": reverse("security-deposit-create"),
             "security_deposit_url": reverse("security-deposit-list"),
         }
@@ -67,8 +68,154 @@ def _payment_sync_errors(payment: TenantPayment) -> list[str]:
     return errors
 
 
+def _invoice_allocated_amount(invoice: TenantCharge) -> Decimal:
+    total = Decimal("0.00")
+    for application in invoice.payment_applications.select_related("payment").all():
+        if application.payment.status != TenantPayment.Status.VOIDED:
+            total += application.amount_applied
+    return total.quantize(Decimal("0.01"))
+
+
+def _invoice_balance_due(invoice: TenantCharge) -> Decimal:
+    return (invoice.amount - _invoice_allocated_amount(invoice)).quantize(Decimal("0.01"))
+
+
+def _invoice_payment_history(invoice: TenantCharge) -> list[dict[str, Any]]:
+    entries: list[dict[str, Any]] = []
+    for application in invoice.payment_applications.select_related("payment", "sync_record").all():
+        payment = application.payment
+        if payment.status == TenantPayment.Status.VOIDED:
+            continue
+        entries.append(
+            {
+                "payment": payment,
+                "application": application,
+                "sync_status": payment.sync_record.status if payment.sync_record else "",
+                "unapplied_amount": payment.unapplied_amount,
+            }
+        )
+    entries.sort(key=lambda entry: (entry["payment"].payment_date, entry["payment"].id))
+    return entries
+
+
 class PaymentsLandingView(PaymentsAppContextMixin, TemplateView):
     template_name = "payments/index.html"
+
+
+class TenantInvoiceListView(LoginRequiredMixin, PaymentsAppContextMixin, ListView):
+    model = TenantCharge
+    template_name = "payments/invoice_list.html"
+    context_object_name = "invoices"
+    login_url = reverse_lazy("admin:login")
+
+    def get_queryset(self):
+        return (
+            TenantCharge.objects.select_related("tenant", "property", "lease")
+            .prefetch_related("payment_applications__payment")
+            .exclude(status=TenantCharge.Status.VOIDED)
+            .order_by("due_date", "charge_date", "id")
+        )
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        invoice_rows: list[dict[str, Any]] = []
+        for invoice in context["invoices"]:
+            allocated_amount = _invoice_allocated_amount(invoice)
+            balance_due = _invoice_balance_due(invoice)
+            if balance_due <= Decimal("0.00"):
+                continue
+            invoice_rows.append(
+                {
+                    "invoice": invoice,
+                    "allocated_amount": allocated_amount,
+                    "balance_due": balance_due,
+                    "detail_url": reverse("invoice-detail", args=[invoice.pk]),
+                }
+            )
+        context["invoice_rows"] = invoice_rows
+        context["open_invoice_count"] = len(invoice_rows)
+        context["total_open_balance"] = sum((row["balance_due"] for row in invoice_rows), Decimal("0.00")).quantize(Decimal("0.01"))
+        return context
+
+
+class TenantInvoiceDetailView(LoginRequiredMixin, PaymentsAppContextMixin, DetailView):
+    model = TenantCharge
+    template_name = "payments/invoice_detail.html"
+    context_object_name = "invoice"
+    login_url = reverse_lazy("admin:login")
+
+    def get_queryset(self):
+        return (
+            TenantCharge.objects.select_related("tenant", "property", "lease", "sync_record")
+            .prefetch_related("payment_applications__payment", "payment_applications__sync_record")
+        )
+
+    def post(self, request, *args, **kwargs):
+        self.object = self.get_object()
+        form = InvoicePaymentForm(request.POST)
+        if form.is_valid():
+            try:
+                payment = TenantPaymentService.record_payment_for_charge(
+                    charge=self.object,
+                    payment_date=form.cleaned_data["payment_date"],
+                    amount=form.cleaned_data["amount"],
+                    payment_method=form.cleaned_data["payment_method"],
+                    reference=form.cleaned_data["reference"],
+                    notes=form.cleaned_data["notes"],
+                )
+            except ValidationError as exc:
+                for message in exc.messages:
+                    form.add_error(None, message)
+            else:
+                payment.refresh_from_db()
+                errors = _payment_sync_errors(payment)
+                if payment.status == TenantPayment.Status.SYNC_FAILED:
+                    messages.warning(
+                        request,
+                        "Payment was recorded, but one or more allocation posts failed."
+                        + (f" {_format_sync_errors(errors)}" if errors else ""),
+                    )
+                elif payment.remaining_amount > Decimal("0.00"):
+                    messages.success(
+                        request,
+                        "Payment recorded locally. The excess amount is being held as tenant credit.",
+                    )
+                else:
+                    messages.success(request, "Payment recorded locally against the invoice.")
+                return HttpResponseRedirect(reverse("invoice-detail", args=[self.object.pk]))
+        context = self.get_context_data(form=form)
+        return self.render_to_response(context)
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        invoice = self.object
+        balance_due = _invoice_balance_due(invoice)
+        context["allocated_amount"] = _invoice_allocated_amount(invoice)
+        context["balance_due"] = balance_due
+        context["payment_form"] = kwargs.get(
+            "form",
+            InvoicePaymentForm(
+                initial={
+                    "payment_date": timezone.localdate(),
+                    "amount": balance_due if balance_due > Decimal("0.00") else invoice.amount,
+                }
+            ),
+        )
+        context["payment_history"] = _invoice_payment_history(invoice)
+        open_charges = (
+            TenantCharge.objects.filter(property=invoice.property, tenant=invoice.tenant)
+            .exclude(status=TenantCharge.Status.VOIDED)
+            .order_by("due_date", "charge_date", "id")
+        )
+        context["open_charge_rows"] = [
+            {
+                "invoice": open_charge,
+                "balance_due": _invoice_balance_due(open_charge),
+                "detail_url": reverse("invoice-detail", args=[open_charge.pk]),
+            }
+            for open_charge in open_charges
+        ]
+        return context
 
 
 class TenantPaymentListView(LoginRequiredMixin, PaymentsAppContextMixin, ListView):
@@ -97,8 +244,8 @@ class TenantPaymentListView(LoginRequiredMixin, PaymentsAppContextMixin, ListVie
                 errors = _payment_sync_errors(payment)
                 level, message = _sync_feedback(
                     status=payment.status,
-                    success_message="Payment allocations refreshed.",
-                    failure_message="Payment allocations refreshed, but one or more syncs failed.",
+                    success_message="Payment allocations posted to LedgerOS.",
+                    failure_message="Payment allocations refreshed, but one or more posts failed.",
                     last_error=_format_sync_errors(errors) if errors else None,
                 )
                 getattr(messages, level)(request, message)
@@ -113,8 +260,8 @@ class TenantPaymentListView(LoginRequiredMixin, PaymentsAppContextMixin, ListVie
                 errors = _payment_sync_errors(payment)
                 level, message = _sync_feedback(
                     status=payment.status,
-                    success_message="Payment sync completed.",
-                    failure_message="Payment sync failed.",
+                    success_message="Payment posted to LedgerOS.",
+                    failure_message="Payment post to LedgerOS failed.",
                     last_error=_format_sync_errors(errors) if errors else None,
                 )
                 getattr(messages, level)(request, message)
@@ -171,8 +318,8 @@ class TenantPaymentDetailView(LoginRequiredMixin, PaymentsAppContextMixin, Detai
                 errors = _payment_sync_errors(self.object)
                 level, message = _sync_feedback(
                     status=self.object.status,
-                    success_message="Payment allocations refreshed.",
-                    failure_message="Payment allocations refreshed, but one or more syncs failed.",
+                    success_message="Payment allocations posted to LedgerOS.",
+                    failure_message="Payment allocations refreshed, but one or more posts failed.",
                     last_error=_format_sync_errors(errors) if errors else None,
                 )
                 getattr(messages, level)(request, message)
@@ -186,8 +333,8 @@ class TenantPaymentDetailView(LoginRequiredMixin, PaymentsAppContextMixin, Detai
                 errors = _payment_sync_errors(self.object)
                 level, message = _sync_feedback(
                     status=self.object.status,
-                    success_message="Payment sync completed.",
-                    failure_message="Payment sync failed.",
+                    success_message="Payment posted to LedgerOS.",
+                    failure_message="Payment post to LedgerOS failed.",
                     last_error=_format_sync_errors(errors) if errors else None,
                 )
                 getattr(messages, level)(request, message)

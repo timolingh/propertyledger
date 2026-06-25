@@ -23,6 +23,7 @@ from ledgeros.views import (
     TenantUpdateView,
     TenantChargeArchiveView,
     TenantChargeCreateView,
+    TenantChargeDetailView,
     TenantChargeListView,
     TenantChargeUpdateView,
     UnitArchiveView,
@@ -84,6 +85,7 @@ urlpatterns = [
     ),
     path("charges/", TenantChargeListView.as_view(), name="charge-list"),
     path("charges/add/", TenantChargeCreateView.as_view(), name="charge-create"),
+    path("charges/<int:pk>/", TenantChargeDetailView.as_view(), name="charge-detail"),
     path("charges/<int:pk>/edit/", TenantChargeUpdateView.as_view(), name="charge-edit"),
     path(
         "charges/<int:pk>/archive/",

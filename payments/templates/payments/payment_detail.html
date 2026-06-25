@@ -9,11 +9,12 @@
     <p><strong>Property:</strong> {{ payment.property }}</p>
     <p><strong>Status:</strong> {{ payment.get_status_display }}</p>
     <p><strong>Allocated:</strong> {{ payment.allocated_amount }}</p>
-    <p><strong>Remaining:</strong> {{ payment.remaining_amount }}</p>
+    <p><strong>Unapplied / credit:</strong> {{ payment.unapplied_amount }}</p>
     <p><strong>Notes:</strong> {{ payment.notes|default:"-" }}</p>
+    <p class="muted">Syncing this payment posts the accounting change in LedgerOS. The allocation step posts each invoice application first, then the receipt sync confirms the overall payment.</p>
     <div style="display:flex; gap:1rem; flex-wrap:wrap;">
       <a class="button" href="{% url 'tenant-payment-list' %}">Back</a>
-      <a class="button" href="{% url 'tenant-payment-create' %}">New payment</a>
+      <a class="button" href="{% url 'invoice-list' %}">Open invoices</a>
       <a class="button" href="{% url 'tenant-payment-edit' payment.pk %}">Edit draft</a>
     </div>
   </div>
@@ -50,7 +51,7 @@
       </tbody>
     </table>
     {% if allocation_sync_log_entries %}
-      <h3>Allocation Sync Log</h3>
+      <h3>Allocation Post Log</h3>
       {% for entry in allocation_sync_log_entries %}
         <div class="card">
           <strong>{{ entry.title }}</strong>
@@ -67,7 +68,7 @@
       {% csrf_token %}
       <input type="hidden" name="action" value="sync">
       <input type="hidden" name="payment_id" value="{{ payment.pk }}">
-      <button type="submit" class="button primary">Sync payment</button>
+      <button type="submit" class="button primary">Post payment to LedgerOS</button>
     </form>
     {% if sync_log_entries %}
       {% for entry in sync_log_entries %}

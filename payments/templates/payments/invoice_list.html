@@ -1,0 +1,51 @@
+{% extends "ledgeros/base.html" %}
+
+{% block title %}Open Invoices | PropertyLedger{% endblock %}
+
+{% block content %}
+  <div class="card">
+    <h1>Open Invoices</h1>
+    <p class="muted">
+      {{ open_invoice_count }} open invoice{{ open_invoice_count|pluralize }} with {{ total_open_balance }} still due.
+    </p>
+    <div style="display:flex; gap:1rem; flex-wrap:wrap;">
+      <a class="button primary" href="{% url 'tenant-payment-list' %}">Payment history</a>
+      <a class="button primary" href="{% url 'security-deposit-list' %}">Security deposits</a>
+    </div>
+  </div>
+  <div class="card">
+    <table>
+      <thead>
+        <tr>
+          <th>Invoice</th>
+          <th>Scope</th>
+          <th>Due date</th>
+          <th>Amount</th>
+          <th>Applied</th>
+          <th>Balance due</th>
+          <th>Status</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in invoice_rows %}
+          <tr>
+            <td><strong>{{ row.invoice }}</strong></td>
+            <td>{{ row.invoice.get_charge_scope_summary }}</td>
+            <td>{{ row.invoice.due_date }}</td>
+            <td>{{ row.invoice.amount }}</td>
+            <td>{{ row.allocated_amount }}</td>
+            <td>{{ row.balance_due }}</td>
+            <td>{{ row.invoice.get_status_display }}</td>
+            <td class="actions">
+              <a href="{{ row.detail_url }}">Record payment</a>
+              <a href="{% url 'charge-edit' row.invoice.pk %}">Edit</a>
+            </td>
+          </tr>
+        {% empty %}
+          <tr><td colspan="8" class="muted">No invoices yet.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+{% endblock %}

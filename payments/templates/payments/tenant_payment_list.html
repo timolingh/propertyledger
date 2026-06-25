@@ -1,11 +1,12 @@
 {% extends "ledgeros/base.html" %}
 
-{% block title %}Tenant Payments | PropertyLedger{% endblock %}
+{% block title %}Payment History | PropertyLedger{% endblock %}
 
 {% block content %}
   <div class="card">
-    <h1>Tenant Payments</h1>
-    <a class="button primary" href="{% url 'tenant-payment-create' %}">Add payment</a>
+    <h1>Payment History</h1>
+    <p class="muted">These are the saved payment receipts and their allocation status.</p>
+    <a class="button primary" href="{% url 'invoice-list' %}">Open invoices</a>
   </div>
   <div class="card">
     <table>
@@ -17,7 +18,7 @@
           <th>Amount</th>
           <th>Status</th>
           <th>Allocated</th>
-          <th>Remaining</th>
+          <th>Credit</th>
           <th>Actions</th>
         </tr>
       </thead>
@@ -30,7 +31,7 @@
             <td>{{ payment.amount }}</td>
             <td>{{ payment.get_status_display }}</td>
             <td>{{ payment.allocated_amount }}</td>
-            <td>{{ payment.remaining_amount }}</td>
+            <td>{{ payment.unapplied_amount }}</td>
             <td class="actions">
               <a href="{% url 'tenant-payment-detail' payment.pk %}">View</a>
             </td>
@@ -42,4 +43,3 @@
     </table>
   </div>
 {% endblock %}
-

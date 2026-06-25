@@ -33,6 +33,27 @@ class TenantPaymentForm(forms.ModelForm):
                     self.fields[name].disabled = True
 
 
+class InvoicePaymentForm(forms.ModelForm):
+    class Meta:
+        model = TenantPayment
+        fields = [
+            "payment_date",
+            "amount",
+            "payment_method",
+            "reference",
+            "notes",
+        ]
+        widgets = {
+            "payment_date": forms.DateInput(attrs={"type": "date"}),
+        }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["amount"].help_text = (
+            "Enter the amount received. Any excess can remain as tenant credit."
+        )
+
+
 class SecurityDepositEventForm(forms.ModelForm):
     class Meta:
         model = SecurityDepositEvent
@@ -62,4 +83,3 @@ class SecurityDepositEventForm(forms.ModelForm):
             for name in self.fields:
                 if name != "notes":
                     self.fields[name].disabled = True
-

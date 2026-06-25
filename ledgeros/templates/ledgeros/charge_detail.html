@@ -1,0 +1,48 @@
+{% extends "ledgeros/base.html" %}
+
+{% block title %}Invoice {{ invoice.pk }} | PropertyLedger{% endblock %}
+
+{% block content %}
+  <div class="card">
+    <h1>Invoice {{ invoice.pk }}</h1>
+    <p><strong>Tenant:</strong> {{ invoice.tenant }}</p>
+    <p><strong>Property:</strong> {{ invoice.property }}</p>
+    <p><strong>Lease:</strong> {{ invoice.lease|default:"-" }}</p>
+    <p><strong>Type:</strong> {{ invoice.get_charge_type_display }}</p>
+    <p><strong>Charge date:</strong> {{ invoice.charge_date }}</p>
+    <p><strong>Due date:</strong> {{ invoice.due_date }}</p>
+    <p><strong>Amount:</strong> {{ invoice.amount }}</p>
+    <p><strong>Status:</strong> {{ invoice.get_status_display }}</p>
+    <p><strong>Description:</strong> {{ invoice.description|default:"-" }}</p>
+    <div style="display:flex; gap:1rem; flex-wrap:wrap;">
+      <a class="button" href="{% url 'charge-list' %}">Back to invoices</a>
+      <a class="button primary" href="{% url 'invoice-detail' invoice.pk %}">Record payment</a>
+      <a class="button" href="{% url 'charge-edit' invoice.pk %}">Edit invoice</a>
+    </div>
+  </div>
+  <div class="card">
+    <h2>Applied Payments</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>Payment</th>
+          <th>Date</th>
+          <th>Applied</th>
+          <th>Status</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for application in payment_applications %}
+          <tr>
+            <td><a href="{% url 'tenant-payment-detail' application.payment.pk %}">Payment {{ application.payment.pk }}</a></td>
+            <td>{{ application.payment.payment_date }}</td>
+            <td>{{ application.amount_applied }}</td>
+            <td>{{ application.payment.get_status_display }}</td>
+          </tr>
+        {% empty %}
+          <tr><td colspan="4" class="muted">No payments have been applied yet.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+{% endblock %}

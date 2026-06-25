@@ -47,7 +47,7 @@ class LedgerOSSyncEventService:
         return json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True, default=str).encode("utf-8")
 
     @staticmethod
-    def _format_http_error(exc: HTTPError) -> str:
+    def _format_http_error(exc: HTTPError, *, path: str) -> str:
         try:
             raw_body = exc.read()
         except Exception:
@@ -74,10 +74,16 @@ class LedgerOSSyncEventService:
                     message = f"LedgerOS returned HTTP {exc.code}: {body}"
 
                 if exc.code == 403:
-                    permission_hint = (
-                        f"LedgerOS denied POST {LedgerOSSyncEventService.SYNC_EVENT_PATH} for this client. "
-                        "Check the LedgerOS API client permissions for sync-event writes."
-                    )
+                    if path == LedgerOSSyncEventService.SYNC_EVENT_PATH:
+                        permission_hint = (
+                            f"LedgerOS denied POST {path} for this client. "
+                            "Check the LedgerOS API client permissions for sync-event writes."
+                        )
+                    else:
+                        permission_hint = (
+                            f"LedgerOS denied POST {path} for this client. "
+                            "Check the LedgerOS API client permissions for this request."
+                        )
                     if parsed_body and parsed_body.get("detail") and parsed_body["detail"] != body:
                         return f"{message} {permission_hint}"
                     return f"{message} {permission_hint}"
@@ -147,9 +153,38 @@ class LedgerOSSyncEventService:
                     raise RuntimeError("LedgerOS response must be a JSON object.")
                 return SyncResult(status_code=response.status, payload=response_payload)
         except HTTPError as exc:
-            raise RuntimeError(LedgerOSSyncEventService._format_http_error(exc)) from exc
+            raise RuntimeError(LedgerOSSyncEventService._format_http_error(exc, path=path)) from exc
         except (URLError, TimeoutError, OSError, ValueError) as exc:
             raise RuntimeError(str(exc)) from exc
+
+
+class LedgerOSPaymentService:
+    PAYMENT_PATH = "/api/v1/payments/"
+
+    @staticmethod
+    def _build_payment_payload(application: TenantPaymentApplication) -> dict[str, Any]:
+        charge_sync_record = application.charge.sync_record
+        if charge_sync_record is None or not charge_sync_record.external_id:
+            raise ValidationError(
+                {"charge": "The invoice must be synced to LedgerOS before the payment can be posted."}
+            )
+
+        return {
+            "source_type": "invoice",
+            "source_reference": charge_sync_record.external_id,
+            "payment_date": application.payment.payment_date.isoformat(),
+            "amount": str(application.amount_applied.quantize(Decimal("0.01"))),
+        }
+
+    @staticmethod
+    def submit_payment_application(*, application: TenantPaymentApplication, idempotency_key: str) -> SyncResult:
+        payload = LedgerOSPaymentService._build_payment_payload(application)
+        return LedgerOSSyncEventService._submit(
+            method="POST",
+            path=LedgerOSPaymentService.PAYMENT_PATH,
+            payload=payload,
+            idempotency_key=idempotency_key,
+        )
 
 
 class TenantPaymentService:
@@ -160,6 +195,8 @@ class TenantPaymentService:
             "tenant_id": payment.tenant_id,
             "payment_date": payment.payment_date.isoformat(),
             "total_amount": str(payment.amount.quantize(Decimal("0.01"))),
+            "applied_amount": str(payment.allocated_amount.quantize(Decimal("0.01"))),
+            "unapplied_amount": str(payment.unapplied_amount.quantize(Decimal("0.01"))),
             "payment_method": payment.payment_method,
             "reference": payment.reference,
             "notes": payment.notes,
@@ -234,13 +271,21 @@ class TenantPaymentService:
         return hashlib.sha256(json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode("utf-8")).hexdigest()
 
     @staticmethod
-    def _build_sync_record(*, local_object_type: str, local_object_id: str, source_event_type: str, external_id: str, request_payload: dict[str, Any]) -> LedgerOSSyncRecord:
+    def _build_sync_record(
+        *,
+        local_object_type: str,
+        local_object_id: str,
+        source_event_type: str,
+        external_id: str,
+        request_payload: dict[str, Any],
+        ledgeros_resource_type: str = "sync_event",
+    ) -> LedgerOSSyncRecord:
         sync_record, _ = LedgerOSSyncRecord.objects.get_or_create(
             local_object_type=local_object_type,
             local_object_id=local_object_id,
             source_event_type=source_event_type,
             defaults={
-                "ledgeros_resource_type": "sync_event",
+                "ledgeros_resource_type": ledgeros_resource_type,
                 "external_id": external_id,
                 "idempotency_key": build_idempotency_key(
                     local_object_type=local_object_type,
@@ -253,8 +298,7 @@ class TenantPaymentService:
                 "status": LedgerOSSyncRecord.Status.PENDING,
             },
         )
-        if not sync_record.ledgeros_resource_type:
-            sync_record.ledgeros_resource_type = "sync_event"
+        sync_record.ledgeros_resource_type = ledgeros_resource_type
         sync_record.external_id = external_id
         sync_record.idempotency_key = build_idempotency_key(
             local_object_type=local_object_type,
@@ -277,7 +321,22 @@ class TenantPaymentService:
         )
 
     @staticmethod
-    def allocate_payment(payment: TenantPayment) -> TenantPayment:
+    def _preferred_charge_sort_key(
+        charge: TenantCharge,
+        priority_index: dict[str, int],
+        preferred_charge_index: dict[int, int],
+    ) -> tuple[int, int, date, date, int]:
+        preferred_rank = preferred_charge_index.get(charge.pk or 0, len(preferred_charge_index))
+        return (
+            preferred_rank,
+            priority_index.get(charge.charge_type, len(priority_index)),
+            charge.due_date or charge.charge_date,
+            charge.charge_date,
+            charge.pk or 0,
+        )
+
+    @staticmethod
+    def allocate_payment(payment: TenantPayment, preferred_charge_ids: list[int] | None = None) -> TenantPayment:
         if payment.status in {
             TenantPayment.Status.SYNC_PENDING,
             TenantPayment.Status.SYNCED,
@@ -299,7 +358,16 @@ class TenantPaymentService:
                 tenant=payment.tenant,
             ).exclude(status=TenantCharge.Status.VOIDED)
         )
-        open_charges.sort(key=lambda charge: TenantPaymentService._charge_sort_key(charge, priority_index))
+        preferred_charge_index = {
+            charge_id: index for index, charge_id in enumerate(preferred_charge_ids or [])
+        }
+        open_charges.sort(
+            key=lambda charge: TenantPaymentService._preferred_charge_sort_key(
+                charge,
+                priority_index,
+                preferred_charge_index,
+            )
+        )
 
         existing_allocations = list(payment.applications.select_related("sync_record", "charge"))
         if any(
@@ -347,7 +415,7 @@ class TenantPaymentService:
             payment.status = TenantPayment.Status.DRAFT
         elif any_failed:
             payment.status = TenantPayment.Status.SYNC_FAILED
-        elif remaining == Decimal("0.00") and all_allocations_synced:
+        elif all_allocations_synced:
             payment.status = TenantPayment.Status.READY_TO_SYNC
         else:
             payment.status = TenantPayment.Status.ALLOCATED
@@ -357,24 +425,25 @@ class TenantPaymentService:
     @staticmethod
     @transaction.atomic
     def sync_payment_application(application: TenantPaymentApplication) -> TenantPaymentApplication:
-        request_payload = TenantPaymentService._build_sync_event_payload(
-            source_system="propertyledger",
-            domain_event_type="tenant_payment.application_applied",
-            external_id=f"tenant-payment-application:{application.pk}",
-            source_object_type="tenant_payment_application",
-            source_object_id=str(application.pk),
-            occurred_at=application.created_at.isoformat(),
-            payload=TenantPaymentService._payment_application_event_details(application),
-        )
+        request_payload = LedgerOSPaymentService._build_payment_payload(application)
         sync_record = TenantPaymentService._build_sync_record(
             local_object_type="tenant_payment_application",
             local_object_id=str(application.pk),
             source_event_type="tenant_payment.application_applied",
             external_id=f"tenant-payment-application:{application.pk}",
             request_payload=request_payload,
+            ledgeros_resource_type="payment",
         )
         application.sync_record = sync_record
         application.save(update_fields=["sync_record", "updated_at"])
+
+        if (
+            sync_record.status == LedgerOSSyncRecord.Status.SUCCEEDED
+            and sync_record.ledgeros_resource_type == "payment"
+            and isinstance(sync_record.response_payload, dict)
+            and isinstance(sync_record.response_payload.get("journal_entry"), dict)
+        ):
+            return application
 
         sync_record.status = LedgerOSSyncRecord.Status.IN_PROGRESS
         sync_record.attempt_count += 1
@@ -382,12 +451,7 @@ class TenantPaymentService:
         sync_record.save(update_fields=["status", "attempt_count", "last_error", "updated_at"])
 
         try:
-            result = LedgerOSSyncEventService._submit(
-                method="POST",
-                path=LedgerOSSyncEventService.SYNC_EVENT_PATH,
-                payload=request_payload,
-                idempotency_key=sync_record.idempotency_key,
-            )
+            result = LedgerOSPaymentService.submit_payment_application(application=application, idempotency_key=sync_record.idempotency_key)
         except Exception as exc:
             logger.warning("Tenant payment application sync failed", extra={"payment_application_id": application.pk, "error": str(exc)})
             sync_record.status = LedgerOSSyncRecord.Status.FAILED
@@ -398,20 +462,25 @@ class TenantPaymentService:
 
         sync_record.status = LedgerOSSyncRecord.Status.SUCCEEDED
         sync_record.ledgeros_resource_id = str(
-            result.payload.get("sync_event", {}).get("id")
+            result.payload.get("payment", {}).get("id")
             or result.payload.get("id")
             or sync_record.external_id
         )
+        sync_record.ledgeros_journal_entry_id = str(
+            result.payload.get("journal_entry", {}).get("id")
+            or result.payload.get("journal_entry_id")
+            or ""
+        ) or None
         sync_record.response_payload = result.payload
         sync_record.last_synced_at = timezone.now()
-        sync_record.save(update_fields=["status", "ledgeros_resource_id", "response_payload", "last_synced_at", "updated_at"])
+        sync_record.save(update_fields=["status", "ledgeros_resource_id", "ledgeros_journal_entry_id", "response_payload", "last_synced_at", "updated_at"])
         return application
 
     @staticmethod
     @transaction.atomic
     def sync_payment(payment: TenantPayment) -> TenantPayment:
-        if payment.remaining_amount != Decimal("0.00"):
-            raise ValidationError({"payment": "Payment must be fully allocated before sync."})
+        if not payment.applications.exists():
+            raise ValidationError({"payment": "Payment must be applied to at least one invoice before sync."})
         pending_applications = payment.applications.filter(
             models.Q(sync_record__isnull=True) | ~models.Q(sync_record__status=LedgerOSSyncRecord.Status.SUCCEEDED)
         )
@@ -536,6 +605,30 @@ class TenantPaymentService:
     @staticmethod
     def allocate_payment_and_sync_applications(payment: TenantPayment) -> TenantPayment:
         payment = TenantPaymentService.allocate_payment(payment)
+        return payment
+
+    @staticmethod
+    @transaction.atomic
+    def record_payment_for_charge(
+        *,
+        charge: TenantCharge,
+        payment_date: date,
+        amount: Decimal,
+        payment_method: str,
+        reference: str = "",
+        notes: str = "",
+    ) -> TenantPayment:
+        payment = TenantPayment.objects.create(
+            property=charge.property,
+            tenant=charge.tenant,
+            payment_date=payment_date,
+            amount=amount,
+            payment_method=payment_method,
+            reference=reference,
+            notes=notes,
+            status=TenantPayment.Status.DRAFT,
+        )
+        TenantPaymentService.allocate_payment(payment, preferred_charge_ids=[charge.pk])
         return payment
 
 

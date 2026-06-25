@@ -103,6 +103,14 @@ class TenantPayment(models.Model):
         return (self.amount - self.allocated_amount).quantize(Decimal("0.01"))
 
     @builtins.property
+    def unapplied_amount(self) -> Decimal:
+        return self.remaining_amount
+
+    @builtins.property
+    def is_credit_balance(self) -> bool:
+        return self.remaining_amount > Decimal("0.00")
+
+    @builtins.property
     def is_editable_after_sync(self) -> bool:
         return self.status != self.Status.SYNCED
 

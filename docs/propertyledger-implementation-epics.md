@@ -33,6 +33,12 @@ If the current code differs from this document, do not assume either is correct.
 9. Make deferred scope explicit.
 10. Run all development, test, and smoke-check workflows through Docker or Docker Compose.
 
+## Sync meaning
+
+When an epic says PropertyLedger should "sync" an accounting event to LedgerOS, the default expectation is that the sync produces the appropriate posted accounting change in LedgerOS, not merely an audit record.
+
+Only explicitly named audit-only endpoints or flows may persist an event without affecting balances.
+
 ## Containerization requirement
 
 PropertyLedger must run containerized from the start.

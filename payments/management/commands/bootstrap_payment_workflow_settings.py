@@ -16,4 +16,3 @@ class Command(BaseCommand):
             ).default()
             settings_obj.save()
         self.stdout.write(self.style.SUCCESS("Payment workflow settings bootstrapped."))
-

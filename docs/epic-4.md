@@ -13,6 +13,8 @@ Epic 4 adds the payments app and its two core workflows:
 - security deposit balance tracking derived from event records;
 - security deposit sync handoff to LedgerOS.
 
+Payment syncs are accounting mutations, not audit-only event writes. A successful tenant payment sync must result in the appropriate LedgerOS posted accounting change, including the cash or clearing account and the matching accounts receivable reduction, according to the LedgerOS payment contract.
+
 Epic 4 does not include:
 
 - online rent collection;
@@ -81,6 +83,7 @@ make smoke
 - Within each charge type, oldest charges are allocated first.
 - Synced payments are immutable except for the non-accounting note field.
 - Payment sync requires full allocation and successful application syncs.
+- Payment sync is only complete when LedgerOS has posted the accounting effect of the receipt.
 
 ### Security deposits
 
@@ -94,6 +97,8 @@ make smoke
 Epic 4 expects the sibling LedgerOS repo to expose a generic sync-event API:
 
 - `POST /api/v1/sync-events/`
+
+That endpoint is treated as the contract boundary for delivery, but not as proof of posting by itself. The LedgerOS implementation must convert the payment sync event into the correct posted accounting change.
 
 PropertyLedger sends one generic event envelope per downstream accounting event:
 
@@ -129,6 +134,7 @@ make check
 - Add allocations on the detail page.
 - Confirm allocation order follows the configured category priority.
 - Confirm sync is blocked until the payment is fully allocated.
+- Confirm a successful payment sync changes LedgerOS posted balances, not just the sync event log.
 - Record security deposit events and confirm the balance is derived from the event stream.
 
 ## Bootstrap

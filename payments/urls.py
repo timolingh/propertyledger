@@ -1,6 +1,8 @@
 from django.urls import path
 
 from payments.views import (
+    TenantInvoiceDetailView,
+    TenantInvoiceListView,
     SecurityDepositEventCreateView,
     SecurityDepositEventDetailView,
     SecurityDepositEventUpdateView,
@@ -15,6 +17,8 @@ from payments.views import (
 
 urlpatterns = [
     path("", PaymentsLandingView.as_view(), name="payments-home"),
+    path("invoices/", TenantInvoiceListView.as_view(), name="invoice-list"),
+    path("invoices/<int:pk>/", TenantInvoiceDetailView.as_view(), name="invoice-detail"),
     path("tenant-payments/", TenantPaymentListView.as_view(), name="tenant-payment-list"),
     path("tenant-payments/add/", TenantPaymentCreateView.as_view(), name="tenant-payment-create"),
     path("tenant-payments/<int:pk>/", TenantPaymentDetailView.as_view(), name="tenant-payment-detail"),

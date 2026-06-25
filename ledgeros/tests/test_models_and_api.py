@@ -200,7 +200,7 @@ class LedgerOSSetupViewTests(TestCase):
         self.assertContains(response, "Setup Status")
         self.assertContains(response, "Recommended Order")
         self.assertContains(response, "Create owners")
-        self.assertContains(response, "Create tenant charges")
+        self.assertContains(response, "Create tenant invoices")
 
         post_response = self.client.post(
             reverse("ledgeros-setup"),
@@ -235,7 +235,7 @@ class LedgerOSSetupViewTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(
             response,
-            f'href="{reverse("tenant-payment-create")}"',
+            f'href="{reverse("invoice-list")}"',
         )
 
 
@@ -781,7 +781,7 @@ class PropertyLedgerCrudViewTests(TestCase):
         charge_response = self.client.get(reverse("charge-create"))
         self.assertEqual(charge_response.status_code, 200)
         self.assertContains(
-            charge_response, "Create a property before adding charges."
+            charge_response, "Create a property before adding invoices."
         )
 
     def test_lease_form_uses_date_inputs(self):
