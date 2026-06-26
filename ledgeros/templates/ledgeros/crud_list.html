@@ -68,6 +68,9 @@
               </td>
               <td>{{ row.summary }}</td>
               <td class="actions">
+                {% if row.detail_url %}
+                  <a href="{{ row.detail_url }}">View</a>
+                {% endif %}
                 <a href="{{ row.edit_url }}">Edit</a>
               </td>
             </tr>

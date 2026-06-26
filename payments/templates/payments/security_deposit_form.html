@@ -1,0 +1,16 @@
+{% extends "ledgeros/base.html" %}
+
+{% block title %}Security Deposit Event | PropertyLedger{% endblock %}
+
+{% block content %}
+  <div class="card">
+    <h1>Add security deposit event</h1>
+    <form method="post">
+      {% csrf_token %}
+      {{ form.as_p }}
+      <button type="submit" class="button primary">Save event</button>
+      <a class="button" href="{% url 'security-deposit-list' %}">Back</a>
+    </form>
+  </div>
+{% endblock %}
+

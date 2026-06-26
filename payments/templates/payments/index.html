@@ -1,0 +1,16 @@
+{% extends "ledgeros/base.html" %}
+
+{% block title %}Payments | PropertyLedger{% endblock %}
+
+{% block content %}
+  <div class="card">
+    <h1>Payments</h1>
+    <p class="muted">Review open invoices first, then record a payment against an invoice. Saving records the payment locally; syncing posts the cash and AR change in LedgerOS. Payment history and security deposits remain available underneath.</p>
+    <div style="display:flex; gap:1rem; flex-wrap:wrap;">
+      <a class="button primary" href="{% url 'invoice-list' %}">Open invoices</a>
+      <a class="button primary" href="{% url 'tenant-payment-list' %}">Payment history</a>
+      <a class="button primary" href="{% url 'security-deposit-create' %}">Record deposit event</a>
+      <a class="button primary" href="{% url 'security-deposit-list' %}">Security deposits</a>
+    </div>
+  </div>
+{% endblock %}

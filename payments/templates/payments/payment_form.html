@@ -1,0 +1,15 @@
+{% extends "ledgeros/base.html" %}
+
+{% block title %}Payment | PropertyLedger{% endblock %}
+
+{% block content %}
+  <div class="card">
+    <h1>{{ object|default:"Add payment" }}</h1>
+    <form method="post">
+      {% csrf_token %}
+      {{ form.as_p }}
+      <button type="submit" class="button primary">Save local payment</button>
+      <a class="button" href="{% url 'tenant-payment-list' %}">Back</a>
+    </form>
+  </div>
+{% endblock %}

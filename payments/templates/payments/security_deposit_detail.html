@@ -1,0 +1,32 @@
+{% extends "ledgeros/base.html" %}
+
+{% block title %}Deposit Event {{ event.pk }} | PropertyLedger{% endblock %}
+
+{% block content %}
+  <div class="card">
+    <h1>Security Deposit Event {{ event.pk }}</h1>
+    <p><strong>Tenant:</strong> {{ event.tenant }}</p>
+    <p><strong>Property:</strong> {{ event.property }}</p>
+    <p><strong>Unit:</strong> {{ event.unit }}</p>
+    <p><strong>Lease:</strong> {{ event.lease }}</p>
+    <p><strong>Type:</strong> {{ event.get_event_type_display }}</p>
+    <p><strong>Date:</strong> {{ event.event_date }}</p>
+    <p><strong>Amount:</strong> {{ event.amount }}</p>
+    <p><strong>Required balance:</strong> {{ required_amount }}</p>
+    <p><strong>Held balance:</strong> {{ held_balance }}</p>
+    <p><strong>Status:</strong> {{ event.get_status_display }}</p>
+    <p><strong>Description:</strong> {{ event.description|default:"-" }}</p>
+    <div style="display:flex; gap:1rem; flex-wrap:wrap;">
+      <a class="button" href="{% url 'security-deposit-list' %}">Back</a>
+      <a class="button" href="{% url 'security-deposit-edit' event.pk %}">Edit draft</a>
+    </div>
+  </div>
+  <div class="card">
+    <h2>LedgerOS Sync</h2>
+    <form method="post">
+      {% csrf_token %}
+      <input type="hidden" name="action" value="sync">
+      <button type="submit" class="button primary">Sync event</button>
+    </form>
+  </div>
+{% endblock %}

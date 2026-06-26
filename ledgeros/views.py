@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 from typing import Any
 
@@ -8,8 +9,8 @@ from django.core.exceptions import ValidationError
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.http import HttpResponseRedirect
 from django.urls import reverse, reverse_lazy
-from django.db import transaction
-from django.views.generic import CreateView, DeleteView, ListView, TemplateView, UpdateView
+from django.db import IntegrityError, transaction
+from django.views.generic import CreateView, DeleteView, DetailView, ListView, TemplateView, UpdateView
 from rest_framework import generics
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -35,7 +36,7 @@ from ledgeros.models import (
     TenantCharge,
     Unit,
 )
-from ledgeros.serializers import LedgerOSSyncRecordSerializer
+from ledgeros.serializers import LedgerOSSyncEventSerializer
 from ledgeros.services import (
     LedgerOSCustomerSyncService,
     LedgerOSHealthCheckService,
@@ -110,10 +111,16 @@ class LedgerOSAppContextMixin:
                 "complete": Lease.objects.exists(),
             },
             {
-                "label": "Create tenant charges",
+                "label": "Create tenant invoices",
                 "url": reverse("charge-list"),
-                "summary": "Manual charges may be property-level or linked to a lease.",
+                "summary": "Manual invoices may be property-level or linked to a lease.",
                 "complete": TenantCharge.objects.exists(),
+            },
+            {
+                "label": "Record tenant invoices and payments",
+                "url": reverse("invoice-list"),
+                "summary": "Record tenant invoices, payments, and security deposit events.",
+                "complete": False,
             },
         ]
         return steps
@@ -347,9 +354,91 @@ class LedgerOSHealthAPIView(APIView):
         )
 
 
-class LedgerOSSyncRecordCreateAPIView(generics.CreateAPIView):
-    queryset = LedgerOSSyncRecord.objects.all()
-    serializer_class = LedgerOSSyncRecordSerializer
+class LedgerOSSyncEventCreateAPIView(APIView):
+    serializer_class = LedgerOSSyncEventSerializer
+
+    @staticmethod
+    def _canonical_json_bytes(payload: dict[str, Any]) -> bytes:
+        return json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True, default=str).encode("utf-8")
+
+    def post(self, request, *args, **kwargs):
+        serializer = self.serializer_class(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        idempotency_key = request.headers.get("Idempotency-Key", "").strip()
+        if not idempotency_key:
+            return Response(
+                {"idempotency_key": ["This header is required."]},
+                status=400,
+            )
+
+        validated = serializer.validated_data
+        envelope = {
+            "source_system": validated["source_system"],
+            "domain_event_type": validated["domain_event_type"],
+            "external_id": validated["external_id"],
+            "source_object_type": validated["source_object_type"],
+            "source_object_id": validated["source_object_id"],
+            "occurred_at": validated["occurred_at"].isoformat(),
+            "payload": validated["payload"],
+        }
+        request_hash = hashlib.sha256(self._canonical_json_bytes(envelope)).hexdigest()
+
+        try:
+            with transaction.atomic():
+                sync_record, created = LedgerOSSyncRecord.objects.get_or_create(
+                    idempotency_key=idempotency_key,
+                    defaults={
+                        "local_object_type": validated["source_object_type"],
+                        "local_object_id": validated["source_object_id"],
+                        "ledgeros_resource_type": "sync_event",
+                        "source_event_type": validated["domain_event_type"],
+                        "external_id": validated["external_id"],
+                        "request_hash": request_hash,
+                        "response_payload": envelope,
+                        "status": LedgerOSSyncRecord.Status.PENDING,
+                    },
+                )
+        except IntegrityError:
+            sync_record = LedgerOSSyncRecord.objects.filter(idempotency_key=idempotency_key).first()
+            if sync_record is None:
+                sync_record = LedgerOSSyncRecord.objects.filter(
+                    external_id=validated["external_id"],
+                    source_event_type=validated["domain_event_type"],
+                ).first()
+            if sync_record is None:
+                raise
+            created = False
+
+        if sync_record.request_hash != request_hash:
+            return Response(
+                {"idempotency_key": ["This key was already used for a different sync event."]},
+                status=409,
+            )
+
+        response_data = {
+            "id": sync_record.pk,
+            "source_system": envelope["source_system"],
+            "domain_event_type": sync_record.source_event_type,
+            "external_id": sync_record.external_id,
+            "source_object_type": sync_record.local_object_type,
+            "source_object_id": sync_record.local_object_id,
+            "occurred_at": envelope["occurred_at"],
+            "payload": envelope["payload"],
+            "idempotency_key": sync_record.idempotency_key,
+            "request_hash": sync_record.request_hash,
+            "ledgeros_resource_type": sync_record.ledgeros_resource_type,
+            "ledgeros_resource_id": sync_record.ledgeros_resource_id,
+            "ledgeros_journal_entry_id": sync_record.ledgeros_journal_entry_id,
+            "response_payload": sync_record.response_payload,
+            "status": sync_record.status,
+            "last_error": sync_record.last_error,
+            "attempt_count": sync_record.attempt_count,
+            "last_synced_at": sync_record.last_synced_at,
+            "created_at": sync_record.created_at,
+            "updated_at": sync_record.updated_at,
+        }
+        status_code = 201 if created else 200
+        return Response(response_data, status=status_code)
 
 
 class OwnerListView(LedgerOSCrudListView):
@@ -704,9 +793,9 @@ class LeaseArchiveView(LedgerOSCrudArchiveView):
 
 class TenantChargeListView(LedgerOSCrudListView):
     model = TenantCharge
-    page_title = "Tenant Charges"
+    page_title = "Invoices"
     create_url_name = "charge-create"
-    create_label = "Add charge"
+    create_label = "Add invoice"
     bulk_action_choices = [
         ("approve", "Approve selected"),
         ("archive", "Archive selected"),
@@ -717,7 +806,7 @@ class TenantChargeListView(LedgerOSCrudListView):
             return super().get_create_gate_context()
         return {
             "create_available": False,
-            "create_gate_message": "Create a property before adding charges.",
+            "create_gate_message": "Create a property before adding invoices.",
             "create_gate_url": reverse("property-list"),
             "create_gate_label": "Go to properties",
         }
@@ -730,6 +819,7 @@ class TenantChargeListView(LedgerOSCrudListView):
                     f"{obj.get_charge_scope_summary()} | {obj.get_charge_type_display()} "
                     f"| {obj.amount} | {obj.get_status_display()}"
                 ),
+                "detail_url": reverse("charge-detail", kwargs={"pk": obj.pk}),
                 "edit_url": reverse("charge-edit", kwargs={"pk": obj.pk}),
             }
             for obj in objects
@@ -830,11 +920,32 @@ class TenantChargeListView(LedgerOSCrudListView):
         return context
 
 
+class TenantChargeDetailView(LoginRequiredMixin, LedgerOSAppContextMixin, DetailView):
+    model = TenantCharge
+    template_name = "ledgeros/charge_detail.html"
+    context_object_name = "invoice"
+    login_url = reverse_lazy("admin:login")
+
+    def get_queryset(self):
+        return TenantCharge.objects.select_related("sync_record", "property", "tenant", "lease").prefetch_related(
+            "payment_applications__payment",
+            "payment_applications__sync_record",
+        )
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        invoice = self.object
+        context["payment_applications"] = invoice.payment_applications.select_related("payment", "sync_record").all()
+        context["payment_history_url"] = reverse("tenant-payment-list")
+        context["payments_url"] = reverse("invoice-list")
+        return context
+
+
 class TenantChargeCreateView(LedgerOSCrudFormView, CreateView):
     model = TenantCharge
     form_class = TenantChargeForm
-    page_title = "Add charge"
-    page_action = "Create charge"
+    page_title = "Add invoice"
+    page_action = "Create invoice"
     list_url_name = "charge-list"
 
     def get_create_gate_context(self) -> dict[str, Any]:
@@ -842,7 +953,7 @@ class TenantChargeCreateView(LedgerOSCrudFormView, CreateView):
             return super().get_create_gate_context()
         return {
             "create_available": False,
-            "create_gate_message": "Create a property before adding charges.",
+            "create_gate_message": "Create a property before adding invoices.",
             "create_gate_url": reverse("property-list"),
             "create_gate_label": "Go to properties",
         }
@@ -857,8 +968,8 @@ class TenantChargeCreateView(LedgerOSCrudFormView, CreateView):
 class TenantChargeUpdateView(LedgerOSCrudFormView, UpdateView):
     model = TenantCharge
     form_class = TenantChargeForm
-    page_title = "Edit charge"
-    page_action = "Save charge"
+    page_title = "Edit invoice"
+    page_action = "Save invoice"
     list_url_name = "charge-list"
 
     def get_context_data(self, **kwargs):
@@ -889,7 +1000,7 @@ class TenantChargeUpdateView(LedgerOSCrudFormView, UpdateView):
 
 class TenantChargeArchiveView(LedgerOSCrudArchiveView):
     model = TenantCharge
-    page_title = "Archive charge"
+    page_title = "Archive invoice"
     list_url_name = "charge-list"
 
     def archive_object(self, obj):

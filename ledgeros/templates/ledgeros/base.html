@@ -68,6 +68,8 @@
         padding: 0.75rem 1rem;
         margin-bottom: 0.5rem;
         background: #fff;
+        overflow-wrap: anywhere;
+        word-break: break-word;
       }
       .messages .success {
         background: #eef7f1;
@@ -94,6 +96,11 @@
         background: #f1ede6;
         padding: 0.1rem 0.25rem;
         border-radius: 4px;
+      }
+      pre {
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+        word-break: break-word;
       }
       label {
         display: block;
@@ -149,7 +156,8 @@
       <a href="{% url 'unit-list' %}">Units</a>
       <a href="{% url 'tenant-list' %}">Tenants</a>
       <a href="{% url 'lease-list' %}">Leases</a>
-      <a href="{% url 'charge-list' %}">Charges</a>
+      <a href="{% url 'charge-list' %}">Invoices</a>
+      <a href="{% url 'payments-home' %}">Payments</a>
       <a href="/admin/">Admin</a>
     </header>
     <main>

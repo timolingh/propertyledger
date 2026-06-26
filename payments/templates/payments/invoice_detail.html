@@ -1,0 +1,88 @@
+{% extends "ledgeros/base.html" %}
+
+{% block title %}Invoice {{ invoice.pk }} | PropertyLedger{% endblock %}
+
+{% block content %}
+  <div class="card">
+    <h1>Invoice {{ invoice.pk }}</h1>
+    <p><strong>Tenant:</strong> {{ invoice.tenant }}</p>
+    <p><strong>Property:</strong> {{ invoice.property }}</p>
+    <p><strong>Lease:</strong> {{ invoice.lease|default:"-" }}</p>
+    <p><strong>Charge type:</strong> {{ invoice.get_charge_type_display }}</p>
+    <p><strong>Invoice date:</strong> {{ invoice.charge_date }}</p>
+    <p><strong>Due date:</strong> {{ invoice.due_date }}</p>
+    <p><strong>Amount:</strong> {{ invoice.amount }}</p>
+    <p><strong>Applied:</strong> {{ allocated_amount }}</p>
+    <p><strong>Balance due:</strong> {{ balance_due }}</p>
+    <p><strong>Status:</strong> {{ invoice.get_status_display }}</p>
+    <p><strong>Description:</strong> {{ invoice.description|default:"-" }}</p>
+    <div style="display:flex; gap:1rem; flex-wrap:wrap;">
+      <a class="button" href="{% url 'invoice-list' %}">Back to invoices</a>
+      <a class="button" href="{% url 'charge-edit' invoice.pk %}">Edit invoice</a>
+      <a class="button" href="{% url 'tenant-payment-list' %}">Payment history</a>
+    </div>
+  </div>
+  <div class="card">
+    <h2>Record Payment</h2>
+    <p class="muted">
+      Saving creates the local payment record. Syncing that payment posts the cash receipt and AR reduction in LedgerOS.
+      The payment is applied to this invoice first, then to the oldest open invoices for the same tenant and property.
+      Any excess can remain as tenant credit.
+    </p>
+    <form method="post">
+      {% csrf_token %}
+      {{ payment_form.as_p }}
+      <button type="submit" class="button primary">Save local payment</button>
+    </form>
+  </div>
+  <div class="card">
+    <h2>Applied Payments</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>Payment</th>
+          <th>Date</th>
+          <th>Applied</th>
+          <th>Unapplied</th>
+          <th>Status</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for entry in payment_history %}
+          <tr>
+            <td><a href="{% url 'tenant-payment-detail' entry.payment.pk %}">Payment {{ entry.payment.pk }}</a></td>
+            <td>{{ entry.payment.payment_date }}</td>
+            <td>{{ entry.application.amount_applied }}</td>
+            <td>{{ entry.unapplied_amount }}</td>
+            <td>{{ entry.sync_status|default:"-" }}</td>
+          </tr>
+        {% empty %}
+          <tr><td colspan="5" class="muted">No payments have been applied yet.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <div class="card">
+    <h2>Open Invoices for This Tenant</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>Invoice</th>
+          <th>Due</th>
+          <th>Balance</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for open_invoice in open_charge_rows %}
+          <tr>
+            <td><a href="{{ open_invoice.detail_url }}">{{ open_invoice.invoice }}</a></td>
+            <td>{{ open_invoice.invoice.due_date }}</td>
+            <td>{{ open_invoice.balance_due }}</td>
+          </tr>
+        {% empty %}
+          <tr><td colspan="3" class="muted">No invoices found.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+{% endblock %}

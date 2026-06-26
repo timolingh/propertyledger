@@ -132,27 +132,54 @@ class LedgerOSApiTests(TestCase):
     def setUp(self):
         self.client = APIClient()
 
-    def test_create_sync_record_endpoint_persists_record(self):
+    def test_create_sync_event_endpoint_persists_record(self):
         response = self.client.post(
-            reverse("ledgeros-sync-record-create"),
+            reverse("ledgeros-sync-event-create"),
             {
-                "local_object_type": "tenant_charge",
-                "local_object_id": "1",
-                "ledgeros_resource_type": "invoice",
-                "ledgeros_resource_id": "inv_1",
-                "ledgeros_journal_entry_id": "je_1",
-                "source_event_type": "invoice_created",
-                "external_id": "ext_1",
-                "idempotency_key": "idem_1",
-                "request_hash": "hash_1",
-                "status": LedgerOSSyncRecord.Status.PENDING,
-                "attempt_count": 0,
+                "source_system": "propertyledger",
+                "domain_event_type": "tenant_payment.received",
+                "external_id": "tenant-payment:1",
+                "source_object_type": "tenant_payment",
+                "source_object_id": "1",
+                "occurred_at": "2026-01-15T12:00:00Z",
+                "payload": {"amount": "100.00", "payment_method": "cash"},
             },
             format="json",
+            HTTP_IDEMPOTENCY_KEY="idem_1",
         )
 
         self.assertEqual(response.status_code, 201)
         self.assertEqual(LedgerOSSyncRecord.objects.count(), 1)
+        self.assertEqual(LedgerOSSyncRecord.objects.first().source_event_type, "tenant_payment.received")
+
+    def test_create_sync_event_endpoint_replays_identically(self):
+        payload = {
+            "source_system": "propertyledger",
+            "domain_event_type": "security_deposit.received",
+            "external_id": "security-deposit:1",
+            "source_object_type": "security_deposit_event",
+            "source_object_id": "1",
+            "occurred_at": "2026-01-15T12:00:00Z",
+            "payload": {"amount": "500.00", "event_type": "received"},
+        }
+
+        first = self.client.post(
+            reverse("ledgeros-sync-event-create"),
+            payload,
+            format="json",
+            HTTP_IDEMPOTENCY_KEY="idem_2",
+        )
+        second = self.client.post(
+            reverse("ledgeros-sync-event-create"),
+            payload,
+            format="json",
+            HTTP_IDEMPOTENCY_KEY="idem_2",
+        )
+
+        self.assertEqual(first.status_code, 201)
+        self.assertEqual(second.status_code, 200)
+        self.assertEqual(LedgerOSSyncRecord.objects.count(), 1)
+        self.assertEqual(LedgerOSSyncRecord.objects.first().source_event_type, "security_deposit.received")
 
     def test_local_health_endpoint_is_healthy(self):
         response = self.client.get(reverse("local-health"))
@@ -173,7 +200,7 @@ class LedgerOSSetupViewTests(TestCase):
         self.assertContains(response, "Setup Status")
         self.assertContains(response, "Recommended Order")
         self.assertContains(response, "Create owners")
-        self.assertContains(response, "Create tenant charges")
+        self.assertContains(response, "Create tenant invoices")
 
         post_response = self.client.post(
             reverse("ledgeros-setup"),
@@ -201,6 +228,15 @@ class LedgerOSSetupViewTests(TestCase):
         self.assertContains(response, "Blocking Issues")
         self.assertNotContains(response, "required_account_mappings:")
         self.assertNotContains(response, "ledgeros_health:")
+
+    def test_setup_view_links_record_tenant_payments_to_create_form(self):
+        response = self.client.get(reverse("ledgeros-setup"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(
+            response,
+            f'href="{reverse("invoice-list")}"',
+        )
 
 
 class PropertyLedgerDomainModelTests(TestCase):
@@ -745,7 +781,7 @@ class PropertyLedgerCrudViewTests(TestCase):
         charge_response = self.client.get(reverse("charge-create"))
         self.assertEqual(charge_response.status_code, 200)
         self.assertContains(
-            charge_response, "Create a property before adding charges."
+            charge_response, "Create a property before adding invoices."
         )
 
     def test_lease_form_uses_date_inputs(self):

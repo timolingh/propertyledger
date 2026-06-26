@@ -16,6 +16,17 @@ Define the minimum LedgerOS assumptions PropertyLedger needs for Epic 1:
 - sync record persistence;
 - safe local development.
 
+## Sync semantics
+
+Unless a request is explicitly documented as audit-only, a sync request from PropertyLedger is expected to effect the corresponding accounting change in LedgerOS.
+
+In other words:
+
+- `posting sync` means the request must create or update the posted accounting state that changes balances, reports, or reconciliation status;
+- `audit sync` means the request may persist an event record without changing posted accounting state, but only when the contract says so explicitly.
+
+PropertyLedger should not assume that storing a sync event record alone is sufficient for a successful accounting mutation.
+
 ## Local assumptions
 
 PropertyLedger talks to LedgerOS through HTTP APIs only.

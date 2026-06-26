@@ -33,6 +33,12 @@ If the current code differs from this document, do not assume either is correct.
 9. Make deferred scope explicit.
 10. Run all development, test, and smoke-check workflows through Docker or Docker Compose.
 
+## Sync meaning
+
+When an epic says PropertyLedger should "sync" an accounting event to LedgerOS, the default expectation is that the sync produces the appropriate posted accounting change in LedgerOS, not merely an audit record.
+
+Only explicitly named audit-only endpoints or flows may persist an event without affecting balances.
+
 ## Containerization requirement
 
 PropertyLedger must run containerized from the start.
@@ -401,6 +407,7 @@ propertyledger/
   properties/                  # property/unit/owner domain, if split later
   leasing/                     # tenants/leases/rent roll, if split later
   billing/                     # tenant charges/payments, if split later
+  payments/                    # tenant payments and security deposits
   vendors/                     # vendor bills/expenses, if split later
   reporting/                   # real estate reports, if split later
   docs/
@@ -890,7 +897,15 @@ For security deposits:
 
 ## LedgerOS sync contract
 
-LedgerOS resources may include payment, credit, refund, or journal workflow depending on the authoritative LedgerOS contract. If LedgerOS does not expose the needed resource, stop and ask whether to add a LedgerOS API or defer the workflow.
+LedgerOS must expose a generic sync-event endpoint for Epic 4.
+
+Required LedgerOS resource and expected request shape:
+
+- `POST /api/v1/sync-events/`
+  - persists one downstream accounting event;
+  - request includes `source_system`, `domain_event_type`, `external_id`, `source_object_type`, `source_object_id`, `occurred_at`, and `payload`.
+
+The `payload` body carries the property-specific details for tenant payments, payment allocations, and security deposit events. Keep PropertyLedger business logic local and send only generic sync events to LedgerOS. Do not route Epic 4 payment or deposit sync through a journal fallback in PropertyLedger.
 
 Required source event types:
 
