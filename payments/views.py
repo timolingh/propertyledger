@@ -12,16 +12,52 @@ from django.urls import reverse, reverse_lazy
 from django.utils import timezone
 from django.views.generic import CreateView, DetailView, ListView, TemplateView, UpdateView
 
-from ledgeros.models import TenantCharge
+from ledgeros.models import LedgerOSSyncRecord, Property, TenantCharge
 from ledgeros.views import LedgerOSAppContextMixin, LedgerOSCrudArchiveView
-from payments.forms import InvoicePaymentForm, SecurityDepositEventForm, TenantPaymentForm
-from payments.models import SecurityDepositEvent, TenantPayment
-from payments.services import SecurityDepositLedgerService, TenantPaymentService
+from payments.forms import (
+    DebtServicePaymentForm,
+    InvoicePaymentForm,
+    MaintenanceCategoryForm,
+    SecurityDepositEventForm,
+    TenantPaymentForm,
+    VendorBillForm,
+    VendorForm,
+    VendorPaymentForm,
+)
+from payments.models import (
+    DebtServicePayment,
+    MaintenanceCategory,
+    SecurityDepositEvent,
+    TenantPayment,
+    Vendor,
+    VendorBill,
+    VendorPayment,
+)
+from payments.services import (
+    DebtServicePaymentService,
+    MaintenanceExpenseSummaryService,
+    SecurityDepositLedgerService,
+    TenantPaymentService,
+    VendorBillService,
+    VendorPaymentService,
+)
 
 
 class PaymentsAppContextMixin(LedgerOSAppContextMixin):
     def get_setup_flow_steps(self) -> list[dict[str, Any]]:
         steps = super().get_setup_flow_steps()
+        if any(step["label"] == "Record vendor bills and expenses" for step in steps):
+            return steps
+        steps.append(
+            {
+                "label": "Record vendor bills and expenses",
+                "url": reverse("vendor-bill-list"),
+                "summary": "Record vendor bills, credit-card payments, and debt-service expenses.",
+                "complete": VendorBill.objects.exists()
+                or VendorPayment.objects.exists()
+                or DebtServicePayment.objects.exists(),
+            }
+        )
         if any(step["label"] == "Record tenant invoices and payments" for step in steps):
             return steps
         steps.append(
@@ -37,6 +73,11 @@ class PaymentsAppContextMixin(LedgerOSAppContextMixin):
     def get_app_context(self) -> dict[str, Any]:
         context = super().get_app_context()
         context["payments_next_step"] = {
+            "vendor_bill_list_url": reverse("vendor-bill-list"),
+            "vendor_list_url": reverse("vendor-list"),
+            "maintenance_category_list_url": reverse("maintenance-category-list"),
+            "vendor_payment_list_url": reverse("vendor-payment-list"),
+            "debt_service_payment_list_url": reverse("debt-service-payment-list"),
             "invoice_list_url": reverse("invoice-list"),
             "invoice_history_url": reverse("tenant-payment-list"),
             "security_deposit_create_url": reverse("security-deposit-create"),
@@ -96,6 +137,63 @@ def _invoice_payment_history(invoice: TenantCharge) -> list[dict[str, Any]]:
         )
     entries.sort(key=lambda entry: (entry["payment"].payment_date, entry["payment"].id))
     return entries
+
+
+class PaymentsCrudListView(LoginRequiredMixin, PaymentsAppContextMixin, ListView):
+    login_url = reverse_lazy("admin:login")
+    template_name = "ledgeros/crud_list.html"
+    context_object_name = "objects"
+    page_title = ""
+    create_url_name = ""
+    create_label = "Add"
+
+    def get_create_gate_context(self) -> dict[str, Any]:
+        return {
+            "create_available": True,
+            "create_gate_message": "",
+            "create_gate_url": "",
+            "create_gate_label": "",
+        }
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context["page_title"] = self.page_title
+        context["create_url"] = reverse(self.create_url_name)
+        context["create_label"] = self.create_label
+        context["rows"] = self.get_rows(context["objects"])
+        context.update(self.get_create_gate_context())
+        return context
+
+    def get_rows(self, objects):
+        raise NotImplementedError
+
+
+class PaymentsCrudFormView(LoginRequiredMixin, PaymentsAppContextMixin):
+    login_url = reverse_lazy("admin:login")
+    template_name = "ledgeros/crud_form.html"
+    page_title = ""
+    page_action = ""
+    list_url_name = ""
+    detail_url_name = ""
+
+    def get_create_gate_context(self) -> dict[str, Any]:
+        return {
+            "create_available": True,
+            "create_gate_message": "",
+            "create_gate_url": "",
+            "create_gate_label": "",
+        }
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context["page_title"] = self.page_title
+        context["page_action"] = self.page_action
+        context["list_url"] = reverse(self.list_url_name)
+        context.update(self.get_create_gate_context())
+        return context
+
+    def form_valid(self, form):
+        raise NotImplementedError
 
 
 class PaymentsLandingView(PaymentsAppContextMixin, TemplateView):
@@ -482,4 +580,432 @@ class SecurityDepositEventDetailView(LoginRequiredMixin, PaymentsAppContextMixin
         context = super().get_context_data(**kwargs)
         context["required_amount"] = SecurityDepositLedgerService.required_amount_for_lease(self.object.lease)
         context["held_balance"] = SecurityDepositLedgerService.balance_for_lease(self.object.lease)
+        return context
+
+
+class VendorListView(PaymentsCrudListView):
+    model = Vendor
+    page_title = "Vendors"
+    create_url_name = "vendor-create"
+    create_label = "Add vendor"
+
+    def get_rows(self, objects):
+        return [
+            {
+                "object": obj,
+                "summary": f"{obj.email or 'No email'} | {'active' if obj.is_active else 'inactive'}",
+                "edit_url": reverse("vendor-edit", kwargs={"pk": obj.pk}),
+            }
+            for obj in objects
+        ]
+
+
+class VendorCreateView(PaymentsCrudFormView, CreateView):
+    model = Vendor
+    form_class = VendorForm
+    page_title = "Add vendor"
+    page_action = "Create vendor"
+    list_url_name = "vendor-list"
+
+    def form_valid(self, form):
+        self.object = form.save()
+        return HttpResponseRedirect(reverse(self.list_url_name))
+
+
+class VendorUpdateView(PaymentsCrudFormView, UpdateView):
+    model = Vendor
+    form_class = VendorForm
+    page_title = "Edit vendor"
+    page_action = "Save vendor"
+    list_url_name = "vendor-list"
+
+    def form_valid(self, form):
+        self.object = form.save()
+        return HttpResponseRedirect(reverse(self.list_url_name))
+
+
+class MaintenanceCategoryListView(PaymentsCrudListView):
+    model = MaintenanceCategory
+    page_title = "Maintenance categories"
+    create_url_name = "maintenance-category-create"
+    create_label = "Add category"
+
+    def get_rows(self, objects):
+        return [
+            {
+                "object": obj,
+                "summary": f"{obj.description or 'No description'} | {'active' if obj.is_active else 'inactive'}",
+                "edit_url": reverse("maintenance-category-edit", kwargs={"pk": obj.pk}),
+            }
+            for obj in objects
+        ]
+
+
+class MaintenanceCategoryCreateView(PaymentsCrudFormView, CreateView):
+    model = MaintenanceCategory
+    form_class = MaintenanceCategoryForm
+    page_title = "Add maintenance category"
+    page_action = "Create category"
+    list_url_name = "maintenance-category-list"
+
+    def form_valid(self, form):
+        self.object = form.save()
+        return HttpResponseRedirect(reverse(self.list_url_name))
+
+
+class MaintenanceCategoryUpdateView(PaymentsCrudFormView, UpdateView):
+    model = MaintenanceCategory
+    form_class = MaintenanceCategoryForm
+    page_title = "Edit maintenance category"
+    page_action = "Save category"
+    list_url_name = "maintenance-category-list"
+
+    def form_valid(self, form):
+        self.object = form.save()
+        return HttpResponseRedirect(reverse(self.list_url_name))
+
+
+class VendorBillListView(PaymentsCrudListView):
+    model = VendorBill
+    page_title = "Vendor bills"
+    create_url_name = "vendor-bill-create"
+    create_label = "Add bill"
+    template_name = "payments/vendor_bill_list.html"
+
+    def get_create_gate_context(self) -> dict[str, Any]:
+        if Vendor.objects.filter(is_active=True).exists() and Property.objects.exists():
+            return super().get_create_gate_context()
+        return {
+            "create_available": False,
+            "create_gate_message": "Create at least one active vendor and one property before adding bills.",
+            "create_gate_url": reverse("vendor-list"),
+            "create_gate_label": "Go to vendors",
+        }
+
+    def get_rows(self, objects):
+        return [
+            {
+                "object": obj,
+                "summary": (
+                    f"{obj.property.name}"
+                    f"{' / ' + obj.unit.name if obj.unit_id else ''}"
+                    f" | {obj.vendor.name} | {obj.amount} | {obj.get_status_display()}"
+                ),
+                "detail_url": reverse("vendor-bill-detail", kwargs={"pk": obj.pk}),
+                "edit_url": reverse("vendor-bill-edit", kwargs={"pk": obj.pk}),
+            }
+            for obj in objects
+        ]
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context["maintenance_summary_rows"] = MaintenanceExpenseSummaryService.summary_rows()
+        return context
+
+
+class VendorBillCreateView(PaymentsCrudFormView, CreateView):
+    model = VendorBill
+    form_class = VendorBillForm
+    page_title = "Add vendor bill"
+    page_action = "Save bill"
+    list_url_name = "vendor-bill-list"
+
+    def get_create_gate_context(self) -> dict[str, Any]:
+        if Vendor.objects.filter(is_active=True).exists() and Property.objects.exists():
+            return super().get_create_gate_context()
+        return {
+            "create_available": False,
+            "create_gate_message": "Create at least one active vendor and one property before adding bills.",
+            "create_gate_url": reverse("vendor-list"),
+            "create_gate_label": "Go to vendors",
+        }
+
+    def form_valid(self, form):
+        self.object = form.save(commit=False)
+        VendorBillService.save_and_sync_bill(self.object)
+        return HttpResponseRedirect(reverse("vendor-bill-detail", args=[self.object.pk]))
+
+
+class VendorBillUpdateView(PaymentsCrudFormView, UpdateView):
+    model = VendorBill
+    form_class = VendorBillForm
+    page_title = "Edit vendor bill"
+    page_action = "Save bill"
+    list_url_name = "vendor-bill-list"
+
+    def form_valid(self, form):
+        self.object = form.save(commit=False)
+        VendorBillService.save_and_sync_bill(self.object)
+        return HttpResponseRedirect(reverse("vendor-bill-detail", args=[self.object.pk]))
+
+
+class VendorBillDetailView(LoginRequiredMixin, PaymentsAppContextMixin, DetailView):
+    model = VendorBill
+    template_name = "payments/vendor_bill_detail.html"
+    context_object_name = "bill"
+    login_url = reverse_lazy("admin:login")
+
+    def get_queryset(self):
+        return VendorBill.objects.select_related("vendor", "property", "unit", "maintenance_category", "sync_record")
+
+    def post(self, request, *args, **kwargs):
+        self.object = self.get_object()
+        action = request.POST.get("action", "").strip()
+        if action == "sync":
+            try:
+                VendorBillService.sync_bill(self.object)
+            except ValidationError as exc:
+                messages.error(request, "; ".join(exc.messages))
+            else:
+                self.object.refresh_from_db()
+                level, message = _sync_feedback(
+                    status=self.object.status,
+                    success_message="Vendor bill posted to LedgerOS.",
+                    failure_message="Vendor bill sync failed.",
+                    last_error=self.object.sync_record.last_error if self.object.sync_record else None,
+                )
+                getattr(messages, level)(request, message)
+        return HttpResponseRedirect(reverse("vendor-bill-detail", args=[self.object.pk]))
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        bill = self.object
+        context["sync_log_entries"] = [
+            {
+                "title": f"Bill {bill.pk} sync status",
+                "status": bill.sync_record.status if bill.sync_record else "",
+                "error": bill.sync_record.last_error if bill.sync_record else "",
+                "response_text": (
+                    json.dumps(bill.sync_record.response_payload, indent=2, sort_keys=True)
+                    if bill.sync_record and bill.sync_record.response_payload is not None
+                    else ""
+                ),
+                "updated_at": bill.sync_record.updated_at if bill.sync_record else bill.updated_at,
+            }
+        ] if bill.sync_record else []
+        return context
+
+
+class VendorPaymentListView(PaymentsCrudListView):
+    model = VendorPayment
+    page_title = "Vendor payments"
+    create_url_name = "vendor-payment-create"
+    create_label = "Add payment"
+
+    def get_create_gate_context(self) -> dict[str, Any]:
+        if VendorBill.objects.exists():
+            return super().get_create_gate_context()
+        return {
+            "create_available": False,
+            "create_gate_message": "Create a vendor bill before recording a vendor payment.",
+            "create_gate_url": reverse("vendor-bill-list"),
+            "create_gate_label": "Go to bills",
+        }
+
+    def get_rows(self, objects):
+        return [
+            {
+                "object": obj,
+                "summary": (
+                    f"{obj.vendor.name} | {obj.vendor_bill.pk} | {obj.amount} | "
+                    f"{obj.get_payment_method_display()} | {obj.get_status_display()}"
+                ),
+                "detail_url": reverse("vendor-payment-detail", kwargs={"pk": obj.pk}),
+                "edit_url": reverse("vendor-payment-edit", kwargs={"pk": obj.pk}),
+            }
+            for obj in objects
+        ]
+
+
+class VendorPaymentCreateView(PaymentsCrudFormView, CreateView):
+    model = VendorPayment
+    form_class = VendorPaymentForm
+    page_title = "Add vendor payment"
+    page_action = "Save payment"
+    list_url_name = "vendor-payment-list"
+
+    def get_create_gate_context(self) -> dict[str, Any]:
+        if VendorBill.objects.exists():
+            return super().get_create_gate_context()
+        return {
+            "create_available": False,
+            "create_gate_message": "Create a vendor bill before recording a vendor payment.",
+            "create_gate_url": reverse("vendor-bill-list"),
+            "create_gate_label": "Go to bills",
+        }
+
+    def form_valid(self, form):
+        self.object = form.save(commit=False)
+        VendorPaymentService.save_and_sync_payment(self.object)
+        return HttpResponseRedirect(reverse("vendor-payment-detail", args=[self.object.pk]))
+
+
+class VendorPaymentUpdateView(PaymentsCrudFormView, UpdateView):
+    model = VendorPayment
+    form_class = VendorPaymentForm
+    page_title = "Edit vendor payment"
+    page_action = "Save payment"
+    list_url_name = "vendor-payment-list"
+
+    def form_valid(self, form):
+        self.object = form.save(commit=False)
+        VendorPaymentService.save_and_sync_payment(self.object)
+        return HttpResponseRedirect(reverse("vendor-payment-detail", args=[self.object.pk]))
+
+
+class VendorPaymentDetailView(LoginRequiredMixin, PaymentsAppContextMixin, DetailView):
+    model = VendorPayment
+    template_name = "payments/vendor_payment_detail.html"
+    context_object_name = "payment"
+    login_url = reverse_lazy("admin:login")
+
+    def get_queryset(self):
+        return VendorPayment.objects.select_related("vendor", "vendor_bill", "vendor_bill__sync_record", "sync_record")
+
+    def post(self, request, *args, **kwargs):
+        self.object = self.get_object()
+        action = request.POST.get("action", "").strip()
+        if action == "sync":
+            try:
+                VendorPaymentService.sync_payment(self.object)
+            except ValidationError as exc:
+                messages.error(request, "; ".join(exc.messages))
+            else:
+                self.object.refresh_from_db()
+                level, message = _sync_feedback(
+                    status=self.object.status,
+                    success_message="Vendor payment posted to LedgerOS.",
+                    failure_message="Vendor payment sync failed.",
+                    last_error=self.object.sync_record.last_error if self.object.sync_record else None,
+                )
+                getattr(messages, level)(request, message)
+        return HttpResponseRedirect(reverse("vendor-payment-detail", args=[self.object.pk]))
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        payment = self.object
+        context["sync_log_entries"] = [
+            {
+                "title": f"Payment {payment.pk} sync status",
+                "status": payment.sync_record.status if payment.sync_record else "",
+                "error": payment.sync_record.last_error if payment.sync_record else "",
+                "response_text": (
+                    json.dumps(payment.sync_record.response_payload, indent=2, sort_keys=True)
+                    if payment.sync_record and payment.sync_record.response_payload is not None
+                    else ""
+                ),
+                "updated_at": payment.sync_record.updated_at if payment.sync_record else payment.updated_at,
+            }
+        ] if payment.sync_record else []
+        return context
+
+
+class DebtServicePaymentListView(PaymentsCrudListView):
+    model = DebtServicePayment
+    page_title = "Debt service payments"
+    create_url_name = "debt-service-payment-create"
+    create_label = "Add payment"
+
+    def get_create_gate_context(self) -> dict[str, Any]:
+        if Vendor.objects.filter(is_active=True).exists() and Property.objects.exists():
+            return super().get_create_gate_context()
+        return {
+            "create_available": False,
+            "create_gate_message": "Create an active vendor and a property before recording debt-service payments.",
+            "create_gate_url": reverse("vendor-list"),
+            "create_gate_label": "Go to vendors",
+        }
+
+    def get_rows(self, objects):
+        return [
+            {
+                "object": obj,
+                "summary": f"{obj.property.name} | {obj.lender.name} | {obj.total_amount} | {obj.get_status_display()}",
+                "detail_url": reverse("debt-service-payment-detail", kwargs={"pk": obj.pk}),
+                "edit_url": reverse("debt-service-payment-edit", kwargs={"pk": obj.pk}),
+            }
+            for obj in objects
+        ]
+
+
+class DebtServicePaymentCreateView(PaymentsCrudFormView, CreateView):
+    model = DebtServicePayment
+    form_class = DebtServicePaymentForm
+    page_title = "Add debt service payment"
+    page_action = "Save payment"
+    list_url_name = "debt-service-payment-list"
+
+    def get_create_gate_context(self) -> dict[str, Any]:
+        if Vendor.objects.filter(is_active=True).exists() and Property.objects.exists():
+            return super().get_create_gate_context()
+        return {
+            "create_available": False,
+            "create_gate_message": "Create an active vendor and a property before recording debt-service payments.",
+            "create_gate_url": reverse("vendor-list"),
+            "create_gate_label": "Go to vendors",
+        }
+
+    def form_valid(self, form):
+        self.object = form.save(commit=False)
+        DebtServicePaymentService.save_and_sync_payment(self.object)
+        return HttpResponseRedirect(reverse("debt-service-payment-detail", args=[self.object.pk]))
+
+
+class DebtServicePaymentUpdateView(PaymentsCrudFormView, UpdateView):
+    model = DebtServicePayment
+    form_class = DebtServicePaymentForm
+    page_title = "Edit debt service payment"
+    page_action = "Save payment"
+    list_url_name = "debt-service-payment-list"
+
+    def form_valid(self, form):
+        self.object = form.save(commit=False)
+        DebtServicePaymentService.save_and_sync_payment(self.object)
+        return HttpResponseRedirect(reverse("debt-service-payment-detail", args=[self.object.pk]))
+
+
+class DebtServicePaymentDetailView(LoginRequiredMixin, PaymentsAppContextMixin, DetailView):
+    model = DebtServicePayment
+    template_name = "payments/debt_service_payment_detail.html"
+    context_object_name = "payment"
+    login_url = reverse_lazy("admin:login")
+
+    def get_queryset(self):
+        return DebtServicePayment.objects.select_related("property", "lender", "sync_record")
+
+    def post(self, request, *args, **kwargs):
+        self.object = self.get_object()
+        action = request.POST.get("action", "").strip()
+        if action == "sync":
+            try:
+                DebtServicePaymentService.sync_payment(self.object)
+            except ValidationError as exc:
+                messages.error(request, "; ".join(exc.messages))
+            else:
+                self.object.refresh_from_db()
+                level, message = _sync_feedback(
+                    status=self.object.status,
+                    success_message="Debt service payment posted to LedgerOS.",
+                    failure_message="Debt service payment sync failed.",
+                    last_error=self.object.sync_record.last_error if self.object.sync_record else None,
+                )
+                getattr(messages, level)(request, message)
+        return HttpResponseRedirect(reverse("debt-service-payment-detail", args=[self.object.pk]))
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        payment = self.object
+        context["sync_log_entries"] = [
+            {
+                "title": f"Debt service payment {payment.pk} sync status",
+                "status": payment.sync_record.status if payment.sync_record else "",
+                "error": payment.sync_record.last_error if payment.sync_record else "",
+                "response_text": (
+                    json.dumps(payment.sync_record.response_payload, indent=2, sort_keys=True)
+                    if payment.sync_record and payment.sync_record.response_payload is not None
+                    else ""
+                ),
+                "updated_at": payment.sync_record.updated_at if payment.sync_record else payment.updated_at,
+            }
+        ] if payment.sync_record else []
         return context

@@ -1,0 +1,44 @@
+{% extends "ledgeros/base.html" %}
+
+{% block title %}Vendor Payment {{ payment.pk }} | PropertyLedger{% endblock %}
+
+{% block content %}
+  <div class="card">
+    <h1>Vendor Payment {{ payment.pk }}</h1>
+    <p><strong>Vendor:</strong> {{ payment.vendor }}</p>
+    <p><strong>Bill:</strong> {{ payment.vendor_bill }}</p>
+    <p><strong>Date:</strong> {{ payment.payment_date }}</p>
+    <p><strong>Amount:</strong> {{ payment.amount }}</p>
+    <p><strong>Method:</strong> {{ payment.get_payment_method_display }}</p>
+    <p><strong>Bank account:</strong> {{ payment.bank_account_name|default:"-" }}</p>
+    <p><strong>Credit card account:</strong> {{ payment.credit_card_account_name|default:"-" }}</p>
+    <p><strong>Check number:</strong> {{ payment.check_number|default:"-" }}</p>
+    <p><strong>Check status:</strong> {{ payment.get_check_status_display }}</p>
+    <p><strong>Credit card payoff:</strong> {{ payment.is_credit_card_payoff|yesno:"Yes,No" }}</p>
+    <p><strong>Status:</strong> {{ payment.get_status_display }}</p>
+    <p><strong>Memo:</strong> {{ payment.memo|default:"-" }}</p>
+    <p><strong>Notes:</strong> {{ payment.notes|default:"-" }}</p>
+    <div style="display:flex; gap:1rem; flex-wrap:wrap;">
+      <a class="button" href="{% url 'vendor-payment-list' %}">Back</a>
+      <a class="button" href="{% url 'vendor-payment-edit' payment.pk %}">Edit payment</a>
+    </div>
+  </div>
+  <div class="card">
+    <h2>LedgerOS Sync</h2>
+    <form method="post">
+      {% csrf_token %}
+      <input type="hidden" name="action" value="sync">
+      <button type="submit" class="button primary">Sync payment</button>
+    </form>
+    {% for entry in sync_log_entries %}
+      <div class="card">
+        <strong>{{ entry.title }}</strong>
+        <div class="muted">{{ entry.updated_at }} | {{ entry.status }}</div>
+        {% if entry.error %}<pre>{{ entry.error }}</pre>{% endif %}
+        {% if entry.response_text %}<pre>{{ entry.response_text }}</pre>{% endif %}
+      </div>
+    {% empty %}
+      <p class="muted">No sync record yet.</p>
+    {% endfor %}
+  </div>
+{% endblock %}

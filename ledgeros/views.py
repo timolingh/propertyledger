@@ -43,6 +43,7 @@ from ledgeros.services import (
     LocalHealthCheckService,
     TenantChargeService,
 )
+from payments.models import DebtServicePayment, SecurityDepositEvent, TenantPayment, VendorBill, VendorPayment
 
 
 def _add_form_error_from_exception(form, exc: Exception) -> None:
@@ -117,10 +118,18 @@ class LedgerOSAppContextMixin:
                 "complete": TenantCharge.objects.exists(),
             },
             {
+                "label": "Record vendor bills and expenses",
+                "url": reverse("vendor-bill-list"),
+                "summary": "Vendor bills, vendor payments, and debt-service payments are part of the property-accounting workflow.",
+                "complete": VendorBill.objects.exists()
+                or VendorPayment.objects.exists()
+                or DebtServicePayment.objects.exists(),
+            },
+            {
                 "label": "Record tenant invoices and payments",
                 "url": reverse("invoice-list"),
                 "summary": "Record tenant invoices, payments, and security deposit events.",
-                "complete": False,
+                "complete": TenantPayment.objects.exists() or SecurityDepositEvent.objects.exists(),
             },
         ]
         return steps

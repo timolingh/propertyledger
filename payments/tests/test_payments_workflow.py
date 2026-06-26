@@ -16,8 +16,16 @@ from django.test import TestCase
 from django.urls import reverse
 
 from ledgeros.models import LedgerOSConnectionSettings, LedgerOSSyncRecord, Owner, Property, Tenant, TenantCharge, Unit
-from payments.models import PaymentWorkflowSettings, SecurityDepositEvent, TenantPayment
-from payments.services import SecurityDepositLedgerService, TenantPaymentService
+from ledgeros.models import PropertyLedgerAccountMapping, PropertyLedgerSetup
+from payments.models import DebtServicePayment, MaintenanceCategory, PaymentWorkflowSettings, SecurityDepositEvent, TenantPayment, Vendor, VendorBill, VendorPayment
+from payments.services import (
+    DebtServicePaymentService,
+    MaintenanceExpenseSummaryService,
+    SecurityDepositLedgerService,
+    TenantPaymentService,
+    VendorBillService,
+    VendorPaymentService,
+)
 
 
 class _FakeResponse:
@@ -41,6 +49,37 @@ def _configure_ledgeros_settings():
     settings_obj.client_id = "propertyledger"
     settings_obj.hmac_secret_env_var = "LEDGEROS_HMAC_SECRET"
     settings_obj.save()
+
+
+def _configure_epic5_mappings():
+    setup = PropertyLedgerSetup.load()
+    mapping_defaults = {
+        PropertyLedgerAccountMapping.MappingKey.OPERATING_BANK_ACCOUNT: ("1000", "Operating Bank", "asset"),
+        PropertyLedgerAccountMapping.MappingKey.UNDEPOSITED_FUNDS: ("1010", "Undeposited Funds", "asset"),
+        PropertyLedgerAccountMapping.MappingKey.ACCOUNTS_RECEIVABLE: ("1100", "Accounts Receivable", "asset"),
+        PropertyLedgerAccountMapping.MappingKey.ACCOUNTS_PAYABLE: ("2000", "Accounts Payable", "liability"),
+        PropertyLedgerAccountMapping.MappingKey.RENTAL_INCOME: ("4000", "Rental Income", "revenue"),
+        PropertyLedgerAccountMapping.MappingKey.REPAIRS_AND_MAINTENANCE_EXPENSE: ("6100", "Repairs and Maintenance Expense", "expense"),
+        PropertyLedgerAccountMapping.MappingKey.TENANT_SECURITY_DEPOSITS_LIABILITY: ("2200", "Tenant Security Deposits", "liability"),
+        PropertyLedgerAccountMapping.MappingKey.OWNER_CONTRIBUTIONS_EQUITY: ("3000", "Owner Contributions Equity", "equity"),
+        PropertyLedgerAccountMapping.MappingKey.OWNER_DISTRIBUTIONS_EQUITY: ("3010", "Owner Distributions Equity", "equity"),
+        PropertyLedgerAccountMapping.MappingKey.CREDIT_CARD_LIABILITY: ("2100", "Credit Card Liability", "liability"),
+        PropertyLedgerAccountMapping.MappingKey.MORTGAGE_OR_LOAN_LIABILITY: ("2500", "Mortgage or Loan Payable", "liability"),
+        PropertyLedgerAccountMapping.MappingKey.INTEREST_EXPENSE: ("6200", "Interest Expense", "expense"),
+        PropertyLedgerAccountMapping.MappingKey.PRINCIPAL_PAYMENT_MAPPING: ("2510", "Principal Payment Mapping", "liability"),
+    }
+    for mapping_key, (account_id, account_name, account_type) in mapping_defaults.items():
+        PropertyLedgerAccountMapping.objects.update_or_create(
+            setup=setup,
+            mapping_key=mapping_key,
+            defaults={
+                "ledgeros_account_id": account_id,
+                "ledgeros_account_name": account_name,
+                "ledgeros_account_type": account_type,
+                "is_required": mapping_key in PropertyLedgerSetup.REQUIRED_ACCOUNT_MAPPING_KEYS,
+                "is_enabled": True,
+            },
+        )
 
 
 def _decode_mock_request(mock_call):
@@ -572,3 +611,161 @@ class SecurityDepositLedgerServiceTests(TestCase):
 
         self.assertEqual(SecurityDepositLedgerService.required_amount_for_lease(self.lease), Decimal("500.00"))
         self.assertEqual(SecurityDepositLedgerService.balance_for_lease(self.lease), Decimal("350.00"))
+
+
+class Epic5AccountingServiceTests(TestCase):
+    def setUp(self):
+        _configure_ledgeros_settings()
+        _configure_epic5_mappings()
+        self.owner = Owner.objects.create(name="Owner One")
+        self.property = Property.objects.create(name="Property One", primary_owner=self.owner)
+        self.unit = Unit.objects.create(property=self.property, name="101")
+        self.vendor = Vendor.objects.create(name="Vendor One")
+        self.lender = Vendor.objects.create(name="Lender One")
+        self.category = MaintenanceCategory.objects.create(name="Plumbing")
+
+    def _create_vendor_bill(self, **overrides):
+        defaults = {
+            "vendor": self.vendor,
+            "property": self.property,
+            "unit": self.unit,
+            "bill_date": date(2026, 2, 1),
+            "due_date": date(2026, 2, 15),
+            "amount": Decimal("125.00"),
+            "expense_category": VendorBill.ExpenseCategory.REPAIRS_AND_MAINTENANCE,
+            "maintenance_category": self.category,
+            "repair_notes": "Leak repair",
+            "tenant_chargeable": True,
+            "notes": "Initial note",
+        }
+        defaults.update(overrides)
+        return VendorBill.objects.create(**defaults)
+
+    @patch.dict(os.environ, {"LEDGEROS_HMAC_SECRET": "secret"}, clear=False)
+    @patch("payments.services.urlopen")
+    def test_vendor_bill_sync_creates_single_sync_record_and_is_idempotent(self, mock_urlopen):
+        mock_urlopen.return_value = _FakeResponse(
+            status=201,
+            payload=json.dumps({"sync_event": {"id": "sync_bill_1"}}).encode("utf-8"),
+        )
+
+        bill = self._create_vendor_bill()
+        VendorBillService.save_and_sync_bill(bill)
+        bill.refresh_from_db()
+
+        self.assertEqual(bill.status, VendorBill.Status.SYNCED)
+        self.assertEqual(bill.sync_record.status, LedgerOSSyncRecord.Status.SUCCEEDED)
+        first_request_path, first_payload = _decode_mock_request(mock_urlopen.call_args_list[0])
+        self.assertEqual(first_request_path, "http://ledgeros-web:8000/api/v1/sync-events/")
+        self.assertEqual(first_payload["domain_event_type"], "vendor_bill.created")
+        self.assertEqual(first_payload["payload"]["accounting_entries"][0]["account_code"], "6100")
+        self.assertEqual(first_payload["payload"]["accounting_entries"][1]["account_code"], "2000")
+
+        VendorBillService.sync_bill(bill)
+        bill.refresh_from_db()
+        self.assertEqual(LedgerOSSyncRecord.objects.filter(local_object_type="vendor_bill").count(), 1)
+        self.assertEqual(bill.sync_record.status, LedgerOSSyncRecord.Status.SUCCEEDED)
+
+    @patch.dict(os.environ, {"LEDGEROS_HMAC_SECRET": "secret"}, clear=False)
+    @patch("payments.services.urlopen")
+    def test_vendor_payment_credit_card_and_payoff_emit_expected_events(self, mock_urlopen):
+        mock_urlopen.side_effect = [
+            _FakeResponse(status=201, payload=json.dumps({"sync_event": {"id": "sync_bill_1"}}).encode("utf-8")),
+            _FakeResponse(status=201, payload=json.dumps({"sync_event": {"id": "sync_payment_1"}}).encode("utf-8")),
+            _FakeResponse(status=201, payload=json.dumps({"sync_event": {"id": "sync_payment_2"}}).encode("utf-8")),
+        ]
+
+        bill = self._create_vendor_bill()
+        VendorBillService.save_and_sync_bill(bill)
+
+        card_payment = VendorPayment.objects.create(
+            vendor=self.vendor,
+            vendor_bill=bill,
+            payment_date=date(2026, 2, 20),
+            amount=Decimal("125.00"),
+            payment_method=VendorPayment.PaymentMethod.CREDIT_CARD,
+            credit_card_account_name="Card Liability",
+            bank_account_name="",
+            memo="Card swipe",
+            is_credit_card_payoff=False,
+        )
+        VendorPaymentService.save_and_sync_payment(card_payment)
+        card_payment.refresh_from_db()
+
+        payoff = VendorPayment.objects.create(
+            vendor=self.vendor,
+            vendor_bill=bill,
+            payment_date=date(2026, 2, 25),
+            amount=Decimal("125.00"),
+            payment_method=VendorPayment.PaymentMethod.ACH_MANUAL,
+            bank_account_name="Operating Bank",
+            memo="Payoff",
+            is_credit_card_payoff=True,
+        )
+        VendorPaymentService.save_and_sync_payment(payoff)
+        payoff.refresh_from_db()
+
+        self.assertEqual(card_payment.status, VendorPayment.Status.SYNCED)
+        self.assertEqual(card_payment.sync_record.source_event_type, "vendor_payment.credit_card")
+        self.assertEqual(card_payment.sync_record.response_payload["sync_event"]["id"], "sync_payment_1")
+        self.assertEqual(payoff.status, VendorPayment.Status.SYNCED)
+        self.assertEqual(payoff.sync_record.source_event_type, "credit_card.payoff")
+        self.assertEqual(payoff.sync_record.response_payload["sync_event"]["id"], "sync_payment_2")
+        second_request_path, second_payload = _decode_mock_request(mock_urlopen.call_args_list[1])
+        third_request_path, third_payload = _decode_mock_request(mock_urlopen.call_args_list[2])
+        self.assertEqual(second_request_path, "http://ledgeros-web:8000/api/v1/sync-events/")
+        self.assertEqual(second_payload["domain_event_type"], "vendor_payment.credit_card")
+        self.assertEqual(third_payload["domain_event_type"], "credit_card.payoff")
+
+    @patch.dict(os.environ, {"LEDGEROS_HMAC_SECRET": "secret"}, clear=False)
+    @patch("payments.services.urlopen")
+    def test_debt_service_payment_requires_balanced_split_and_posts_sync_event(self, mock_urlopen):
+        mock_urlopen.return_value = _FakeResponse(
+            status=201,
+            payload=json.dumps({"sync_event": {"id": "sync_debt_1"}}).encode("utf-8"),
+        )
+
+        payment = DebtServicePayment.objects.create(
+            property=self.property,
+            lender=self.lender,
+            payment_date=date(2026, 2, 28),
+            total_amount=Decimal("500.00"),
+            principal_amount=Decimal("400.00"),
+            interest_amount=Decimal("100.00"),
+            payment_account_name="Operating Bank",
+            loan_liability_account_name="Mortgage Liability",
+            interest_expense_account_name="Interest Expense",
+            memo="Mortgage payment",
+        )
+        DebtServicePaymentService.save_and_sync_payment(payment)
+        payment.refresh_from_db()
+
+        self.assertEqual(payment.status, DebtServicePayment.Status.SYNCED)
+        self.assertEqual(payment.sync_record.status, LedgerOSSyncRecord.Status.SUCCEEDED)
+        request_path, payload = _decode_mock_request(mock_urlopen.call_args_list[0])
+        self.assertEqual(request_path, "http://ledgeros-web:8000/api/v1/sync-events/")
+        self.assertEqual(payload["domain_event_type"], "debt_service.payment_recorded")
+        self.assertEqual(payload["payload"]["accounting_entries"][0]["account_code"], "2500")
+        self.assertEqual(payload["payload"]["accounting_entries"][1]["account_code"], "6200")
+        self.assertEqual(payload["payload"]["accounting_entries"][2]["account_code"], "1000")
+
+    @patch.dict(os.environ, {"LEDGEROS_HMAC_SECRET": "secret"}, clear=False)
+    @patch("payments.services.urlopen")
+    def test_maintenance_expense_summary_groups_by_category(self, mock_urlopen):
+        mock_urlopen.side_effect = [
+            _FakeResponse(status=201, payload=json.dumps({"sync_event": {"id": "sync_bill_1"}}).encode("utf-8")),
+            _FakeResponse(status=201, payload=json.dumps({"sync_event": {"id": "sync_bill_2"}}).encode("utf-8")),
+        ]
+
+        VendorBillService.save_and_sync_bill(self._create_vendor_bill(amount=Decimal("50.00")))
+        VendorBillService.save_and_sync_bill(
+            self._create_vendor_bill(
+                amount=Decimal("75.00"),
+                maintenance_category=None,
+                expense_category=VendorBill.ExpenseCategory.OTHER,
+            )
+        )
+
+        rows = MaintenanceExpenseSummaryService.summary_rows()
+        self.assertEqual(len(rows), 2)
+        self.assertEqual(rows[0]["total_amount"] + rows[1]["total_amount"], Decimal("125.00"))

@@ -1007,11 +1007,12 @@ Required fields:
 Allowed statuses:
 
 - `draft`
-- `approved`
 - `sync_pending`
 - `synced`
 - `sync_failed`
 - `voided`
+
+Vendor bills do not need a separate approval state in Epic 5. A saved bill should move directly into sync when the required prerequisites are present, and otherwise remain locally saved until those prerequisites are satisfied.
 
 ### VendorPayment
 

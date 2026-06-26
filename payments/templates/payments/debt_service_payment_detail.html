@@ -1,0 +1,42 @@
+{% extends "ledgeros/base.html" %}
+
+{% block title %}Debt Service Payment {{ payment.pk }} | PropertyLedger{% endblock %}
+
+{% block content %}
+  <div class="card">
+    <h1>Debt Service Payment {{ payment.pk }}</h1>
+    <p><strong>Property:</strong> {{ payment.property }}</p>
+    <p><strong>Lender:</strong> {{ payment.lender }}</p>
+    <p><strong>Date:</strong> {{ payment.payment_date }}</p>
+    <p><strong>Total:</strong> {{ payment.total_amount }}</p>
+    <p><strong>Principal:</strong> {{ payment.principal_amount }}</p>
+    <p><strong>Interest:</strong> {{ payment.interest_amount }}</p>
+    <p><strong>Payment account:</strong> {{ payment.payment_account_name|default:"-" }}</p>
+    <p><strong>Loan liability account:</strong> {{ payment.loan_liability_account_name|default:"-" }}</p>
+    <p><strong>Interest expense account:</strong> {{ payment.interest_expense_account_name|default:"-" }}</p>
+    <p><strong>Status:</strong> {{ payment.get_status_display }}</p>
+    <p><strong>Memo:</strong> {{ payment.memo|default:"-" }}</p>
+    <div style="display:flex; gap:1rem; flex-wrap:wrap;">
+      <a class="button" href="{% url 'debt-service-payment-list' %}">Back</a>
+      <a class="button" href="{% url 'debt-service-payment-edit' payment.pk %}">Edit payment</a>
+    </div>
+  </div>
+  <div class="card">
+    <h2>LedgerOS Sync</h2>
+    <form method="post">
+      {% csrf_token %}
+      <input type="hidden" name="action" value="sync">
+      <button type="submit" class="button primary">Sync payment</button>
+    </form>
+    {% for entry in sync_log_entries %}
+      <div class="card">
+        <strong>{{ entry.title }}</strong>
+        <div class="muted">{{ entry.updated_at }} | {{ entry.status }}</div>
+        {% if entry.error %}<pre>{{ entry.error }}</pre>{% endif %}
+        {% if entry.response_text %}<pre>{{ entry.response_text }}</pre>{% endif %}
+      </div>
+    {% empty %}
+      <p class="muted">No sync record yet.</p>
+    {% endfor %}
+  </div>
+{% endblock %}
