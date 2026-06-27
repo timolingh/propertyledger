@@ -97,20 +97,26 @@ make smoke
 - Debt-service payments require principal plus interest to equal the total.
 - Debt-service sync uses the required liability, interest, and operating bank mappings.
 - Synced debt-service payments are immutable except for non-accounting note fields.
+- Vendor bill sync upserts the vendor on LedgerOS before posting the bill so the bill path does not depend on a preseeded backend vendor record.
 
 ## LedgerOS Contract
 
-Epic 5 sends accounting-bound events through the generic LedgerOS sync-event endpoint:
+Epic 5 uses the LedgerOS endpoint that matches the accounting object being posted:
 
-- `POST /api/v1/sync-events/`
+- `POST /api/v1/vendors/` for vendor provisioning
+- `POST /api/v1/bills/` for vendor bills
+- `POST /api/v1/payments/` for standard vendor bill payments
+- `POST /api/v1/sync-events/` for journal-entry-backed liability workflows such as credit-card vendor payments, credit-card payoff, and debt-service payments
 
-Required event types:
+Source event types:
 
 - `vendor_bill.created`
 - `vendor_payment.sent`
 - `vendor_payment.credit_card`
 - `credit_card.payoff`
 - `debt_service.payment_recorded`
+
+LedgerOS turns the supported sync-event liability workflows into posted journal entries.
 
 ## Testing
 
@@ -129,10 +135,10 @@ make check
 ## Manual Checks
 
 - Create a vendor and maintenance category.
+- Confirm the first vendor sync provisions the vendor in LedgerOS.
 - Create a vendor bill for a property and optional unit.
 - Confirm the bill syncs to LedgerOS.
 - Record a vendor payment by credit card and confirm it posts the expected accounting effect.
 - Record a credit-card payoff and confirm it reduces credit-card liability.
 - Record a debt-service payment with principal and interest split.
 - Confirm synced records are not destructively editable.
-

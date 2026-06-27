@@ -33,6 +33,7 @@ from payments.models import (
     SecurityDepositEvent,
     TenantPayment,
     TenantPaymentApplication,
+    Vendor,
     VendorBill,
     VendorPayment,
 )
@@ -45,6 +46,16 @@ logger = logging.getLogger(__name__)
 class SyncResult:
     status_code: int
     payload: dict[str, Any]
+
+
+def _response_journal_entry_id(payload: dict[str, Any]) -> str | None:
+    journal_entry_payload = payload.get("journal_entry")
+    if isinstance(journal_entry_payload, dict):
+        journal_entry_id = str(journal_entry_payload.get("id") or "").strip()
+        if journal_entry_id:
+            return journal_entry_id
+    journal_entry_id = str(payload.get("journal_entry_id") or "").strip()
+    return journal_entry_id or None
 
 
 class LedgerOSSyncEventService:
@@ -192,6 +203,136 @@ class LedgerOSPaymentService:
             path=LedgerOSPaymentService.PAYMENT_PATH,
             payload=payload,
             idempotency_key=idempotency_key,
+        )
+
+
+class LedgerOSVendorBillService:
+    BILL_PATH = "/api/v1/bills/"
+
+    @staticmethod
+    def _vendor_code(vendor: Vendor) -> str:
+        return f"vendor-{vendor.pk}"
+
+    @staticmethod
+    def _external_bill_number(bill: VendorBill) -> str:
+        return f"vendor-bill:{bill.pk}"
+
+    @staticmethod
+    def _build_bill_payload(bill: VendorBill) -> dict[str, Any]:
+        expense_account_code = Epic5AccountingService._account_code(
+            mapping_key=PropertyLedgerAccountMapping.MappingKey.REPAIRS_AND_MAINTENANCE_EXPENSE,
+            field_name="expense_category",
+        )
+        description_parts = [bill.get_expense_category_display()]
+        if bill.maintenance_category_id and bill.maintenance_category:
+            description_parts.append(bill.maintenance_category.name)
+        note = bill.repair_notes.strip() or bill.notes.strip()
+        if note:
+            description_parts.append(note)
+        elif bill.tenant_chargeable:
+            description_parts.append("tenant chargeable")
+
+        return {
+            "vendor_code": LedgerOSVendorBillService._vendor_code(bill.vendor),
+            "external_bill_number": LedgerOSVendorBillService._external_bill_number(bill),
+            "bill_date": bill.bill_date.isoformat(),
+            "due_date": (bill.due_date or bill.bill_date).isoformat(),
+            "total_amount": str(bill.amount.quantize(Decimal("0.01"))),
+            "lines": [
+                {
+                    "account_code": expense_account_code,
+                    "line_description": " - ".join(description_parts),
+                    "amount": str(bill.amount.quantize(Decimal("0.01"))),
+                }
+            ],
+        }
+
+    @staticmethod
+    def submit_bill(*, bill: VendorBill, idempotency_key: str) -> SyncResult:
+        payload = LedgerOSVendorBillService._build_bill_payload(bill)
+        return LedgerOSSyncEventService._submit(
+            method="POST",
+            path=LedgerOSVendorBillService.BILL_PATH,
+            payload=payload,
+            idempotency_key=idempotency_key,
+        )
+
+
+class LedgerOSVendorPaymentService:
+    PAYMENT_PATH = "/api/v1/payments/"
+
+    @staticmethod
+    def _build_payment_payload(payment: VendorPayment) -> dict[str, Any]:
+        bill_sync_record = payment.vendor_bill.sync_record
+        if bill_sync_record is None or not bill_sync_record.external_id:
+            raise ValidationError(
+                {"vendor_bill": "The vendor bill must be synced before the payment can be posted."}
+            )
+
+        return {
+            "source_type": "bill",
+            "source_reference": bill_sync_record.external_id,
+            "payment_date": payment.payment_date.isoformat(),
+            "amount": str(payment.amount.quantize(Decimal("0.01"))),
+        }
+
+    @staticmethod
+    def submit_payment(*, payment: VendorPayment, idempotency_key: str) -> SyncResult:
+        payload = LedgerOSVendorPaymentService._build_payment_payload(payment)
+        return LedgerOSSyncEventService._submit(
+            method="POST",
+            path=LedgerOSVendorPaymentService.PAYMENT_PATH,
+            payload=payload,
+            idempotency_key=idempotency_key,
+        )
+
+
+class LedgerOSVendorSyncService:
+    VENDOR_PATH = "/api/v1/vendors/"
+
+    @staticmethod
+    def _vendor_code(vendor: Vendor) -> str:
+        return f"vendor-{vendor.pk}"
+
+    @staticmethod
+    def _default_ap_account_code() -> str:
+        setup = PropertyLedgerSetup.load()
+        mapping = setup.account_mappings.filter(
+            mapping_key=PropertyLedgerAccountMapping.MappingKey.ACCOUNTS_PAYABLE
+        ).first()
+        if mapping is None or not mapping.is_valid_for_completion:
+            raise ValidationError(
+                {
+                    "accounts_payable": (
+                        "The accounts payable mapping is required and must be valid before this record can sync."
+                    )
+                }
+            )
+        return mapping.ledgeros_account_id.strip()
+
+    @staticmethod
+    def _build_vendor_payload(vendor: Vendor) -> dict[str, Any]:
+        return {
+            "vendor_code": LedgerOSVendorSyncService._vendor_code(vendor),
+            "name": vendor.name,
+            "status": "active" if vendor.is_active else "inactive",
+            "default_ap_account_code": LedgerOSVendorSyncService._default_ap_account_code(),
+        }
+
+    @staticmethod
+    def create_vendor(*, vendor: Vendor) -> SyncResult:
+        payload = LedgerOSVendorSyncService._build_vendor_payload(vendor)
+        return LedgerOSSyncEventService._submit(
+            method="POST",
+            path=LedgerOSVendorSyncService.VENDOR_PATH,
+            payload=payload,
+            idempotency_key=build_idempotency_key(
+                local_object_type="vendor",
+                local_object_id=str(vendor.pk),
+                source_event_type="vendor.upsert_requested",
+                external_id=LedgerOSVendorSyncService._vendor_code(vendor),
+                request_body=payload,
+            ),
         )
 
 
@@ -544,9 +685,10 @@ class TenantPaymentService:
             or result.payload.get("id")
             or sync_record.external_id
         )
+        sync_record.ledgeros_journal_entry_id = _response_journal_entry_id(result.payload)
         sync_record.response_payload = result.payload
         sync_record.last_synced_at = timezone.now()
-        sync_record.save(update_fields=["status", "ledgeros_resource_id", "response_payload", "last_synced_at", "updated_at"])
+        sync_record.save(update_fields=["status", "ledgeros_resource_id", "ledgeros_journal_entry_id", "response_payload", "last_synced_at", "updated_at"])
         payment.status = TenantPayment.Status.SYNCED
         payment.save(update_fields=["status", "updated_at"])
         return payment
@@ -603,9 +745,10 @@ class TenantPaymentService:
             or result.payload.get("id")
             or sync_record.external_id
         )
+        sync_record.ledgeros_journal_entry_id = _response_journal_entry_id(result.payload)
         sync_record.response_payload = result.payload
         sync_record.last_synced_at = timezone.now()
-        sync_record.save(update_fields=["status", "ledgeros_resource_id", "response_payload", "last_synced_at", "updated_at"])
+        sync_record.save(update_fields=["status", "ledgeros_resource_id", "ledgeros_journal_entry_id", "response_payload", "last_synced_at", "updated_at"])
         event.status = SecurityDepositEvent.Status.SYNCED
         event.save(update_fields=["status", "updated_at"])
         return event
@@ -743,52 +886,6 @@ class VendorBillService(Epic5AccountingService):
         return blockers
 
     @staticmethod
-    def _bill_event_details(bill: VendorBill) -> dict[str, Any]:
-        return {
-            "vendor_id": bill.vendor_id,
-            "property_id": bill.property_id,
-            "unit_id": bill.unit_id,
-            "bill_date": bill.bill_date.isoformat(),
-            "due_date": bill.due_date.isoformat() if bill.due_date else None,
-            "amount": str(bill.amount.quantize(Decimal("0.01"))),
-            "expense_category": bill.expense_category,
-            "maintenance_category_id": bill.maintenance_category_id,
-            "repair_notes": bill.repair_notes,
-            "tenant_chargeable": bill.tenant_chargeable,
-            "notes": bill.notes,
-            "accounting_entries": [
-                {
-                    "account_code": Epic5AccountingService._account_code(
-                        mapping_key=PropertyLedgerAccountMapping.MappingKey.REPAIRS_AND_MAINTENANCE_EXPENSE,
-                        field_name="expense_category",
-                    ),
-                    "direction": "debit",
-                    "amount": str(bill.amount.quantize(Decimal("0.01"))),
-                },
-                {
-                    "account_code": Epic5AccountingService._account_code(
-                        mapping_key=PropertyLedgerAccountMapping.MappingKey.ACCOUNTS_PAYABLE,
-                        field_name="vendor",
-                    ),
-                    "direction": "credit",
-                    "amount": str(bill.amount.quantize(Decimal("0.01"))),
-                },
-            ],
-        }
-
-    @staticmethod
-    def _request_payload(bill: VendorBill) -> dict[str, Any]:
-        return VendorBillService._build_event_payload(
-            source_system="propertyledger",
-            domain_event_type="vendor_bill.created",
-            external_id=f"vendor-bill:{bill.pk}",
-            source_object_type="vendor_bill",
-            source_object_id=str(bill.pk),
-            occurred_at=bill.created_at.isoformat(),
-            payload=VendorBillService._bill_event_details(bill),
-        )
-
-    @staticmethod
     @transaction.atomic
     def save_and_sync_bill(bill: VendorBill) -> VendorBill:
         bill.full_clean()
@@ -807,13 +904,14 @@ class VendorBillService(Epic5AccountingService):
     @staticmethod
     @transaction.atomic
     def sync_bill(bill: VendorBill) -> VendorBill:
-        request_payload = VendorBillService._request_payload(bill)
+        request_payload = LedgerOSVendorBillService._build_bill_payload(bill)
         sync_record = VendorBillService._build_sync_record(
             local_object_type="vendor_bill",
             local_object_id=str(bill.pk),
             source_event_type="vendor_bill.created",
-            external_id=f"vendor-bill:{bill.pk}",
+            external_id=LedgerOSVendorBillService._external_bill_number(bill),
             request_payload=request_payload,
+            ledgeros_resource_type="bill",
         )
         bill.sync_record = sync_record
         bill.save(update_fields=["sync_record", "updated_at"])
@@ -826,9 +924,10 @@ class VendorBillService(Epic5AccountingService):
         bill.save(update_fields=["status", "updated_at"])
 
         try:
+            LedgerOSVendorSyncService.create_vendor(vendor=bill.vendor)
             result = LedgerOSSyncEventService._submit(
                 method="POST",
-                path=LedgerOSSyncEventService.SYNC_EVENT_PATH,
+                path=LedgerOSVendorBillService.BILL_PATH,
                 payload=request_payload,
                 idempotency_key=sync_record.idempotency_key,
             )
@@ -844,13 +943,18 @@ class VendorBillService(Epic5AccountingService):
 
         sync_record.status = LedgerOSSyncRecord.Status.SUCCEEDED
         sync_record.ledgeros_resource_id = str(
-            result.payload.get("sync_event", {}).get("id")
+            result.payload.get("bill", {}).get("id")
             or result.payload.get("id")
             or sync_record.external_id
         )
+        sync_record.ledgeros_journal_entry_id = str(
+            result.payload.get("journal_entry", {}).get("id")
+            or result.payload.get("journal_entry_id")
+            or ""
+        ) or None
         sync_record.response_payload = result.payload
         sync_record.last_synced_at = timezone.now()
-        sync_record.save(update_fields=["status", "ledgeros_resource_id", "response_payload", "last_synced_at", "updated_at"])
+        sync_record.save(update_fields=["status", "ledgeros_resource_id", "ledgeros_journal_entry_id", "response_payload", "last_synced_at", "updated_at"])
         bill.status = VendorBill.Status.SYNCED
         bill.save(update_fields=["status", "updated_at"])
         return bill
@@ -1023,13 +1127,27 @@ class VendorPaymentService(Epic5AccountingService):
     @staticmethod
     @transaction.atomic
     def sync_payment(payment: VendorPayment) -> VendorPayment:
-        request_payload, source_event_type = VendorPaymentService._request_payload(payment)
+        use_payment_endpoint = not payment.is_credit_card_payoff and payment.payment_method != VendorPayment.PaymentMethod.CREDIT_CARD
+        if use_payment_endpoint:
+            request_payload = LedgerOSVendorPaymentService._build_payment_payload(payment)
+            source_event_type = "vendor_payment.sent"
+            ledgeros_resource_type = "payment"
+            ledgeros_path = LedgerOSVendorPaymentService.PAYMENT_PATH
+            response_id_key = "payment"
+            response_journal_key = "journal_entry"
+        else:
+            request_payload, source_event_type = VendorPaymentService._request_payload(payment)
+            ledgeros_resource_type = "sync_event"
+            ledgeros_path = LedgerOSSyncEventService.SYNC_EVENT_PATH
+            response_id_key = "sync_event"
+            response_journal_key = ""
         sync_record = VendorPaymentService._build_sync_record(
             local_object_type="vendor_payment",
             local_object_id=str(payment.pk),
             source_event_type=source_event_type,
             external_id=f"vendor-payment:{payment.pk}",
             request_payload=request_payload,
+            ledgeros_resource_type=ledgeros_resource_type,
         )
         payment.sync_record = sync_record
         payment.save(update_fields=["sync_record", "updated_at"])
@@ -1044,7 +1162,7 @@ class VendorPaymentService(Epic5AccountingService):
         try:
             result = LedgerOSSyncEventService._submit(
                 method="POST",
-                path=LedgerOSSyncEventService.SYNC_EVENT_PATH,
+                path=ledgeros_path,
                 payload=request_payload,
                 idempotency_key=sync_record.idempotency_key,
             )
@@ -1060,13 +1178,19 @@ class VendorPaymentService(Epic5AccountingService):
 
         sync_record.status = LedgerOSSyncRecord.Status.SUCCEEDED
         sync_record.ledgeros_resource_id = str(
-            result.payload.get("sync_event", {}).get("id")
+            result.payload.get(response_id_key, {}).get("id")
             or result.payload.get("id")
             or sync_record.external_id
         )
+        journal_entry_id = _response_journal_entry_id(result.payload)
+        if journal_entry_id:
+            sync_record.ledgeros_journal_entry_id = journal_entry_id
         sync_record.response_payload = result.payload
         sync_record.last_synced_at = timezone.now()
-        sync_record.save(update_fields=["status", "ledgeros_resource_id", "response_payload", "last_synced_at", "updated_at"])
+        update_fields = ["status", "ledgeros_resource_id", "response_payload", "last_synced_at", "updated_at"]
+        if journal_entry_id:
+            update_fields.insert(2, "ledgeros_journal_entry_id")
+        sync_record.save(update_fields=update_fields)
         payment.status = VendorPayment.Status.SYNCED
         payment.save(update_fields=["status", "updated_at"])
         return payment
@@ -1206,9 +1330,10 @@ class DebtServicePaymentService(Epic5AccountingService):
             or result.payload.get("id")
             or sync_record.external_id
         )
+        sync_record.ledgeros_journal_entry_id = _response_journal_entry_id(result.payload)
         sync_record.response_payload = result.payload
         sync_record.last_synced_at = timezone.now()
-        sync_record.save(update_fields=["status", "ledgeros_resource_id", "response_payload", "last_synced_at", "updated_at"])
+        sync_record.save(update_fields=["status", "ledgeros_resource_id", "ledgeros_journal_entry_id", "response_payload", "last_synced_at", "updated_at"])
         payment.status = DebtServicePayment.Status.SYNCED
         payment.save(update_fields=["status", "updated_at"])
         return payment

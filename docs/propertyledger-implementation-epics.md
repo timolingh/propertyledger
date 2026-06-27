@@ -1119,7 +1119,12 @@ Credit Operating Bank Account     total amount
 
 ## LedgerOS sync contract
 
-LedgerOS resources may include bill, vendor payment, bank transaction, or journal workflow depending on the authoritative LedgerOS contract.
+LedgerOS resources should match the authoritative LedgerOS contract for the workflow:
+
+- vendor bills use `POST /api/v1/bills/`;
+- vendor provisioning uses `POST /api/v1/vendors/`;
+- standard vendor bill payments use `POST /api/v1/payments/`;
+- workflows without a dedicated LedgerOS endpoint, such as credit-card vendor liability handling or debt service, use a generic sync-event that LedgerOS converts into a posted journal entry.
 
 Required source event types:
 
@@ -1129,7 +1134,7 @@ Required source event types:
 - `credit_card.payoff`
 - `debt_service.payment_recorded`
 
-If LedgerOS lacks a required endpoint, stop and ask whether to add a LedgerOS API, use an existing approved journal workflow, or defer the workflow.
+If LedgerOS lacks a required endpoint for a workflow, stop and ask whether to add a LedgerOS API, use an existing approved journal workflow, or defer the workflow.
 
 ## Acceptance criteria
 
@@ -1137,9 +1142,8 @@ If LedgerOS lacks a required endpoint, stop and ask whether to add a LedgerOS AP
 - User can tag bill with maintenance category.
 - User can mark expense as tenant-chargeable.
 - Bill syncs to LedgerOS without duplicate accounting entries under retry.
-- Vendor payment syncs to LedgerOS.
-- Credit-card vendor payment clears AP and increases credit-card liability rather than reducing bank cash.
-- Credit-card payoff reduces credit-card liability and bank cash.
+- Standard vendor payment syncs to LedgerOS.
+- Credit-card vendor payment and credit-card payoff post the expected AP, liability, and bank accounting effect through the LedgerOS sync-event journal bridge.
 - Debt-service payment records principal and interest split.
 - Principal plus interest equals total debt-service payment.
 - Maintenance expense report includes categorized expenses.
