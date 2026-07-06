@@ -56,9 +56,6 @@ class TenantPayment(models.Model):
         DRAFT = "draft", "Draft"
         ALLOCATED = "allocated", "Allocated"
         READY_TO_SYNC = "ready_to_sync", "Ready to sync"
-        SYNC_PENDING = "sync_pending", "Sync pending"
-        SYNCED = "synced", "Synced"
-        SYNC_FAILED = "sync_failed", "Sync failed"
         VOIDED = "voided", "Voided"
 
     property = models.ForeignKey(
@@ -112,7 +109,11 @@ class TenantPayment(models.Model):
 
     @builtins.property
     def is_editable_after_sync(self) -> bool:
-        return self.status != self.Status.SYNCED
+        return not self.is_synced
+
+    @builtins.property
+    def is_synced(self) -> bool:
+        return bool(self.sync_record and self.sync_record.is_successful)
 
 
 class TenantPaymentApplication(models.Model):
@@ -151,7 +152,11 @@ class TenantPaymentApplication(models.Model):
 
     @builtins.property
     def is_editable_after_sync(self) -> bool:
-        return self.sync_record is None or self.sync_record.status != LedgerOSSyncRecord.Status.SUCCEEDED
+        return not self.is_synced
+
+    @builtins.property
+    def is_synced(self) -> bool:
+        return bool(self.sync_record and self.sync_record.is_successful)
 
 
 class SecurityDepositEvent(models.Model):
@@ -163,9 +168,7 @@ class SecurityDepositEvent(models.Model):
 
     class Status(models.TextChoices):
         DRAFT = "draft", "Draft"
-        SYNC_PENDING = "sync_pending", "Sync pending"
-        SYNCED = "synced", "Synced"
-        SYNC_FAILED = "sync_failed", "Sync failed"
+        READY_TO_SYNC = "ready_to_sync", "Ready to sync"
         VOIDED = "voided", "Voided"
 
     property = models.ForeignKey(
@@ -209,3 +212,11 @@ class SecurityDepositEvent(models.Model):
 
     def __str__(self) -> str:
         return f"{self.tenant} {self.get_event_type_display()} on {self.event_date.isoformat()}"
+
+    @builtins.property
+    def is_synced(self) -> bool:
+        return bool(self.sync_record and self.sync_record.is_successful)
+
+    @builtins.property
+    def is_editable_after_sync(self) -> bool:
+        return not self.is_synced

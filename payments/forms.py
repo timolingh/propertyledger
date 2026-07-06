@@ -27,7 +27,7 @@ class TenantPaymentForm(forms.ModelForm):
         super().__init__(*args, **kwargs)
         self.fields["property"].queryset = Property.objects.filter(status=Property.Status.ACTIVE)
         self.fields["tenant"].queryset = Tenant.objects.filter(is_active=True)
-        if self.instance and self.instance.pk and self.instance.status == TenantPayment.Status.SYNCED:
+        if self.instance and self.instance.pk and self.instance.is_synced:
             for name in self.fields:
                 if name != "notes":
                     self.fields[name].disabled = True
@@ -79,7 +79,7 @@ class SecurityDepositEventForm(forms.ModelForm):
         self.fields["unit"].queryset = Unit.objects.select_related("property").all()
         self.fields["tenant"].queryset = Tenant.objects.filter(is_active=True)
         self.fields["lease"].queryset = Lease.objects.select_related("unit__property", "tenant").all()
-        if self.instance and self.instance.pk and self.instance.status == SecurityDepositEvent.Status.SYNCED:
+        if self.instance and self.instance.pk and self.instance.is_synced:
             for name in self.fields:
                 if name != "notes":
                     self.fields[name].disabled = True

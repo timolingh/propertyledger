@@ -45,8 +45,8 @@ class PaymentsAppContextMixin(LedgerOSAppContextMixin):
         return context
 
 
-def _sync_feedback(*, status: str, success_message: str, failure_message: str, last_error: str | None = None) -> tuple[str, str]:
-    if status == "sync_failed":
+def _sync_feedback(*, sync_status: str, success_message: str, failure_message: str, last_error: str | None = None) -> tuple[str, str]:
+    if sync_status == "failed" or last_error:
         detail = last_error or failure_message
         return "error", f"{failure_message} {detail}".strip()
     return "success", success_message
@@ -169,7 +169,7 @@ class TenantInvoiceDetailView(LoginRequiredMixin, PaymentsAppContextMixin, Detai
             else:
                 payment.refresh_from_db()
                 errors = _payment_sync_errors(payment)
-                if payment.status == TenantPayment.Status.SYNC_FAILED:
+                if errors:
                     messages.warning(
                         request,
                         "Payment was recorded, but one or more allocation posts failed."
@@ -243,7 +243,7 @@ class TenantPaymentListView(LoginRequiredMixin, PaymentsAppContextMixin, ListVie
                 payment.refresh_from_db()
                 errors = _payment_sync_errors(payment)
                 level, message = _sync_feedback(
-                    status=payment.status,
+                    sync_status=payment.sync_record.status if payment.sync_record else "",
                     success_message="Payment allocations posted to LedgerOS.",
                     failure_message="Payment allocations refreshed, but one or more posts failed.",
                     last_error=_format_sync_errors(errors) if errors else None,
@@ -259,7 +259,7 @@ class TenantPaymentListView(LoginRequiredMixin, PaymentsAppContextMixin, ListVie
                 payment.refresh_from_db()
                 errors = _payment_sync_errors(payment)
                 level, message = _sync_feedback(
-                    status=payment.status,
+                    sync_status=payment.sync_record.status if payment.sync_record else "",
                     success_message="Payment posted to LedgerOS.",
                     failure_message="Payment post to LedgerOS failed.",
                     last_error=_format_sync_errors(errors) if errors else None,
@@ -317,7 +317,7 @@ class TenantPaymentDetailView(LoginRequiredMixin, PaymentsAppContextMixin, Detai
                 self.object.refresh_from_db()
                 errors = _payment_sync_errors(self.object)
                 level, message = _sync_feedback(
-                    status=self.object.status,
+                    sync_status=self.object.sync_record.status if self.object.sync_record else "",
                     success_message="Payment allocations posted to LedgerOS.",
                     failure_message="Payment allocations refreshed, but one or more posts failed.",
                     last_error=_format_sync_errors(errors) if errors else None,
@@ -332,7 +332,7 @@ class TenantPaymentDetailView(LoginRequiredMixin, PaymentsAppContextMixin, Detai
                 self.object.refresh_from_db()
                 errors = _payment_sync_errors(self.object)
                 level, message = _sync_feedback(
-                    status=self.object.status,
+                    sync_status=self.object.sync_record.status if self.object.sync_record else "",
                     success_message="Payment posted to LedgerOS.",
                     failure_message="Payment post to LedgerOS failed.",
                     last_error=_format_sync_errors(errors) if errors else None,
@@ -413,7 +413,7 @@ class SecurityDepositEventListView(LoginRequiredMixin, PaymentsAppContextMixin, 
             else:
                 event.refresh_from_db()
                 level, message = _sync_feedback(
-                    status=event.status,
+                    sync_status=event.sync_record.status if event.sync_record else "",
                     success_message="Deposit event sync completed.",
                     failure_message="Deposit event sync failed.",
                     last_error=event.sync_record.last_error if event.sync_record else None,
@@ -470,7 +470,7 @@ class SecurityDepositEventDetailView(LoginRequiredMixin, PaymentsAppContextMixin
             else:
                 self.object.refresh_from_db()
                 level, message = _sync_feedback(
-                    status=self.object.status,
+                    sync_status=self.object.sync_record.status if self.object.sync_record else "",
                     success_message="Deposit event sync completed.",
                     failure_message="Deposit event sync failed.",
                     last_error=self.object.sync_record.last_error if self.object.sync_record else None,
@@ -482,4 +482,17 @@ class SecurityDepositEventDetailView(LoginRequiredMixin, PaymentsAppContextMixin
         context = super().get_context_data(**kwargs)
         context["required_amount"] = SecurityDepositLedgerService.required_amount_for_lease(self.object.lease)
         context["held_balance"] = SecurityDepositLedgerService.balance_for_lease(self.object.lease)
+        context["sync_log_entries"] = [
+            {
+                "title": f"Deposit event {self.object.pk} sync status",
+                "status": self.object.sync_record.status if self.object.sync_record else "",
+                "error": self.object.sync_record.last_error if self.object.sync_record else "",
+                "response_text": (
+                    json.dumps(self.object.sync_record.response_payload, indent=2, sort_keys=True)
+                    if self.object.sync_record and self.object.sync_record.response_payload is not None
+                    else ""
+                ),
+                "updated_at": self.object.sync_record.updated_at if self.object.sync_record else self.object.updated_at,
+            }
+        ] if self.object.sync_record else []
         return context

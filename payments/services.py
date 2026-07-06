@@ -337,10 +337,7 @@ class TenantPaymentService:
 
     @staticmethod
     def allocate_payment(payment: TenantPayment, preferred_charge_ids: list[int] | None = None) -> TenantPayment:
-        if payment.status in {
-            TenantPayment.Status.SYNC_PENDING,
-            TenantPayment.Status.SYNCED,
-        }:
+        if payment.status == TenantPayment.Status.VOIDED or payment.is_synced:
             raise ValidationError({"payment": "Synced payments cannot be reallocated."})
 
         settings = PaymentWorkflowSettings.load()
@@ -381,7 +378,6 @@ class TenantPaymentService:
 
         remaining = payment.amount.quantize(Decimal("0.01"))
         new_allocations: list[TenantPaymentApplication] = []
-        any_failed = False
         for charge in open_charges:
             if remaining <= Decimal("0.00"):
                 break
@@ -401,8 +397,6 @@ class TenantPaymentService:
             new_allocations.append(allocation)
             TenantPaymentService.sync_payment_application(allocation)
             allocation.refresh_from_db()
-            if not allocation.sync_record or allocation.sync_record.status != LedgerOSSyncRecord.Status.SUCCEEDED:
-                any_failed = True
             remaining = (remaining - amount_applied).quantize(Decimal("0.01"))
 
         payment.refresh_from_db()
@@ -413,8 +407,6 @@ class TenantPaymentService:
         )
         if not new_allocations:
             payment.status = TenantPayment.Status.DRAFT
-        elif any_failed:
-            payment.status = TenantPayment.Status.SYNC_FAILED
         elif all_allocations_synced:
             payment.status = TenantPayment.Status.READY_TO_SYNC
         else:
@@ -510,7 +502,7 @@ class TenantPaymentService:
         sync_record.attempt_count += 1
         sync_record.last_error = None
         sync_record.save(update_fields=["status", "attempt_count", "last_error", "updated_at"])
-        payment.status = TenantPayment.Status.SYNC_PENDING
+        payment.status = TenantPayment.Status.READY_TO_SYNC
         payment.save(update_fields=["status", "updated_at"])
 
         try:
@@ -526,8 +518,6 @@ class TenantPaymentService:
             sync_record.last_error = str(exc)
             sync_record.response_payload = {"status": "failed", "error": str(exc)}
             sync_record.save(update_fields=["status", "last_error", "response_payload", "updated_at"])
-            payment.status = TenantPayment.Status.SYNC_FAILED
-            payment.save(update_fields=["status", "updated_at"])
             return payment
 
         sync_record.status = LedgerOSSyncRecord.Status.SUCCEEDED
@@ -539,8 +529,6 @@ class TenantPaymentService:
         sync_record.response_payload = result.payload
         sync_record.last_synced_at = timezone.now()
         sync_record.save(update_fields=["status", "ledgeros_resource_id", "response_payload", "last_synced_at", "updated_at"])
-        payment.status = TenantPayment.Status.SYNCED
-        payment.save(update_fields=["status", "updated_at"])
         return payment
 
     @staticmethod
@@ -569,7 +557,7 @@ class TenantPaymentService:
         sync_record.attempt_count += 1
         sync_record.last_error = None
         sync_record.save(update_fields=["status", "attempt_count", "last_error", "updated_at"])
-        event.status = SecurityDepositEvent.Status.SYNC_PENDING
+        event.status = SecurityDepositEvent.Status.READY_TO_SYNC
         event.save(update_fields=["status", "updated_at"])
 
         try:
@@ -585,8 +573,6 @@ class TenantPaymentService:
             sync_record.last_error = str(exc)
             sync_record.response_payload = {"status": "failed", "error": str(exc)}
             sync_record.save(update_fields=["status", "last_error", "response_payload", "updated_at"])
-            event.status = SecurityDepositEvent.Status.SYNC_FAILED
-            event.save(update_fields=["status", "updated_at"])
             return event
 
         sync_record.status = LedgerOSSyncRecord.Status.SUCCEEDED
@@ -598,8 +584,6 @@ class TenantPaymentService:
         sync_record.response_payload = result.payload
         sync_record.last_synced_at = timezone.now()
         sync_record.save(update_fields=["status", "ledgeros_resource_id", "response_payload", "last_synced_at", "updated_at"])
-        event.status = SecurityDepositEvent.Status.SYNCED
-        event.save(update_fields=["status", "updated_at"])
         return event
 
     @staticmethod

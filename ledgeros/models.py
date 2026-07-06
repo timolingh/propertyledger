@@ -427,9 +427,6 @@ class TenantCharge(TimestampedModel):
     class Status(models.TextChoices):
         DRAFT = "draft", "Draft"
         APPROVED = "approved", "Approved"
-        SYNC_PENDING = "sync_pending", "Sync pending"
-        SYNCED = "synced", "Synced"
-        SYNC_FAILED = "sync_failed", "Sync failed"
         VOIDED = "voided", "Voided"
 
     property = models.ForeignKey(
@@ -520,7 +517,11 @@ class TenantCharge(TimestampedModel):
 
     @builtins.property
     def is_editable_after_sync(self) -> bool:
-        return self.status != self.Status.SYNCED
+        return not self.is_synced
+
+    @builtins.property
+    def is_synced(self) -> bool:
+        return bool(self.sync_record and self.sync_record.is_successful)
 
     def get_charge_scope_summary(self) -> str:
         if self.lease_id:
@@ -604,3 +605,7 @@ class LedgerOSSyncRecord(models.Model):
 
     def __str__(self) -> str:
         return f"{self.local_object_type}:{self.local_object_id} ({self.source_event_type})"
+
+    @builtins.property
+    def is_successful(self) -> bool:
+        return self.status == self.Status.SUCCEEDED

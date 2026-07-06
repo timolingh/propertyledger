@@ -16,6 +16,7 @@ from django.test import TestCase
 from django.urls import reverse
 
 from ledgeros.models import LedgerOSConnectionSettings, LedgerOSSyncRecord, Owner, Property, Tenant, TenantCharge, Unit
+from payments.forms import SecurityDepositEventForm, TenantPaymentForm
 from payments.models import PaymentWorkflowSettings, SecurityDepositEvent, TenantPayment
 from payments.services import SecurityDepositLedgerService, TenantPaymentService
 
@@ -57,7 +58,7 @@ def _create_synced_charge(*, property, tenant, charge_type, charge_date, due_dat
         due_date=due_date,
         amount=amount,
         description=description,
-        status=TenantCharge.Status.SYNCED,
+        status=TenantCharge.Status.APPROVED,
     )
     request_payload = {
         "local_object_type": "tenant_charge",
@@ -125,6 +126,92 @@ class PaymentsLandingViewTests(TestCase):
         self.assertContains(response, "Open invoices")
 
 
+class PaymentFormTests(TestCase):
+    def setUp(self):
+        _configure_ledgeros_settings()
+        self.owner = Owner.objects.create(name="Owner One")
+        self.property = Property.objects.create(name="Property One", primary_owner=self.owner)
+        self.tenant = Tenant.objects.create(name="Tenant One")
+
+    def test_synced_payment_locks_editing_but_keeps_notes_visible(self):
+        payment = TenantPayment.objects.create(
+            property=self.property,
+            tenant=self.tenant,
+            payment_date=date(2026, 1, 15),
+            amount=Decimal("100.00"),
+            payment_method=TenantPayment.PaymentMethod.CASH,
+            reference="cash",
+            notes="Keep this editable note visible",
+            status=TenantPayment.Status.READY_TO_SYNC,
+        )
+        payment.sync_record = LedgerOSSyncRecord.objects.create(
+            local_object_type="tenant_payment",
+            local_object_id=str(payment.pk),
+            ledgeros_resource_type="payment",
+            source_event_type="tenant_payment.received",
+            external_id="tenant-payment:1",
+            idempotency_key="tenant-payment:1:received",
+            request_hash="hash_1",
+            status=LedgerOSSyncRecord.Status.SUCCEEDED,
+        )
+        payment.save(update_fields=["sync_record", "updated_at"])
+
+        form = TenantPaymentForm(instance=payment)
+
+        self.assertTrue(form.fields["property"].disabled)
+        self.assertTrue(form.fields["tenant"].disabled)
+        self.assertTrue(form.fields["payment_date"].disabled)
+        self.assertTrue(form.fields["amount"].disabled)
+        self.assertTrue(form.fields["payment_method"].disabled)
+        self.assertTrue(form.fields["reference"].disabled)
+        self.assertFalse(form.fields["notes"].disabled)
+
+    def test_synced_security_deposit_event_locks_editing_but_keeps_notes_visible(self):
+        unit = Unit.objects.create(property=self.property, name="101")
+        lease = unit.leases.create(
+            tenant=self.tenant,
+            lease_start_date=date(2026, 1, 1),
+            base_monthly_rent_amount=Decimal("1000.00"),
+            deposit_required_amount=Decimal("500.00"),
+            status="active",
+        )
+        event = SecurityDepositEvent.objects.create(
+            property=self.property,
+            unit=unit,
+            tenant=self.tenant,
+            lease=lease,
+            event_type=SecurityDepositEvent.EventType.RECEIVED,
+            event_date=date(2026, 1, 5),
+            amount=Decimal("500.00"),
+            description="Deposit received",
+            notes="Keep this editable note visible",
+            status=SecurityDepositEvent.Status.READY_TO_SYNC,
+        )
+        event.sync_record = LedgerOSSyncRecord.objects.create(
+            local_object_type="security_deposit_event",
+            local_object_id=str(event.pk),
+            ledgeros_resource_type="sync_event",
+            source_event_type="security_deposit.received",
+            external_id="security-deposit:1",
+            idempotency_key="security-deposit:1:received",
+            request_hash="hash_2",
+            status=LedgerOSSyncRecord.Status.SUCCEEDED,
+        )
+        event.save(update_fields=["sync_record", "updated_at"])
+
+        form = SecurityDepositEventForm(instance=event)
+
+        self.assertTrue(form.fields["property"].disabled)
+        self.assertTrue(form.fields["unit"].disabled)
+        self.assertTrue(form.fields["tenant"].disabled)
+        self.assertTrue(form.fields["lease"].disabled)
+        self.assertTrue(form.fields["event_type"].disabled)
+        self.assertTrue(form.fields["event_date"].disabled)
+        self.assertTrue(form.fields["amount"].disabled)
+        self.assertTrue(form.fields["description"].disabled)
+        self.assertFalse(form.fields["notes"].disabled)
+
+
 class TenantPaymentViewTests(TestCase):
     def setUp(self):
         _configure_ledgeros_settings()
@@ -170,7 +257,7 @@ class TenantPaymentViewTests(TestCase):
         self.assertContains(response, "Payment allocations refreshed, but one or more posts failed.")
         self.assertContains(response, "LedgerOS is unavailable")
         self.assertContains(response, "Allocation Post Log")
-        self.assertEqual(payment.status, TenantPayment.Status.SYNC_FAILED)
+        self.assertEqual(payment.status, TenantPayment.Status.ALLOCATED)
 
     @patch.dict(os.environ, {"LEDGEROS_HMAC_SECRET": "secret"}, clear=False)
     @patch("payments.services.urlopen")
@@ -214,7 +301,45 @@ class TenantPaymentViewTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "Payment post to LedgerOS failed.")
         self.assertContains(response, "LedgerOS is unavailable")
-        self.assertEqual(payment.status, TenantPayment.Status.SYNC_FAILED)
+        self.assertEqual(payment.status, TenantPayment.Status.READY_TO_SYNC)
+
+    @patch.dict(os.environ, {"LEDGEROS_HMAC_SECRET": "secret"}, clear=False)
+    @patch("payments.services.urlopen")
+    def test_security_deposit_detail_shows_local_status_and_sync_status(self, mock_urlopen):
+        mock_urlopen.return_value = _FakeResponse(
+            status=201,
+            payload=json.dumps({"sync_event": {"id": "sync_3"}}).encode("utf-8"),
+        )
+
+        unit = Unit.objects.create(property=self.property, name="101")
+        lease = unit.leases.create(
+            tenant=self.tenant,
+            lease_start_date=date(2026, 1, 1),
+            base_monthly_rent_amount=Decimal("1000.00"),
+            deposit_required_amount=Decimal("500.00"),
+            status="active",
+        )
+        event = SecurityDepositEvent.objects.create(
+            property=self.property,
+            unit=unit,
+            tenant=self.tenant,
+            lease=lease,
+            event_type=SecurityDepositEvent.EventType.RECEIVED,
+            event_date=date(2026, 1, 5),
+            amount=Decimal("500.00"),
+            description="Deposit received",
+        )
+
+        TenantPaymentService.sync_security_deposit_event(event)
+        event.refresh_from_db()
+
+        response = self.client.get(reverse("security-deposit-detail", args=[event.pk]))
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Status:")
+        self.assertContains(response, "Ready to sync")
+        self.assertContains(response, "Sync log")
+        self.assertContains(response, f"Deposit event {event.pk} sync status")
+        self.assertContains(response, "succeeded")
 
 
 class TenantPaymentServiceTests(TestCase):
@@ -265,7 +390,7 @@ class TenantPaymentServiceTests(TestCase):
         TenantPaymentService.sync_payment(payment)
         payment.refresh_from_db()
 
-        self.assertEqual(payment.status, TenantPayment.Status.SYNC_FAILED)
+        self.assertEqual(payment.status, TenantPayment.Status.READY_TO_SYNC)
         self.assertIn("API client is not allowed to perform this action.", payment.sync_record.last_error)
         self.assertIn("POST /api/v1/sync-events/", payment.sync_record.last_error)
         self.assertIn("Check the LedgerOS API client permissions for sync-event writes.", payment.sync_record.last_error)
@@ -375,7 +500,7 @@ class TenantPaymentServiceTests(TestCase):
 
         TenantPaymentService.sync_payment(payment)
         payment.refresh_from_db()
-        self.assertEqual(payment.status, TenantPayment.Status.SYNCED)
+        self.assertEqual(payment.status, TenantPayment.Status.READY_TO_SYNC)
 
     @patch.dict(os.environ, {"LEDGEROS_HMAC_SECRET": "secret"}, clear=False)
     @patch("payments.services.urlopen")
@@ -410,7 +535,7 @@ class TenantPaymentServiceTests(TestCase):
         TenantPaymentService.sync_payment(payment)
         payment.refresh_from_db()
 
-        self.assertEqual(payment.status, TenantPayment.Status.SYNCED)
+        self.assertEqual(payment.status, TenantPayment.Status.READY_TO_SYNC)
         self.assertIsNotNone(payment.sync_record_id)
         self.assertEqual(payment.sync_record.status, LedgerOSSyncRecord.Status.SUCCEEDED)
         self.assertEqual(payment.sync_record.ledgeros_resource_id, "sync_2")
@@ -466,7 +591,7 @@ class TenantPaymentServiceTests(TestCase):
         TenantPaymentService.sync_payment(payment)
         payment.refresh_from_db()
 
-        self.assertEqual(payment.status, TenantPayment.Status.SYNCED)
+        self.assertEqual(payment.status, TenantPayment.Status.READY_TO_SYNC)
         self.assertEqual(payment.sync_record_id, first_sync_record_id)
         self.assertEqual(payment.sync_record.idempotency_key, first_idempotency_key)
         self.assertEqual(LedgerOSSyncRecord.objects.filter(local_object_type="tenant_payment").count(), 1)
@@ -505,7 +630,7 @@ class TenantPaymentServiceTests(TestCase):
         TenantPaymentService.sync_security_deposit_event(event)
         event.refresh_from_db()
 
-        self.assertEqual(event.status, SecurityDepositEvent.Status.SYNCED)
+        self.assertEqual(event.status, SecurityDepositEvent.Status.READY_TO_SYNC)
         self.assertEqual(event.sync_record.ledgeros_resource_id, "sync_3")
         request_path, payload = _decode_mock_request(mock_urlopen.call_args_list[0])
         self.assertEqual(request_path, "http://ledgeros-web:8000/api/v1/sync-events/")

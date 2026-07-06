@@ -20,6 +20,19 @@
       <a class="button" href="{% url 'charge-edit' invoice.pk %}">Edit invoice</a>
     </div>
   </div>
+  {% if sync_log_entries %}
+    <div class="card">
+      <h2>Sync log</h2>
+      {% for entry in sync_log_entries %}
+        <div class="card">
+          <strong>{{ entry.title }}</strong>
+          <div class="muted">{{ entry.updated_at }} | {{ entry.status }}</div>
+          {% if entry.error %}<pre>{{ entry.error }}</pre>{% endif %}
+          {% if entry.response_text %}<pre>{{ entry.response_text }}</pre>{% endif %}
+        </div>
+      {% endfor %}
+    </div>
+  {% endif %}
   <div class="card">
     <h2>Applied Payments</h2>
     <table>

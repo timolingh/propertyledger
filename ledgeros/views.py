@@ -856,10 +856,7 @@ class TenantChargeListView(LedgerOSCrudListView):
             approved_count = 0
             skipped_ids: list[str] = []
             for charge in charges:
-                if charge.status in {
-                    TenantCharge.Status.SYNCED,
-                    TenantCharge.Status.VOIDED,
-                }:
+                if charge.is_synced or charge.status == TenantCharge.Status.VOIDED:
                     skipped_ids.append(str(charge.pk))
                     continue
                 TenantChargeService.approve_charge(charge)
@@ -938,6 +935,19 @@ class TenantChargeDetailView(LoginRequiredMixin, LedgerOSAppContextMixin, Detail
         context["payment_applications"] = invoice.payment_applications.select_related("payment", "sync_record").all()
         context["payment_history_url"] = reverse("tenant-payment-list")
         context["payments_url"] = reverse("invoice-list")
+        context["sync_log_entries"] = [
+            {
+                "title": f"Charge {invoice.pk} sync status",
+                "status": invoice.sync_record.status if invoice.sync_record else "",
+                "error": invoice.sync_record.last_error if invoice.sync_record else "",
+                "response_text": (
+                    json.dumps(invoice.sync_record.response_payload, indent=2, sort_keys=True)
+                    if invoice.sync_record and invoice.sync_record.response_payload is not None
+                    else ""
+                ),
+                "updated_at": invoice.sync_record.updated_at if invoice.sync_record else invoice.updated_at,
+            }
+        ] if invoice.sync_record else []
         return context
 
 

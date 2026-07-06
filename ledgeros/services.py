@@ -577,8 +577,7 @@ class TenantChargeService:
             update_fields=["status", "attempt_count", "last_error", "updated_at"]
         )
 
-        charge.status = TenantCharge.Status.SYNC_PENDING
-        charge.save(update_fields=["status", "sync_record", "updated_at"])
+        charge.save(update_fields=["sync_record", "updated_at"])
 
         try:
             _, response_payload = LedgerOSInvoiceSyncService.submit_tenant_charge(
@@ -610,8 +609,6 @@ class TenantChargeService:
                     "updated_at",
                 ]
             )
-            charge.status = TenantCharge.Status.SYNC_FAILED
-            charge.save(update_fields=["status", "updated_at"])
             return charge
 
         invoice_payload = response_payload.get("invoice")
@@ -645,9 +642,6 @@ class TenantChargeService:
                 "updated_at",
             ]
         )
-
-        charge.status = TenantCharge.Status.SYNCED
-        charge.save(update_fields=["status", "updated_at"])
         return charge
 
     @staticmethod

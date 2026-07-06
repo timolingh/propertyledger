@@ -150,6 +150,7 @@ Any object with a status must define:
 - how archived records behave.
 
 Setup status, local workflow status, and LedgerOS sync status must remain separate.
+Local workflow states should describe the business lifecycle only; LedgerOS posting success or failure belongs on `LedgerOSSyncRecord`.
 
 ### 4. LedgerOS interaction contract
 
@@ -686,9 +687,6 @@ Allowed charge statuses:
 
 - `draft`
 - `approved`
-- `sync_pending`
-- `synced`
-- `sync_failed`
 - `voided`
 
 Initial status: `draft`.
@@ -696,14 +694,12 @@ Initial status: `draft`.
 Valid transitions:
 
 - `draft` -> `approved`
-- `approved` -> `sync_pending`
-- `sync_pending` -> `synced`
-- `sync_pending` -> `sync_failed`
-- `sync_failed` -> `sync_pending`
 - `draft` -> `voided`
 - `approved` -> `voided`, only if not synced
 
-Once `synced`, do not edit amount, tenant, lease, period, account mapping, or charge type. Corrections after sync must use credit/adjustment workflows in later epics.
+The sync lifecycle is tracked separately on `LedgerOSSyncRecord`. A charge may remain `approved` while its sync record is `failed` or `succeeded`.
+
+Once sync succeeds, do not edit amount, tenant, lease, period, account mapping, or charge type. Corrections after sync must use credit/adjustment workflows in later epics.
 
 ## Rent generation identity
 
@@ -845,9 +841,7 @@ Allowed payment statuses:
 
 - `draft`
 - `applied`
-- `sync_pending`
-- `synced`
-- `sync_failed`
+- `ready_to_sync`
 - `voided`
 
 ### TenantPaymentApplication
@@ -906,6 +900,8 @@ Required LedgerOS resource and expected request shape:
   - request includes `source_system`, `domain_event_type`, `external_id`, `source_object_type`, `source_object_id`, `occurred_at`, and `payload`.
 
 The `payload` body carries the property-specific details for tenant payments, payment allocations, and security deposit events. Keep PropertyLedger business logic local and send only generic sync events to LedgerOS. Do not route Epic 4 payment or deposit sync through a journal fallback in PropertyLedger.
+
+The local payment or deposit status should reflect workflow readiness or application state, not LedgerOS posting success. Sync success/failure belongs on the sync record.
 
 Required source event types:
 
@@ -1007,11 +1003,10 @@ Required fields:
 Allowed statuses:
 
 - `draft`
-- `approved`
-- `sync_pending`
-- `synced`
-- `sync_failed`
+- `ready_to_sync`
 - `voided`
+
+The sync lifecycle is tracked separately on `LedgerOSSyncRecord`. A bill may remain `ready_to_sync` while its sync record is `failed` or `succeeded`.
 
 ### VendorPayment
 
@@ -1045,6 +1040,12 @@ Allowed check statuses:
 
 Check writing itself is deferred, but these fields reserve the drop-in place.
 
+Allowed payment statuses:
+
+- `draft`
+- `ready_to_sync`
+- `voided`
+
 ### DebtServicePayment
 
 Required fields:
@@ -1061,6 +1062,12 @@ Required fields:
 - status.
 
 Principal plus interest must equal total amount unless a later escrow/fee component is explicitly added.
+
+Allowed payment statuses:
+
+- `draft`
+- `ready_to_sync`
+- `voided`
 
 ## Required account mappings
 

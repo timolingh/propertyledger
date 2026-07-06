@@ -136,7 +136,7 @@ class TenantChargeForm(forms.ModelForm):
         if (
             self.instance
             and self.instance.pk
-            and self.instance.status == TenantCharge.Status.SYNCED
+            and self.instance.is_synced
         ):
             for name in self.fields:
                 if name not in {"due_date", "description"}:

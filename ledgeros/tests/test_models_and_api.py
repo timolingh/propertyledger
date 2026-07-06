@@ -27,6 +27,7 @@ from ledgeros.models import (
     TenantCharge,
     Unit,
 )
+from ledgeros.forms import TenantChargeForm
 from ledgeros.services import TenantChargeService
 
 
@@ -345,6 +346,57 @@ class PropertyLedgerDomainModelTests(TestCase):
         self.assertEqual(duplicate, [])
         self.assertEqual(TenantCharge.objects.count(), 1)
 
+
+class TenantChargeFormTests(TestCase):
+    def test_synced_charge_locks_editing_but_keeps_visibility_fields(self):
+        owner = Owner.objects.create(name="Owner One")
+        property_obj = Property.objects.create(name="Property One", primary_owner=owner)
+        unit = Unit.objects.create(property=property_obj, name="101")
+        tenant = Tenant.objects.create(name="Tenant One")
+        lease = Lease.objects.create(
+            unit=unit,
+            tenant=tenant,
+            lease_start_date=date(2026, 1, 1),
+            base_monthly_rent_amount=Decimal("1500.00"),
+            deposit_required_amount=Decimal("500.00"),
+            status=Lease.Status.ACTIVE,
+        )
+        charge = TenantCharge.objects.create(
+            lease=lease,
+            property=property_obj,
+            unit=unit,
+            tenant=tenant,
+            charge_type=TenantCharge.ChargeType.BASE_RENT,
+            charge_date=date(2026, 1, 1),
+            due_date=date(2026, 1, 10),
+            amount=Decimal("1500.00"),
+            description="Base rent",
+            status=TenantCharge.Status.APPROVED,
+        )
+        sync_record = LedgerOSSyncRecord.objects.create(
+            local_object_type="tenant_charge",
+            local_object_id=str(charge.pk),
+            ledgeros_resource_type="invoice",
+            ledgeros_resource_id="inv_1",
+            ledgeros_journal_entry_id="je_1",
+            source_event_type="tenant_charge.invoice_created",
+            external_id="tenant-charge:1",
+            idempotency_key="tenant-charge:1:invoice-created",
+            request_hash="hash_1",
+            status=LedgerOSSyncRecord.Status.SUCCEEDED,
+        )
+        charge.sync_record = sync_record
+        charge.save(update_fields=["sync_record", "updated_at"])
+
+        form = TenantChargeForm(instance=charge)
+
+        self.assertTrue(form.fields["lease"].disabled)
+        self.assertTrue(form.fields["charge_type"].disabled)
+        self.assertTrue(form.fields["amount"].disabled)
+        self.assertTrue(form.fields["status"].disabled)
+        self.assertFalse(form.fields["description"].disabled)
+        self.assertFalse(form.fields["due_date"].disabled)
+
     @patch.dict(os.environ, {"LEDGEROS_HMAC_SECRET": "secret"}, clear=False)
     @patch("ledgeros.services.urlopen")
     def test_approving_charge_posts_invoice_and_sets_synced_status(self, mock_urlopen):
@@ -383,7 +435,7 @@ class PropertyLedgerDomainModelTests(TestCase):
         TenantChargeService.approve_charge(charge)
         charge.refresh_from_db()
 
-        self.assertEqual(charge.status, TenantCharge.Status.SYNCED)
+        self.assertEqual(charge.status, TenantCharge.Status.APPROVED)
         self.assertIsNotNone(charge.sync_record_id)
         self.assertEqual(charge.sync_record.status, LedgerOSSyncRecord.Status.SUCCEEDED)
         self.assertEqual(charge.sync_record.ledgeros_resource_id, "inv_1")
@@ -591,10 +643,18 @@ class PropertyLedgerCrudViewTests(TestCase):
         )
         self.assertEqual(approve_response.status_code, 302)
         charge.refresh_from_db()
-        self.assertEqual(charge.status, TenantCharge.Status.SYNCED)
+        self.assertEqual(charge.status, TenantCharge.Status.APPROVED)
         self.assertIsNotNone(charge.sync_record_id)
         self.assertEqual(charge.sync_record.status, LedgerOSSyncRecord.Status.SUCCEEDED)
         self.assertEqual(charge.sync_record.ledgeros_resource_id, "inv_2")
+
+        detail_response = self.client.get(reverse("charge-detail", args=[charge.pk]))
+        self.assertEqual(detail_response.status_code, 200)
+        self.assertContains(detail_response, "Status:")
+        self.assertContains(detail_response, "Approved")
+        self.assertContains(detail_response, "Sync log")
+        self.assertContains(detail_response, f"Charge {charge.pk} sync status")
+        self.assertContains(detail_response, "succeeded")
 
         archive_response = self.client.post(
             reverse("charge-list"),
@@ -706,7 +766,7 @@ class PropertyLedgerCrudViewTests(TestCase):
         TenantChargeService.approve_charge(charge)
         charge.refresh_from_db()
 
-        self.assertEqual(charge.status, TenantCharge.Status.SYNC_FAILED)
+        self.assertEqual(charge.status, TenantCharge.Status.APPROVED)
         response = self.client.get(reverse("charge-list"))
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "Sync log")
@@ -742,7 +802,7 @@ class PropertyLedgerCrudViewTests(TestCase):
         TenantChargeService.approve_charge(charge)
         charge.refresh_from_db()
 
-        self.assertEqual(charge.status, TenantCharge.Status.SYNC_FAILED)
+        self.assertEqual(charge.status, TenantCharge.Status.APPROVED)
         self.assertIn(
             "LedgerOS returned HTTP 403: {\"error\":\"Missing or invalid authorization\"}",
             charge.sync_record.last_error,
