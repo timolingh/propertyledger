@@ -197,6 +197,7 @@ class LedgerOSSetupViewTests(TestCase):
         self.assertContains(response, "What Must Be Configured")
         self.assertContains(response, "LedgerOS connection saved")
         self.assertContains(response, "Required account mappings configured")
+        self.assertContains(response, "Accounts Payable Mapping")
         self.assertContains(response, "Setup Status")
         self.assertContains(response, "Recommended Order")
         self.assertContains(response, "Create owners")
@@ -218,6 +219,29 @@ class LedgerOSSetupViewTests(TestCase):
         settings_obj = LedgerOSConnectionSettings.load()
         self.assertEqual(settings_obj.base_url, "http://ledgeros.example")
         self.assertEqual(settings_obj.client_id, "propertyledger")
+
+    def test_setup_view_saves_accounts_payable_mapping(self):
+        post_response = self.client.post(
+            reverse("ledgeros-setup"),
+            {
+                "action": "save-mappings",
+                "accounts-payable-mapping-ledgeros_account_id": "2000",
+                "accounts-payable-mapping-ledgeros_account_name": "Accounts Payable",
+                "accounts-payable-mapping-ledgeros_account_type": "liability",
+                "accounts-payable-mapping-is_enabled": "on",
+                "accounts-payable-mapping-notes": "Used as the default AP account for vendor provisioning.",
+            },
+        )
+
+        self.assertEqual(post_response.status_code, 302)
+        setup = PropertyLedgerSetup.load()
+        mapping = setup.account_mappings.get(
+            mapping_key=PropertyLedgerAccountMapping.MappingKey.ACCOUNTS_PAYABLE
+        )
+        self.assertEqual(mapping.ledgeros_account_id, "2000")
+        self.assertEqual(mapping.ledgeros_account_name, "Accounts Payable")
+        self.assertEqual(mapping.ledgeros_account_type, "liability")
+        self.assertTrue(mapping.is_enabled)
 
     def test_setup_view_uses_friendly_validation_labels(self):
         response = self.client.get(reverse("ledgeros-setup"))

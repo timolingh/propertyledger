@@ -20,6 +20,7 @@ from ledgeros.forms import (
     LedgerOSConnectionSettingsForm,
     OwnerForm,
     PropertyForm,
+    PropertyLedgerAccountMappingForm,
     TenantChargeForm,
     TenantForm,
     UnitForm,
@@ -233,11 +234,36 @@ class LedgerOSAppContextMixin:
 class LedgerOSSetupView(LedgerOSAppContextMixin, TemplateView):
     template_name = "ledgeros/setup.html"
 
+    def _accounts_payable_mapping_form(self, setup_obj, data=None):
+        mapping_key = PropertyLedgerAccountMapping.MappingKey.ACCOUNTS_PAYABLE
+        instance = setup_obj.account_mappings.filter(mapping_key=mapping_key).first()
+        if instance is None:
+            instance = PropertyLedgerAccountMapping(
+                setup=setup_obj,
+                mapping_key=mapping_key,
+                is_required=True,
+            )
+        form = PropertyLedgerAccountMappingForm(
+            data,
+            instance=instance,
+            mapping_key=mapping_key,
+            prefix="accounts-payable-mapping",
+        )
+        form.fields["ledgeros_account_id"].required = True
+        form.fields["ledgeros_account_name"].required = True
+        form.fields["ledgeros_account_type"].required = True
+        return form
+
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         settings_obj = LedgerOSConnectionSettings.load()
+        setup_obj = PropertyLedgerSetup.load()
         context["settings_form"] = kwargs.get(
             "form", LedgerOSConnectionSettingsForm(instance=settings_obj)
+        )
+        context["accounts_payable_mapping_form"] = kwargs.get(
+            "accounts_payable_mapping_form",
+            self._accounts_payable_mapping_form(setup_obj),
         )
         context["local_health"] = LocalHealthCheckService.check()
         context["ledgeros_health"] = LedgerOSHealthCheckService.check()
@@ -246,9 +272,23 @@ class LedgerOSSetupView(LedgerOSAppContextMixin, TemplateView):
 
     def post(self, request, *args, **kwargs):
         settings_obj = LedgerOSConnectionSettings.load()
+        setup_obj = PropertyLedgerSetup.load()
+        action = request.POST.get("action", "save-settings")
+        if action == "save-mappings":
+            ap_mapping_form = self._accounts_payable_mapping_form(setup_obj, data=request.POST)
+            if ap_mapping_form.is_valid():
+                mapping = ap_mapping_form.save(commit=False)
+                mapping.setup = setup_obj
+                mapping.save()
+                messages.success(request, "Accounts payable mapping saved.")
+                return HttpResponseRedirect(reverse("ledgeros-setup"))
+            context = self.get_context_data(accounts_payable_mapping_form=ap_mapping_form)
+            return self.render_to_response(context)
+
         form = LedgerOSConnectionSettingsForm(request.POST, instance=settings_obj)
         if form.is_valid():
             form.save()
+            messages.success(request, "LedgerOS connection settings saved.")
             return HttpResponseRedirect(reverse("ledgeros-setup"))
         context = self.get_context_data(form=form)
         return self.render_to_response(context)
