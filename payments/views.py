@@ -86,13 +86,6 @@ class PaymentsAppContextMixin(LedgerOSAppContextMixin):
         return context
 
 
-def _sync_feedback(*, status: str, success_message: str, failure_message: str, last_error: str | None = None) -> tuple[str, str]:
-    if status == "sync_failed":
-        detail = last_error or failure_message
-        return "error", f"{failure_message} {detail}".strip()
-    return "success", success_message
-
-
 def _format_sync_errors(errors: list[str]) -> str:
     filtered_errors = [error.strip() for error in errors if error and error.strip()]
     return "; ".join(filtered_errors)
@@ -267,7 +260,8 @@ class TenantInvoiceDetailView(LoginRequiredMixin, PaymentsAppContextMixin, Detai
             else:
                 payment.refresh_from_db()
                 errors = _payment_sync_errors(payment)
-                if payment.status == TenantPayment.Status.SYNC_FAILED:
+                sync_status = payment.sync_record.status if payment.sync_record else ""
+                if sync_status == LedgerOSSyncRecord.Status.FAILED:
                     messages.warning(
                         request,
                         "Payment was recorded, but one or more allocation posts failed."
@@ -340,13 +334,14 @@ class TenantPaymentListView(LoginRequiredMixin, PaymentsAppContextMixin, ListVie
             else:
                 payment.refresh_from_db()
                 errors = _payment_sync_errors(payment)
-                level, message = _sync_feedback(
-                    status=payment.status,
-                    success_message="Payment allocations posted to LedgerOS.",
-                    failure_message="Payment allocations refreshed, but one or more posts failed.",
-                    last_error=_format_sync_errors(errors) if errors else None,
-                )
-                getattr(messages, level)(request, message)
+                if errors:
+                    messages.warning(
+                        request,
+                        "Payment allocations refreshed, but one or more posts failed."
+                        + (f" {_format_sync_errors(errors)}" if errors else ""),
+                    )
+                else:
+                    messages.success(request, "Payment allocations posted to LedgerOS.")
             return HttpResponseRedirect(reverse("tenant-payment-detail", args=[payment.pk]))
         if action == "sync":
             try:
@@ -356,13 +351,15 @@ class TenantPaymentListView(LoginRequiredMixin, PaymentsAppContextMixin, ListVie
             else:
                 payment.refresh_from_db()
                 errors = _payment_sync_errors(payment)
-                level, message = _sync_feedback(
-                    status=payment.status,
-                    success_message="Payment posted to LedgerOS.",
-                    failure_message="Payment post to LedgerOS failed.",
-                    last_error=_format_sync_errors(errors) if errors else None,
-                )
-                getattr(messages, level)(request, message)
+                sync_status = payment.sync_record.status if payment.sync_record else ""
+                if sync_status == LedgerOSSyncRecord.Status.FAILED:
+                    messages.error(
+                        request,
+                        "Payment post to LedgerOS failed."
+                        + (f" {_format_sync_errors(errors)}" if errors else ""),
+                    )
+                else:
+                    messages.success(request, "Payment posted to LedgerOS.")
             return HttpResponseRedirect(reverse("tenant-payment-detail", args=[payment.pk]))
         messages.error(request, "Unknown payment action.")
         return HttpResponseRedirect(reverse("tenant-payment-list"))
@@ -414,13 +411,14 @@ class TenantPaymentDetailView(LoginRequiredMixin, PaymentsAppContextMixin, Detai
             else:
                 self.object.refresh_from_db()
                 errors = _payment_sync_errors(self.object)
-                level, message = _sync_feedback(
-                    status=self.object.status,
-                    success_message="Payment allocations posted to LedgerOS.",
-                    failure_message="Payment allocations refreshed, but one or more posts failed.",
-                    last_error=_format_sync_errors(errors) if errors else None,
-                )
-                getattr(messages, level)(request, message)
+                if errors:
+                    messages.warning(
+                        request,
+                        "Payment allocations refreshed, but one or more posts failed."
+                        + (f" {_format_sync_errors(errors)}" if errors else ""),
+                    )
+                else:
+                    messages.success(request, "Payment allocations posted to LedgerOS.")
         elif action == "sync":
             try:
                 TenantPaymentService.sync_payment(self.object)
@@ -429,13 +427,15 @@ class TenantPaymentDetailView(LoginRequiredMixin, PaymentsAppContextMixin, Detai
             else:
                 self.object.refresh_from_db()
                 errors = _payment_sync_errors(self.object)
-                level, message = _sync_feedback(
-                    status=self.object.status,
-                    success_message="Payment posted to LedgerOS.",
-                    failure_message="Payment post to LedgerOS failed.",
-                    last_error=_format_sync_errors(errors) if errors else None,
-                )
-                getattr(messages, level)(request, message)
+                sync_status = self.object.sync_record.status if self.object.sync_record else ""
+                if sync_status == LedgerOSSyncRecord.Status.FAILED:
+                    messages.error(
+                        request,
+                        "Payment post to LedgerOS failed."
+                        + (f" {_format_sync_errors(errors)}" if errors else ""),
+                    )
+                else:
+                    messages.success(request, "Payment posted to LedgerOS.")
         return HttpResponseRedirect(reverse("tenant-payment-detail", args=[self.object.pk]))
 
     def get_context_data(self, **kwargs):
@@ -510,13 +510,15 @@ class SecurityDepositEventListView(LoginRequiredMixin, PaymentsAppContextMixin, 
                 messages.error(request, "; ".join(exc.messages))
             else:
                 event.refresh_from_db()
-                level, message = _sync_feedback(
-                    status=event.status,
-                    success_message="Deposit event sync completed.",
-                    failure_message="Deposit event sync failed.",
-                    last_error=event.sync_record.last_error if event.sync_record else None,
-                )
-                getattr(messages, level)(request, message)
+                sync_status = event.sync_record.status if event.sync_record else ""
+                if sync_status == LedgerOSSyncRecord.Status.FAILED:
+                    messages.error(
+                        request,
+                        "Deposit event sync failed."
+                        + (f" {event.sync_record.last_error}" if event.sync_record and event.sync_record.last_error else ""),
+                    )
+                else:
+                    messages.success(request, "Deposit event sync completed.")
             return HttpResponseRedirect(reverse("security-deposit-detail", args=[event.pk]))
         messages.error(request, "Unknown deposit event action.")
         return HttpResponseRedirect(reverse("security-deposit-list"))
@@ -567,14 +569,16 @@ class SecurityDepositEventDetailView(LoginRequiredMixin, PaymentsAppContextMixin
                 messages.error(request, "; ".join(exc.messages))
             else:
                 self.object.refresh_from_db()
-                level, message = _sync_feedback(
-                    status=self.object.status,
-                    success_message="Deposit event sync completed.",
-                    failure_message="Deposit event sync failed.",
-                    last_error=self.object.sync_record.last_error if self.object.sync_record else None,
-                )
-                getattr(messages, level)(request, message)
-        return HttpResponseRedirect(reverse("security-deposit-detail", args=[self.object.pk]))
+                sync_status = self.object.sync_record.status if self.object.sync_record else ""
+                if sync_status == LedgerOSSyncRecord.Status.FAILED:
+                    messages.error(
+                        request,
+                        "Deposit event sync failed."
+                        + (f" {self.object.sync_record.last_error}" if self.object.sync_record and self.object.sync_record.last_error else ""),
+                    )
+                else:
+                    messages.success(request, "Deposit event sync completed.")
+            return HttpResponseRedirect(reverse("security-deposit-detail", args=[self.object.pk]))
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
@@ -758,13 +762,15 @@ class VendorBillDetailView(LoginRequiredMixin, PaymentsAppContextMixin, DetailVi
                 messages.error(request, "; ".join(exc.messages))
             else:
                 self.object.refresh_from_db()
-                level, message = _sync_feedback(
-                    status=self.object.status,
-                    success_message="Vendor bill posted to LedgerOS.",
-                    failure_message="Vendor bill sync failed.",
-                    last_error=self.object.sync_record.last_error if self.object.sync_record else None,
-                )
-                getattr(messages, level)(request, message)
+                sync_status = self.object.sync_record.status if self.object.sync_record else ""
+                if sync_status == LedgerOSSyncRecord.Status.FAILED:
+                    messages.error(
+                        request,
+                        "Vendor bill sync failed."
+                        + (f" {self.object.sync_record.last_error}" if self.object.sync_record and self.object.sync_record.last_error else ""),
+                    )
+                else:
+                    messages.success(request, "Vendor bill posted to LedgerOS.")
         return HttpResponseRedirect(reverse("vendor-bill-detail", args=[self.object.pk]))
 
     def get_context_data(self, **kwargs):
@@ -872,13 +878,15 @@ class VendorPaymentDetailView(LoginRequiredMixin, PaymentsAppContextMixin, Detai
                 messages.error(request, "; ".join(exc.messages))
             else:
                 self.object.refresh_from_db()
-                level, message = _sync_feedback(
-                    status=self.object.status,
-                    success_message="Vendor payment posted to LedgerOS.",
-                    failure_message="Vendor payment sync failed.",
-                    last_error=self.object.sync_record.last_error if self.object.sync_record else None,
-                )
-                getattr(messages, level)(request, message)
+                sync_status = self.object.sync_record.status if self.object.sync_record else ""
+                if sync_status == LedgerOSSyncRecord.Status.FAILED:
+                    messages.error(
+                        request,
+                        "Vendor payment sync failed."
+                        + (f" {self.object.sync_record.last_error}" if self.object.sync_record and self.object.sync_record.last_error else ""),
+                    )
+                else:
+                    messages.success(request, "Vendor payment posted to LedgerOS.")
         return HttpResponseRedirect(reverse("vendor-payment-detail", args=[self.object.pk]))
 
     def get_context_data(self, **kwargs):
@@ -983,13 +991,15 @@ class DebtServicePaymentDetailView(LoginRequiredMixin, PaymentsAppContextMixin, 
                 messages.error(request, "; ".join(exc.messages))
             else:
                 self.object.refresh_from_db()
-                level, message = _sync_feedback(
-                    status=self.object.status,
-                    success_message="Debt service payment posted to LedgerOS.",
-                    failure_message="Debt service payment sync failed.",
-                    last_error=self.object.sync_record.last_error if self.object.sync_record else None,
-                )
-                getattr(messages, level)(request, message)
+                sync_status = self.object.sync_record.status if self.object.sync_record else ""
+                if sync_status == LedgerOSSyncRecord.Status.FAILED:
+                    messages.error(
+                        request,
+                        "Debt service payment sync failed."
+                        + (f" {self.object.sync_record.last_error}" if self.object.sync_record and self.object.sync_record.last_error else ""),
+                    )
+                else:
+                    messages.success(request, "Debt service payment posted to LedgerOS.")
         return HttpResponseRedirect(reverse("debt-service-payment-detail", args=[self.object.pk]))
 
     def get_context_data(self, **kwargs):

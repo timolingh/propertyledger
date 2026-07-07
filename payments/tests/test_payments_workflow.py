@@ -209,7 +209,14 @@ class TenantPaymentViewTests(TestCase):
         self.assertContains(response, "Payment allocations refreshed, but one or more posts failed.")
         self.assertContains(response, "LedgerOS is unavailable")
         self.assertContains(response, "Allocation Post Log")
-        self.assertEqual(payment.status, TenantPayment.Status.SYNC_FAILED)
+        self.assertEqual(payment.status, TenantPayment.Status.ALLOCATED)
+        self.assertIsNone(payment.sync_record)
+        self.assertTrue(
+            any(
+                application.sync_record and application.sync_record.status == LedgerOSSyncRecord.Status.FAILED
+                for application in payment.applications.all()
+            )
+        )
 
     @patch.dict(os.environ, {"LEDGEROS_HMAC_SECRET": "secret"}, clear=False)
     @patch("payments.services.urlopen")
@@ -253,7 +260,8 @@ class TenantPaymentViewTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "Payment post to LedgerOS failed.")
         self.assertContains(response, "LedgerOS is unavailable")
-        self.assertEqual(payment.status, TenantPayment.Status.SYNC_FAILED)
+        self.assertEqual(payment.status, TenantPayment.Status.READY_TO_SYNC)
+        self.assertEqual(payment.sync_record.status, LedgerOSSyncRecord.Status.FAILED)
 
 
 class TenantPaymentServiceTests(TestCase):
@@ -304,7 +312,8 @@ class TenantPaymentServiceTests(TestCase):
         TenantPaymentService.sync_payment(payment)
         payment.refresh_from_db()
 
-        self.assertEqual(payment.status, TenantPayment.Status.SYNC_FAILED)
+        self.assertEqual(payment.status, TenantPayment.Status.READY_TO_SYNC)
+        self.assertEqual(payment.sync_record.status, LedgerOSSyncRecord.Status.FAILED)
         self.assertIn("API client is not allowed to perform this action.", payment.sync_record.last_error)
         self.assertIn("POST /api/v1/sync-events/", payment.sync_record.last_error)
         self.assertIn("Check the LedgerOS API client permissions for sync-event writes.", payment.sync_record.last_error)
@@ -414,7 +423,7 @@ class TenantPaymentServiceTests(TestCase):
 
         TenantPaymentService.sync_payment(payment)
         payment.refresh_from_db()
-        self.assertEqual(payment.status, TenantPayment.Status.SYNCED)
+        self.assertEqual(payment.status, TenantPayment.Status.POSTED)
 
     @patch.dict(os.environ, {"LEDGEROS_HMAC_SECRET": "secret"}, clear=False)
     @patch("payments.services.urlopen")
@@ -449,7 +458,7 @@ class TenantPaymentServiceTests(TestCase):
         TenantPaymentService.sync_payment(payment)
         payment.refresh_from_db()
 
-        self.assertEqual(payment.status, TenantPayment.Status.SYNCED)
+        self.assertEqual(payment.status, TenantPayment.Status.POSTED)
         self.assertIsNotNone(payment.sync_record_id)
         self.assertEqual(payment.sync_record.status, LedgerOSSyncRecord.Status.SUCCEEDED)
         self.assertEqual(payment.sync_record.ledgeros_resource_id, "sync_2")
@@ -505,7 +514,7 @@ class TenantPaymentServiceTests(TestCase):
         TenantPaymentService.sync_payment(payment)
         payment.refresh_from_db()
 
-        self.assertEqual(payment.status, TenantPayment.Status.SYNCED)
+        self.assertEqual(payment.status, TenantPayment.Status.POSTED)
         self.assertEqual(payment.sync_record_id, first_sync_record_id)
         self.assertEqual(payment.sync_record.idempotency_key, first_idempotency_key)
         self.assertEqual(LedgerOSSyncRecord.objects.filter(local_object_type="tenant_payment").count(), 1)
@@ -544,7 +553,7 @@ class TenantPaymentServiceTests(TestCase):
         TenantPaymentService.sync_security_deposit_event(event)
         event.refresh_from_db()
 
-        self.assertEqual(event.status, SecurityDepositEvent.Status.SYNCED)
+        self.assertEqual(event.status, SecurityDepositEvent.Status.POSTED)
         self.assertEqual(event.sync_record.ledgeros_resource_id, "sync_3")
         request_path, payload = _decode_mock_request(mock_urlopen.call_args_list[0])
         self.assertEqual(request_path, "http://ledgeros-web:8000/api/v1/sync-events/")
@@ -661,7 +670,7 @@ class Epic5AccountingServiceTests(TestCase):
         VendorBillService.save_and_sync_bill(bill)
         bill.refresh_from_db()
 
-        self.assertEqual(bill.status, VendorBill.Status.SYNCED)
+        self.assertEqual(bill.status, VendorBill.Status.POSTED)
         self.assertEqual(bill.sync_record.status, LedgerOSSyncRecord.Status.SUCCEEDED)
         first_request_path, first_payload = _decode_mock_request(mock_urlopen.call_args_list[0])
         second_request_path, second_payload = _decode_mock_request(mock_urlopen.call_args_list[1])
@@ -720,11 +729,11 @@ class Epic5AccountingServiceTests(TestCase):
         VendorPaymentService.save_and_sync_payment(payoff)
         payoff.refresh_from_db()
 
-        self.assertEqual(card_payment.status, VendorPayment.Status.SYNCED)
+        self.assertEqual(card_payment.status, VendorPayment.Status.POSTED)
         self.assertEqual(card_payment.sync_record.source_event_type, "vendor_payment.credit_card")
         self.assertEqual(card_payment.sync_record.response_payload["sync_event"]["id"], "sync_payment_1")
         self.assertEqual(card_payment.sync_record.ledgeros_journal_entry_id, "je_payment_1")
-        self.assertEqual(payoff.status, VendorPayment.Status.SYNCED)
+        self.assertEqual(payoff.status, VendorPayment.Status.POSTED)
         self.assertEqual(payoff.sync_record.source_event_type, "credit_card.payoff")
         self.assertEqual(payoff.sync_record.response_payload["sync_event"]["id"], "sync_payment_2")
         self.assertEqual(payoff.sync_record.ledgeros_journal_entry_id, "je_payment_2")
@@ -761,7 +770,7 @@ class Epic5AccountingServiceTests(TestCase):
         VendorPaymentService.save_and_sync_payment(payment)
         payment.refresh_from_db()
 
-        self.assertEqual(payment.status, VendorPayment.Status.SYNCED)
+        self.assertEqual(payment.status, VendorPayment.Status.POSTED)
         self.assertEqual(payment.sync_record.ledgeros_resource_type, "payment")
         request_path, payload = _decode_mock_request(mock_urlopen.call_args_list[2])
         self.assertEqual(request_path, "http://ledgeros-web:8000/api/v1/payments/")
@@ -792,7 +801,7 @@ class Epic5AccountingServiceTests(TestCase):
         DebtServicePaymentService.save_and_sync_payment(payment)
         payment.refresh_from_db()
 
-        self.assertEqual(payment.status, DebtServicePayment.Status.SYNCED)
+        self.assertEqual(payment.status, DebtServicePayment.Status.POSTED)
         self.assertEqual(payment.sync_record.status, LedgerOSSyncRecord.Status.SUCCEEDED)
         request_path, payload = _decode_mock_request(mock_urlopen.call_args_list[0])
         self.assertEqual(request_path, "http://ledgeros-web:8000/api/v1/sync-events/")

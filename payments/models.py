@@ -57,9 +57,7 @@ class TenantPayment(models.Model):
         DRAFT = "draft", "Draft"
         ALLOCATED = "allocated", "Allocated"
         READY_TO_SYNC = "ready_to_sync", "Ready to sync"
-        SYNC_PENDING = "sync_pending", "Sync pending"
-        SYNCED = "synced", "Synced"
-        SYNC_FAILED = "sync_failed", "Sync failed"
+        POSTED = "posted", "Posted"
         VOIDED = "voided", "Voided"
 
     property = models.ForeignKey(
@@ -113,7 +111,11 @@ class TenantPayment(models.Model):
 
     @builtins.property
     def is_editable_after_sync(self) -> bool:
-        return self.status != self.Status.SYNCED
+        return self.sync_record is None or self.sync_record.status != LedgerOSSyncRecord.Status.SUCCEEDED
+
+    @builtins.property
+    def sync_status(self) -> str:
+        return self.sync_record.status if self.sync_record else ""
 
 
 class TenantPaymentApplication(models.Model):
@@ -164,9 +166,8 @@ class SecurityDepositEvent(models.Model):
 
     class Status(models.TextChoices):
         DRAFT = "draft", "Draft"
-        SYNC_PENDING = "sync_pending", "Sync pending"
-        SYNCED = "synced", "Synced"
-        SYNC_FAILED = "sync_failed", "Sync failed"
+        READY_TO_SYNC = "ready_to_sync", "Ready to sync"
+        POSTED = "posted", "Posted"
         VOIDED = "voided", "Voided"
 
     property = models.ForeignKey(
@@ -211,6 +212,14 @@ class SecurityDepositEvent(models.Model):
     def __str__(self) -> str:
         return f"{self.tenant} {self.get_event_type_display()} on {self.event_date.isoformat()}"
 
+    @builtins.property
+    def is_editable_after_sync(self) -> bool:
+        return self.sync_record is None or self.sync_record.status != LedgerOSSyncRecord.Status.SUCCEEDED
+
+    @builtins.property
+    def sync_status(self) -> str:
+        return self.sync_record.status if self.sync_record else ""
+
 
 class Vendor(TimestampedModel):
     name = models.CharField(max_length=255)
@@ -247,9 +256,8 @@ class VendorBill(TimestampedModel):
 
     class Status(models.TextChoices):
         DRAFT = "draft", "Draft"
-        SYNC_PENDING = "sync_pending", "Sync pending"
-        SYNCED = "synced", "Synced"
-        SYNC_FAILED = "sync_failed", "Sync failed"
+        READY_TO_SYNC = "ready_to_sync", "Ready to sync"
+        POSTED = "posted", "Posted"
         VOIDED = "voided", "Voided"
 
     vendor = models.ForeignKey(
@@ -300,7 +308,11 @@ class VendorBill(TimestampedModel):
 
     @builtins.property
     def is_editable_after_sync(self) -> bool:
-        return self.status != self.Status.SYNCED
+        return self.sync_record is None or self.sync_record.status != LedgerOSSyncRecord.Status.SUCCEEDED
+
+    @builtins.property
+    def sync_status(self) -> str:
+        return self.sync_record.status if self.sync_record else ""
 
     def clean(self):
         super().clean()
@@ -324,9 +336,8 @@ class VendorPayment(TimestampedModel):
 
     class Status(models.TextChoices):
         DRAFT = "draft", "Draft"
-        SYNC_PENDING = "sync_pending", "Sync pending"
-        SYNCED = "synced", "Synced"
-        SYNC_FAILED = "sync_failed", "Sync failed"
+        READY_TO_SYNC = "ready_to_sync", "Ready to sync"
+        POSTED = "posted", "Posted"
         VOIDED = "voided", "Voided"
 
     vendor = models.ForeignKey(
@@ -370,7 +381,11 @@ class VendorPayment(TimestampedModel):
 
     @builtins.property
     def is_editable_after_sync(self) -> bool:
-        return self.status != self.Status.SYNCED
+        return self.sync_record is None or self.sync_record.status != LedgerOSSyncRecord.Status.SUCCEEDED
+
+    @builtins.property
+    def sync_status(self) -> str:
+        return self.sync_record.status if self.sync_record else ""
 
     def clean(self):
         super().clean()
@@ -399,9 +414,8 @@ class VendorPayment(TimestampedModel):
 class DebtServicePayment(TimestampedModel):
     class Status(models.TextChoices):
         DRAFT = "draft", "Draft"
-        SYNC_PENDING = "sync_pending", "Sync pending"
-        SYNCED = "synced", "Synced"
-        SYNC_FAILED = "sync_failed", "Sync failed"
+        READY_TO_SYNC = "ready_to_sync", "Ready to sync"
+        POSTED = "posted", "Posted"
         VOIDED = "voided", "Voided"
 
     property = models.ForeignKey(
@@ -439,7 +453,11 @@ class DebtServicePayment(TimestampedModel):
 
     @builtins.property
     def is_editable_after_sync(self) -> bool:
-        return self.status != self.Status.SYNCED
+        return self.sync_record is None or self.sync_record.status != LedgerOSSyncRecord.Status.SUCCEEDED
+
+    @builtins.property
+    def sync_status(self) -> str:
+        return self.sync_record.status if self.sync_record else ""
 
     def clean(self):
         super().clean()

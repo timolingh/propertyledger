@@ -141,4 +141,4 @@ make check
 - Record a vendor payment by credit card and confirm it posts the expected accounting effect.
 - Record a credit-card payoff and confirm it reduces credit-card liability.
 - Record a debt-service payment with principal and interest split.
-- Confirm synced records are not destructively editable.
+- Confirm posted records are not destructively editable and their sync logs remain read-only.

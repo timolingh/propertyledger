@@ -486,11 +486,10 @@ class TenantPaymentService:
 
     @staticmethod
     def allocate_payment(payment: TenantPayment, preferred_charge_ids: list[int] | None = None) -> TenantPayment:
-        if payment.status in {
-            TenantPayment.Status.SYNC_PENDING,
-            TenantPayment.Status.SYNCED,
-        }:
-            raise ValidationError({"payment": "Synced payments cannot be reallocated."})
+        if payment.sync_record and payment.sync_record.status == LedgerOSSyncRecord.Status.SUCCEEDED:
+            raise ValidationError({"payment": "Posted payments cannot be reallocated."})
+        if payment.status == TenantPayment.Status.VOIDED:
+            raise ValidationError({"payment": "Voided payments cannot be reallocated."})
 
         settings = PaymentWorkflowSettings.load()
         priority = list(settings.charge_type_priority or [
@@ -563,7 +562,7 @@ class TenantPaymentService:
         if not new_allocations:
             payment.status = TenantPayment.Status.DRAFT
         elif any_failed:
-            payment.status = TenantPayment.Status.SYNC_FAILED
+            payment.status = TenantPayment.Status.ALLOCATED
         elif all_allocations_synced:
             payment.status = TenantPayment.Status.READY_TO_SYNC
         else:
@@ -659,7 +658,7 @@ class TenantPaymentService:
         sync_record.attempt_count += 1
         sync_record.last_error = None
         sync_record.save(update_fields=["status", "attempt_count", "last_error", "updated_at"])
-        payment.status = TenantPayment.Status.SYNC_PENDING
+        payment.status = TenantPayment.Status.READY_TO_SYNC
         payment.save(update_fields=["status", "updated_at"])
 
         try:
@@ -675,8 +674,6 @@ class TenantPaymentService:
             sync_record.last_error = str(exc)
             sync_record.response_payload = {"status": "failed", "error": str(exc)}
             sync_record.save(update_fields=["status", "last_error", "response_payload", "updated_at"])
-            payment.status = TenantPayment.Status.SYNC_FAILED
-            payment.save(update_fields=["status", "updated_at"])
             return payment
 
         sync_record.status = LedgerOSSyncRecord.Status.SUCCEEDED
@@ -689,7 +686,7 @@ class TenantPaymentService:
         sync_record.response_payload = result.payload
         sync_record.last_synced_at = timezone.now()
         sync_record.save(update_fields=["status", "ledgeros_resource_id", "ledgeros_journal_entry_id", "response_payload", "last_synced_at", "updated_at"])
-        payment.status = TenantPayment.Status.SYNCED
+        payment.status = TenantPayment.Status.POSTED
         payment.save(update_fields=["status", "updated_at"])
         return payment
 
@@ -719,7 +716,7 @@ class TenantPaymentService:
         sync_record.attempt_count += 1
         sync_record.last_error = None
         sync_record.save(update_fields=["status", "attempt_count", "last_error", "updated_at"])
-        event.status = SecurityDepositEvent.Status.SYNC_PENDING
+        event.status = SecurityDepositEvent.Status.READY_TO_SYNC
         event.save(update_fields=["status", "updated_at"])
 
         try:
@@ -735,8 +732,6 @@ class TenantPaymentService:
             sync_record.last_error = str(exc)
             sync_record.response_payload = {"status": "failed", "error": str(exc)}
             sync_record.save(update_fields=["status", "last_error", "response_payload", "updated_at"])
-            event.status = SecurityDepositEvent.Status.SYNC_FAILED
-            event.save(update_fields=["status", "updated_at"])
             return event
 
         sync_record.status = LedgerOSSyncRecord.Status.SUCCEEDED
@@ -749,7 +744,7 @@ class TenantPaymentService:
         sync_record.response_payload = result.payload
         sync_record.last_synced_at = timezone.now()
         sync_record.save(update_fields=["status", "ledgeros_resource_id", "ledgeros_journal_entry_id", "response_payload", "last_synced_at", "updated_at"])
-        event.status = SecurityDepositEvent.Status.SYNCED
+        event.status = SecurityDepositEvent.Status.POSTED
         event.save(update_fields=["status", "updated_at"])
         return event
 
@@ -895,7 +890,7 @@ class VendorBillService(Epic5AccountingService):
         if bill.sync_record and bill.sync_record.status == LedgerOSSyncRecord.Status.SUCCEEDED:
             return bill
         if VendorBillService._sync_blockers(bill):
-            if bill.status != VendorBill.Status.SYNCED:
+            if bill.status != VendorBill.Status.POSTED:
                 bill.status = VendorBill.Status.DRAFT
                 bill.save(update_fields=["status", "updated_at"])
             return bill
@@ -920,7 +915,7 @@ class VendorBillService(Epic5AccountingService):
         sync_record.attempt_count += 1
         sync_record.last_error = None
         sync_record.save(update_fields=["status", "attempt_count", "last_error", "updated_at"])
-        bill.status = VendorBill.Status.SYNC_PENDING
+        bill.status = VendorBill.Status.READY_TO_SYNC
         bill.save(update_fields=["status", "updated_at"])
 
         try:
@@ -937,8 +932,6 @@ class VendorBillService(Epic5AccountingService):
             sync_record.last_error = str(exc)
             sync_record.response_payload = {"status": "failed", "error": str(exc)}
             sync_record.save(update_fields=["status", "last_error", "response_payload", "updated_at"])
-            bill.status = VendorBill.Status.SYNC_FAILED
-            bill.save(update_fields=["status", "updated_at"])
             return bill
 
         sync_record.status = LedgerOSSyncRecord.Status.SUCCEEDED
@@ -955,7 +948,7 @@ class VendorBillService(Epic5AccountingService):
         sync_record.response_payload = result.payload
         sync_record.last_synced_at = timezone.now()
         sync_record.save(update_fields=["status", "ledgeros_resource_id", "ledgeros_journal_entry_id", "response_payload", "last_synced_at", "updated_at"])
-        bill.status = VendorBill.Status.SYNCED
+        bill.status = VendorBill.Status.POSTED
         bill.save(update_fields=["status", "updated_at"])
         return bill
 
@@ -1118,7 +1111,7 @@ class VendorPaymentService(Epic5AccountingService):
         if payment.sync_record and payment.sync_record.status == LedgerOSSyncRecord.Status.SUCCEEDED:
             return payment
         if VendorPaymentService._sync_blockers(payment):
-            if payment.status != VendorPayment.Status.SYNCED:
+            if payment.status != VendorPayment.Status.POSTED:
                 payment.status = VendorPayment.Status.DRAFT
                 payment.save(update_fields=["status", "updated_at"])
             return payment
@@ -1156,7 +1149,7 @@ class VendorPaymentService(Epic5AccountingService):
         sync_record.attempt_count += 1
         sync_record.last_error = None
         sync_record.save(update_fields=["status", "attempt_count", "last_error", "updated_at"])
-        payment.status = VendorPayment.Status.SYNC_PENDING
+        payment.status = VendorPayment.Status.READY_TO_SYNC
         payment.save(update_fields=["status", "updated_at"])
 
         try:
@@ -1172,8 +1165,6 @@ class VendorPaymentService(Epic5AccountingService):
             sync_record.last_error = str(exc)
             sync_record.response_payload = {"status": "failed", "error": str(exc)}
             sync_record.save(update_fields=["status", "last_error", "response_payload", "updated_at"])
-            payment.status = VendorPayment.Status.SYNC_FAILED
-            payment.save(update_fields=["status", "updated_at"])
             return payment
 
         sync_record.status = LedgerOSSyncRecord.Status.SUCCEEDED
@@ -1191,7 +1182,7 @@ class VendorPaymentService(Epic5AccountingService):
         if journal_entry_id:
             update_fields.insert(2, "ledgeros_journal_entry_id")
         sync_record.save(update_fields=update_fields)
-        payment.status = VendorPayment.Status.SYNCED
+        payment.status = VendorPayment.Status.POSTED
         payment.save(update_fields=["status", "updated_at"])
         return payment
 
@@ -1280,7 +1271,7 @@ class DebtServicePaymentService(Epic5AccountingService):
         if payment.sync_record and payment.sync_record.status == LedgerOSSyncRecord.Status.SUCCEEDED:
             return payment
         if DebtServicePaymentService._sync_blockers(payment):
-            if payment.status != DebtServicePayment.Status.SYNCED:
+            if payment.status != DebtServicePayment.Status.POSTED:
                 payment.status = DebtServicePayment.Status.DRAFT
                 payment.save(update_fields=["status", "updated_at"])
             return payment
@@ -1304,7 +1295,7 @@ class DebtServicePaymentService(Epic5AccountingService):
         sync_record.attempt_count += 1
         sync_record.last_error = None
         sync_record.save(update_fields=["status", "attempt_count", "last_error", "updated_at"])
-        payment.status = DebtServicePayment.Status.SYNC_PENDING
+        payment.status = DebtServicePayment.Status.READY_TO_SYNC
         payment.save(update_fields=["status", "updated_at"])
 
         try:
@@ -1320,8 +1311,6 @@ class DebtServicePaymentService(Epic5AccountingService):
             sync_record.last_error = str(exc)
             sync_record.response_payload = {"status": "failed", "error": str(exc)}
             sync_record.save(update_fields=["status", "last_error", "response_payload", "updated_at"])
-            payment.status = DebtServicePayment.Status.SYNC_FAILED
-            payment.save(update_fields=["status", "updated_at"])
             return payment
 
         sync_record.status = LedgerOSSyncRecord.Status.SUCCEEDED
@@ -1334,7 +1323,7 @@ class DebtServicePaymentService(Epic5AccountingService):
         sync_record.response_payload = result.payload
         sync_record.last_synced_at = timezone.now()
         sync_record.save(update_fields=["status", "ledgeros_resource_id", "ledgeros_journal_entry_id", "response_payload", "last_synced_at", "updated_at"])
-        payment.status = DebtServicePayment.Status.SYNCED
+        payment.status = DebtServicePayment.Status.POSTED
         payment.save(update_fields=["status", "updated_at"])
         return payment
 
@@ -1344,7 +1333,7 @@ class MaintenanceExpenseSummaryService:
     def summary_rows() -> list[dict[str, Any]]:
         rows: list[dict[str, Any]] = []
         query = (
-            VendorBill.objects.filter(status=VendorBill.Status.SYNCED)
+            VendorBill.objects.filter(sync_record__status=LedgerOSSyncRecord.Status.SUCCEEDED)
             .select_related("maintenance_category", "property", "unit", "vendor")
             .values("expense_category", "maintenance_category__name")
             .annotate(total_amount=models.Sum("amount"), bill_count=models.Count("id"))
