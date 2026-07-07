@@ -25,6 +25,7 @@ from payments.services import (
     TenantPaymentService,
     VendorBillService,
     VendorPaymentService,
+    VendorService,
 )
 
 
@@ -652,6 +653,46 @@ class Epic5AccountingServiceTests(TestCase):
 
     @patch.dict(os.environ, {"LEDGEROS_HMAC_SECRET": "secret"}, clear=False)
     @patch("payments.services.urlopen")
+    def test_vendor_sync_uses_vendor_endpoint_and_updates_sync_record(self, mock_urlopen):
+        mock_urlopen.return_value = _FakeResponse(
+            status=201,
+            payload=json.dumps({"vendor": {"id": "vendor_1"}}).encode("utf-8"),
+        )
+
+        VendorService.save_and_sync_vendor(self.vendor)
+        self.vendor.refresh_from_db()
+
+        self.assertIsNotNone(self.vendor.sync_record)
+        self.assertEqual(self.vendor.sync_record.status, LedgerOSSyncRecord.Status.SUCCEEDED)
+        request_path, payload = _decode_mock_request(mock_urlopen.call_args_list[0])
+        self.assertEqual(request_path, "http://ledgeros-web:8000/api/v1/vendors/")
+        self.assertEqual(payload["vendor_code"], f"vendor-{self.vendor.pk}")
+        self.assertEqual(payload["name"], self.vendor.name)
+        self.assertEqual(payload["default_ap_account_code"], "2000")
+
+    @patch.dict(os.environ, {"LEDGEROS_HMAC_SECRET": "secret"}, clear=False)
+    @patch("payments.services.urlopen")
+    def test_vendor_update_resyncs_to_ledgeros(self, mock_urlopen):
+        mock_urlopen.side_effect = [
+            _FakeResponse(status=201, payload=json.dumps({"vendor": {"id": "vendor_1"}}).encode("utf-8")),
+            _FakeResponse(status=201, payload=json.dumps({"vendor": {"id": "vendor_1"}}).encode("utf-8")),
+        ]
+
+        VendorService.save_and_sync_vendor(self.vendor)
+        self.vendor.name = "Vendor One Updated"
+        VendorService.save_and_sync_vendor(self.vendor)
+        self.vendor.refresh_from_db()
+
+        self.assertEqual(mock_urlopen.call_count, 2)
+        first_request_path, first_payload = _decode_mock_request(mock_urlopen.call_args_list[0])
+        second_request_path, second_payload = _decode_mock_request(mock_urlopen.call_args_list[1])
+        self.assertEqual(first_request_path, "http://ledgeros-web:8000/api/v1/vendors/")
+        self.assertEqual(second_request_path, "http://ledgeros-web:8000/api/v1/vendors/")
+        self.assertEqual(first_payload["name"], "Vendor One")
+        self.assertEqual(second_payload["name"], "Vendor One Updated")
+
+    @patch.dict(os.environ, {"LEDGEROS_HMAC_SECRET": "secret"}, clear=False)
+    @patch("payments.services.urlopen")
     def test_vendor_bill_sync_creates_single_sync_record_and_is_idempotent(self, mock_urlopen):
         mock_urlopen.side_effect = [
             _FakeResponse(status=201, payload=json.dumps({"vendor": {"id": "vendor_1"}}).encode("utf-8")),
@@ -666,6 +707,7 @@ class Epic5AccountingServiceTests(TestCase):
             ),
         ]
 
+        VendorService.save_and_sync_vendor(self.vendor)
         bill = self._create_vendor_bill()
         VendorBillService.save_and_sync_bill(bill)
         bill.refresh_from_db()
@@ -689,6 +731,14 @@ class Epic5AccountingServiceTests(TestCase):
         self.assertEqual(LedgerOSSyncRecord.objects.filter(local_object_type="vendor_bill").count(), 1)
         self.assertEqual(bill.sync_record.status, LedgerOSSyncRecord.Status.SUCCEEDED)
 
+    def test_vendor_bill_sync_requires_synced_vendor(self):
+        bill = self._create_vendor_bill()
+
+        with self.assertRaises(ValidationError) as exc:
+            VendorBillService.sync_bill(bill)
+
+        self.assertIn("The vendor must be synced to LedgerOS before this bill can post.", exc.exception.messages)
+
     @patch.dict(os.environ, {"LEDGEROS_HMAC_SECRET": "secret"}, clear=False)
     @patch("payments.services.urlopen")
     def test_vendor_payment_credit_card_and_payoff_emit_expected_events(self, mock_urlopen):
@@ -699,6 +749,7 @@ class Epic5AccountingServiceTests(TestCase):
             _FakeResponse(status=201, payload=json.dumps({"sync_event": {"id": "sync_payment_2"}, "journal_entry": {"id": "je_payment_2"}}).encode("utf-8")),
         ]
 
+        VendorService.save_and_sync_vendor(self.vendor)
         bill = self._create_vendor_bill()
         VendorBillService.save_and_sync_bill(bill)
 
@@ -753,6 +804,7 @@ class Epic5AccountingServiceTests(TestCase):
             _FakeResponse(status=201, payload=json.dumps({"payment": {"id": "payment_1"}, "journal_entry": {"id": "je_payment_1"}}).encode("utf-8")),
         ]
 
+        VendorService.save_and_sync_vendor(self.vendor)
         bill = self._create_vendor_bill()
         VendorBillService.save_and_sync_bill(bill)
 
@@ -821,6 +873,7 @@ class Epic5AccountingServiceTests(TestCase):
             _FakeResponse(status=201, payload=json.dumps({"sync_event": {"id": "sync_bill_2"}}).encode("utf-8")),
         ]
 
+        VendorService.save_and_sync_vendor(self.vendor)
         VendorBillService.save_and_sync_bill(self._create_vendor_bill(amount=Decimal("50.00")))
         VendorBillService.save_and_sync_bill(
             self._create_vendor_bill(

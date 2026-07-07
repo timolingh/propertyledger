@@ -227,12 +227,27 @@ class Vendor(TimestampedModel):
     phone = models.CharField(max_length=50, blank=True, default="")
     is_active = models.BooleanField(default=True)
     notes = models.TextField(blank=True, default="")
+    sync_record = models.OneToOneField(
+        LedgerOSSyncRecord,
+        on_delete=models.SET_NULL,
+        blank=True,
+        null=True,
+        related_name="vendor",
+    )
 
     class Meta:
         ordering = ["name", "id"]
 
     def __str__(self) -> str:
         return self.name
+
+    @builtins.property
+    def is_editable_after_sync(self) -> bool:
+        return self.sync_record is None or self.sync_record.status != LedgerOSSyncRecord.Status.SUCCEEDED
+
+    @builtins.property
+    def sync_status(self) -> str:
+        return self.sync_record.status if self.sync_record else ""
 
 
 class MaintenanceCategory(TimestampedModel):

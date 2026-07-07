@@ -74,6 +74,7 @@ make smoke
 ### Vendors and maintenance categories
 
 - Vendors are local master data for payees and lenders.
+- Saving a vendor provisions or updates the vendor in LedgerOS using the default AP account mapping.
 - Maintenance categories are reporting labels for vendor bills.
 
 ### Vendor bills
@@ -91,13 +92,13 @@ make smoke
 - Credit-card-paid vendor bills use credit-card liability accounting.
 - Credit-card payoff uses bank cash and reduces credit-card liability.
 - Synced vendor payments are immutable except for non-accounting note fields.
+- Vendor bills may only sync after the vendor itself has been provisioned in LedgerOS.
 
 ### Debt service
 
 - Debt-service payments require principal plus interest to equal the total.
 - Debt-service sync uses the required liability, interest, and operating bank mappings.
 - Synced debt-service payments are immutable except for non-accounting note fields.
-- Vendor bill sync upserts the vendor on LedgerOS before posting the bill so the bill path does not depend on a preseeded backend vendor record.
 
 ## LedgerOS Contract
 

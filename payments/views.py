@@ -40,6 +40,7 @@ from payments.services import (
     TenantPaymentService,
     VendorBillService,
     VendorPaymentService,
+    VendorService,
 )
 
 
@@ -612,7 +613,22 @@ class VendorCreateView(PaymentsCrudFormView, CreateView):
     list_url_name = "vendor-list"
 
     def form_valid(self, form):
-        self.object = form.save()
+        self.object = form.save(commit=False)
+        VendorService.save_and_sync_vendor(self.object)
+        self.object.refresh_from_db()
+        if self.object.sync_record and self.object.sync_record.status == LedgerOSSyncRecord.Status.SUCCEEDED:
+            messages.success(self.request, "Vendor saved and provisioned in LedgerOS.")
+        elif self.object.sync_record and self.object.sync_record.status == LedgerOSSyncRecord.Status.FAILED:
+            messages.warning(
+                self.request,
+                "Vendor saved locally, but LedgerOS provisioning failed."
+                + (f" {self.object.sync_record.last_error}" if self.object.sync_record.last_error else ""),
+            )
+        else:
+            messages.warning(
+                self.request,
+                "Vendor saved locally. LedgerOS provisioning is pending until setup is complete.",
+            )
         return HttpResponseRedirect(reverse(self.list_url_name))
 
 
@@ -624,7 +640,22 @@ class VendorUpdateView(PaymentsCrudFormView, UpdateView):
     list_url_name = "vendor-list"
 
     def form_valid(self, form):
-        self.object = form.save()
+        self.object = form.save(commit=False)
+        VendorService.save_and_sync_vendor(self.object)
+        self.object.refresh_from_db()
+        if self.object.sync_record and self.object.sync_record.status == LedgerOSSyncRecord.Status.SUCCEEDED:
+            messages.success(self.request, "Vendor saved and provisioned in LedgerOS.")
+        elif self.object.sync_record and self.object.sync_record.status == LedgerOSSyncRecord.Status.FAILED:
+            messages.warning(
+                self.request,
+                "Vendor saved locally, but LedgerOS provisioning failed."
+                + (f" {self.object.sync_record.last_error}" if self.object.sync_record.last_error else ""),
+            )
+        else:
+            messages.warning(
+                self.request,
+                "Vendor saved locally. LedgerOS provisioning is pending until setup is complete.",
+            )
         return HttpResponseRedirect(reverse(self.list_url_name))
 
 

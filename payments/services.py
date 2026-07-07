@@ -336,6 +336,82 @@ class LedgerOSVendorSyncService:
         )
 
 
+class VendorService:
+    @staticmethod
+    def _sync_blockers() -> list[str]:
+        blockers: list[str] = []
+        try:
+            LedgerOSVendorSyncService._default_ap_account_code()
+        except ValidationError as exc:
+            blockers.extend(exc.messages)
+        return blockers
+
+    @staticmethod
+    def _vendor_request_hash(vendor: Vendor) -> str:
+        return TenantPaymentService._sync_record_payload(LedgerOSVendorSyncService._build_vendor_payload(vendor))
+
+    @staticmethod
+    @transaction.atomic
+    def save_and_sync_vendor(vendor: Vendor) -> Vendor:
+        vendor.full_clean()
+        vendor.save()
+        try:
+            request_hash = VendorService._vendor_request_hash(vendor)
+        except ValidationError:
+            request_hash = None
+        if (
+            request_hash is not None
+            and vendor.sync_record
+            and vendor.sync_record.status == LedgerOSSyncRecord.Status.SUCCEEDED
+            and vendor.sync_record.request_hash == request_hash
+        ):
+            return vendor
+        if VendorService._sync_blockers():
+            return vendor
+        return VendorService.sync_vendor(vendor)
+
+    @staticmethod
+    @transaction.atomic
+    def sync_vendor(vendor: Vendor) -> Vendor:
+        request_payload = LedgerOSVendorSyncService._build_vendor_payload(vendor)
+        sync_record = Epic5AccountingService._build_sync_record(
+            local_object_type="vendor",
+            local_object_id=str(vendor.pk),
+            source_event_type="vendor.upsert_requested",
+            external_id=LedgerOSVendorSyncService._vendor_code(vendor),
+            request_payload=request_payload,
+            ledgeros_resource_type="vendor",
+        )
+        vendor.sync_record = sync_record
+        vendor.save(update_fields=["sync_record", "updated_at"])
+
+        sync_record.status = LedgerOSSyncRecord.Status.IN_PROGRESS
+        sync_record.attempt_count += 1
+        sync_record.last_error = None
+        sync_record.save(update_fields=["status", "attempt_count", "last_error", "updated_at"])
+
+        try:
+            result = LedgerOSVendorSyncService.create_vendor(vendor=vendor)
+        except Exception as exc:
+            logger.warning("Vendor sync failed", extra={"vendor_id": vendor.pk, "error": str(exc)})
+            sync_record.status = LedgerOSSyncRecord.Status.FAILED
+            sync_record.last_error = str(exc)
+            sync_record.response_payload = {"status": "failed", "error": str(exc)}
+            sync_record.save(update_fields=["status", "last_error", "response_payload", "updated_at"])
+            return vendor
+
+        sync_record.status = LedgerOSSyncRecord.Status.SUCCEEDED
+        sync_record.ledgeros_resource_id = str(
+            result.payload.get("vendor", {}).get("id")
+            or result.payload.get("id")
+            or sync_record.external_id
+        )
+        sync_record.response_payload = result.payload
+        sync_record.last_synced_at = timezone.now()
+        sync_record.save(update_fields=["status", "ledgeros_resource_id", "response_payload", "last_synced_at", "updated_at"])
+        return vendor
+
+
 class TenantPaymentService:
     @staticmethod
     def _payment_event_details(payment: TenantPayment) -> dict[str, Any]:
@@ -867,6 +943,8 @@ class VendorBillService(Epic5AccountingService):
     @staticmethod
     def _sync_blockers(bill: VendorBill) -> list[str]:
         blockers: list[str] = []
+        if bill.vendor.sync_record is None or bill.vendor.sync_record.status != LedgerOSSyncRecord.Status.SUCCEEDED:
+            blockers.append("The vendor must be synced to LedgerOS before this bill can post.")
         try:
             Epic5AccountingService._account_code(
                 mapping_key=PropertyLedgerAccountMapping.MappingKey.ACCOUNTS_PAYABLE,
@@ -899,6 +977,9 @@ class VendorBillService(Epic5AccountingService):
     @staticmethod
     @transaction.atomic
     def sync_bill(bill: VendorBill) -> VendorBill:
+        blockers = VendorBillService._sync_blockers(bill)
+        if blockers:
+            raise ValidationError(blockers)
         request_payload = LedgerOSVendorBillService._build_bill_payload(bill)
         sync_record = VendorBillService._build_sync_record(
             local_object_type="vendor_bill",
@@ -919,7 +1000,6 @@ class VendorBillService(Epic5AccountingService):
         bill.save(update_fields=["status", "updated_at"])
 
         try:
-            LedgerOSVendorSyncService.create_vendor(vendor=bill.vendor)
             result = LedgerOSSyncEventService._submit(
                 method="POST",
                 path=LedgerOSVendorBillService.BILL_PATH,

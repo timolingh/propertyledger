@@ -12,6 +12,7 @@ from payments.models import (
     VendorBill,
     VendorPayment,
 )
+from payments.services import VendorService
 
 
 @admin.register(PaymentWorkflowSettings)
@@ -56,6 +57,9 @@ class VendorAdmin(admin.ModelAdmin):
     list_display = ["name", "email", "phone", "is_active"]
     list_filter = ["is_active"]
     search_fields = ["name", "email", "phone"]
+
+    def save_model(self, request, obj, form, change):  # pragma: no cover - admin behavior
+        VendorService.save_and_sync_vendor(obj)
 
 
 @admin.register(MaintenanceCategory)
