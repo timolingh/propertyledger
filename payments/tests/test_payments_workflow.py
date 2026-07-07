@@ -60,7 +60,7 @@ def _configure_epic5_mappings():
         PropertyLedgerAccountMapping.MappingKey.ACCOUNTS_RECEIVABLE: ("1100", "Accounts Receivable", "asset"),
         PropertyLedgerAccountMapping.MappingKey.ACCOUNTS_PAYABLE: ("2000", "Accounts Payable", "liability"),
         PropertyLedgerAccountMapping.MappingKey.RENTAL_INCOME: ("4000", "Rental Income", "revenue"),
-        PropertyLedgerAccountMapping.MappingKey.REPAIRS_AND_MAINTENANCE_EXPENSE: ("6100", "Repairs and Maintenance Expense", "expense"),
+        PropertyLedgerAccountMapping.MappingKey.REPAIRS_AND_MAINTENANCE_EXPENSE: ("5000", "Operating Expense", "expense"),
         PropertyLedgerAccountMapping.MappingKey.TENANT_SECURITY_DEPOSITS_LIABILITY: ("2200", "Tenant Security Deposits", "liability"),
         PropertyLedgerAccountMapping.MappingKey.OWNER_CONTRIBUTIONS_EQUITY: ("3000", "Owner Contributions Equity", "equity"),
         PropertyLedgerAccountMapping.MappingKey.OWNER_DISTRIBUTIONS_EQUITY: ("3010", "Owner Distributions Equity", "equity"),
@@ -723,7 +723,7 @@ class Epic5AccountingServiceTests(TestCase):
         self.assertEqual(second_request_path, "http://ledgeros-web:8000/api/v1/bills/")
         self.assertEqual(second_payload["vendor_code"], f"vendor-{bill.vendor.pk}")
         self.assertEqual(second_payload["external_bill_number"], f"vendor-bill:{bill.pk}")
-        self.assertEqual(second_payload["lines"][0]["account_code"], "6100")
+        self.assertEqual(second_payload["lines"][0]["account_code"], "5000")
         self.assertEqual(second_payload["lines"][0]["amount"], "125.00")
 
         VendorBillService.sync_bill(bill)
