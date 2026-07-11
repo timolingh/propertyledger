@@ -36,6 +36,7 @@ from payments.models import (
     Vendor,
     VendorBill,
     VendorPayment,
+    _operating_bank_account_name,
 )
 
 
@@ -1035,6 +1036,12 @@ class VendorBillService(Epic5AccountingService):
 
 class VendorPaymentService(Epic5AccountingService):
     @staticmethod
+    def _normalize_payment_account(payment: VendorPayment) -> None:
+        if payment.is_credit_card_payoff or payment.payment_method != VendorPayment.PaymentMethod.CREDIT_CARD:
+            if not payment.bank_account_name.strip():
+                payment.bank_account_name = _operating_bank_account_name()
+
+    @staticmethod
     def _sync_blockers(payment: VendorPayment) -> list[str]:
         blockers: list[str] = []
         if payment.vendor_bill_id is None:
@@ -1184,6 +1191,7 @@ class VendorPaymentService(Epic5AccountingService):
     @staticmethod
     @transaction.atomic
     def save_and_sync_payment(payment: VendorPayment) -> VendorPayment:
+        VendorPaymentService._normalize_payment_account(payment)
         payment.full_clean()
         payment.save()
         if payment.status == VendorPayment.Status.VOIDED:
@@ -1269,6 +1277,11 @@ class VendorPaymentService(Epic5AccountingService):
 
 class DebtServicePaymentService(Epic5AccountingService):
     @staticmethod
+    def _normalize_payment_account(payment: DebtServicePayment) -> None:
+        if not payment.payment_account_name.strip():
+            payment.payment_account_name = _operating_bank_account_name()
+
+    @staticmethod
     def _sync_blockers(payment: DebtServicePayment) -> list[str]:
         blockers: list[str] = []
         try:
@@ -1344,6 +1357,7 @@ class DebtServicePaymentService(Epic5AccountingService):
     @staticmethod
     @transaction.atomic
     def save_and_sync_payment(payment: DebtServicePayment) -> DebtServicePayment:
+        DebtServicePaymentService._normalize_payment_account(payment)
         payment.full_clean()
         payment.save()
         if payment.status == DebtServicePayment.Status.VOIDED:

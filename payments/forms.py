@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from django import forms
+from django.core.exceptions import ValidationError
 
 from ledgeros.models import Lease, Property, Tenant, TenantCharge, Unit
 from payments.models import (
@@ -11,6 +12,7 @@ from payments.models import (
     Vendor,
     VendorBill,
     VendorPayment,
+    _operating_bank_account_name,
 )
 
 
@@ -176,6 +178,12 @@ class VendorPaymentForm(_SyncEditableModelForm):
         super().__init__(*args, **kwargs)
         self.fields["vendor"].queryset = Vendor.objects.filter(is_active=True)
         self.fields["vendor_bill"].queryset = VendorBill.objects.select_related("vendor", "property").all()
+        self.fields["bank_account_name"].help_text = "Locked to the configured operating bank account for MVP vendor payments."
+        if not self.instance or not self.instance.pk:
+            try:
+                self.fields["bank_account_name"].initial = _operating_bank_account_name()
+            except ValidationError:
+                self.fields["bank_account_name"].initial = ""
         self._apply_sync_edit_restrictions()
 
 
@@ -204,4 +212,10 @@ class DebtServicePaymentForm(_SyncEditableModelForm):
         super().__init__(*args, **kwargs)
         self.fields["property"].queryset = Property.objects.filter(status=Property.Status.ACTIVE)
         self.fields["lender"].queryset = Vendor.objects.filter(is_active=True)
+        self.fields["payment_account_name"].help_text = "Locked to the configured operating bank account for MVP debt-service payments."
+        if not self.instance or not self.instance.pk:
+            try:
+                self.fields["payment_account_name"].initial = _operating_bank_account_name()
+            except ValidationError:
+                self.fields["payment_account_name"].initial = ""
         self._apply_sync_edit_restrictions()

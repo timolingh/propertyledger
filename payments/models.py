@@ -7,6 +7,7 @@ from django.db import models
 from django.core.exceptions import ValidationError
 
 from ledgeros.models import LedgerOSSyncRecord, Property, Tenant, Unit, Lease, TenantCharge, TimestampedModel
+from ledgeros.models import PropertyLedgerAccountMapping, PropertyLedgerSetup
 
 
 def default_charge_type_priority() -> list[str]:
@@ -420,9 +421,18 @@ class VendorPayment(TimestampedModel):
                     {"credit_card_account_name": "Credit card account is required for credit card payments."}
                 )
         else:
+            operating_bank_account_name = _operating_bank_account_name()
             if not self.bank_account_name.strip():
                 raise ValidationError(
                     {"bank_account_name": "Bank account is required for non-credit-card payments."}
+                )
+            if self.bank_account_name.strip() != operating_bank_account_name:
+                raise ValidationError(
+                    {
+                        "bank_account_name": (
+                            f"Vendor payments must use the configured operating bank account: {operating_bank_account_name}."
+                        )
+                    }
                 )
 
 
@@ -483,3 +493,38 @@ class DebtServicePayment(TimestampedModel):
             raise ValidationError(
                 {"total_amount": "Principal plus interest must equal the total amount."}
             )
+        if self.payment_account_name.strip():
+            operating_bank_account_name = _operating_bank_account_name()
+            if self.payment_account_name.strip() != operating_bank_account_name:
+                raise ValidationError(
+                    {
+                        "payment_account_name": (
+                            f"Debt-service payments must use the configured operating bank account: {operating_bank_account_name}."
+                        )
+                    }
+                )
+
+
+def _operating_bank_account_name() -> str:
+    setup = PropertyLedgerSetup.load()
+    mapping = setup.account_mappings.filter(
+        mapping_key=PropertyLedgerAccountMapping.MappingKey.OPERATING_BANK_ACCOUNT
+    ).first()
+    if mapping is None or not mapping.is_valid_for_completion:
+        raise ValidationError(
+            {
+                "bank_account_name": (
+                    "The operating bank account mapping is required and must be valid before this record can save."
+                )
+            }
+        )
+    account_name = mapping.ledgeros_account_name.strip()
+    if not account_name:
+        raise ValidationError(
+            {
+                "bank_account_name": (
+                    "The operating bank account mapping must have a non-empty account name."
+                )
+            }
+        )
+    return account_name

@@ -832,6 +832,34 @@ class Epic5AccountingServiceTests(TestCase):
 
     @patch.dict(os.environ, {"LEDGEROS_HMAC_SECRET": "secret"}, clear=False)
     @patch("payments.services.urlopen")
+    def test_vendor_payment_rejects_undeposited_funds_account(self, mock_urlopen):
+        mock_urlopen.side_effect = [
+            _FakeResponse(status=201, payload=json.dumps({"vendor": {"id": "vendor_1"}}).encode("utf-8")),
+            _FakeResponse(status=201, payload=json.dumps({"bill": {"id": "bill_1"}, "journal_entry": {"id": "je_bill_1"}}).encode("utf-8")),
+        ]
+
+        VendorService.save_and_sync_vendor(self.vendor)
+        bill = self._create_vendor_bill()
+        VendorBillService.save_and_sync_bill(bill)
+
+        payment = VendorPayment.objects.create(
+            vendor=self.vendor,
+            vendor_bill=bill,
+            payment_date=date(2026, 2, 20),
+            amount=Decimal("125.00"),
+            payment_method=VendorPayment.PaymentMethod.ACH_MANUAL,
+            bank_account_name="Undeposited Funds",
+            memo="ACH payment",
+            is_credit_card_payoff=False,
+        )
+
+        with self.assertRaises(ValidationError) as exc:
+            VendorPaymentService.save_and_sync_payment(payment)
+
+        self.assertIn("Vendor payments must use the configured operating bank account", str(exc.exception))
+
+    @patch.dict(os.environ, {"LEDGEROS_HMAC_SECRET": "secret"}, clear=False)
+    @patch("payments.services.urlopen")
     def test_debt_service_payment_requires_balanced_split_and_posts_sync_event(self, mock_urlopen):
         mock_urlopen.return_value = _FakeResponse(
             status=201,
