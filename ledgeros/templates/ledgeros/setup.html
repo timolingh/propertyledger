@@ -85,6 +85,33 @@
     <p class="muted">Secrets stay in environment variables. Current secret env var: <code>{{ settings_obj.hmac_secret_env_var }}</code></p>
   </div>
   <div class="card">
+    <h2>Accounts Payable Mapping</h2>
+    <p class="muted">LedgerOS needs a default AP account code before vendor records can be provisioned. Set it here during setup.</p>
+    <form method="post">
+      {% csrf_token %}
+      <input type="hidden" name="action" value="save-mappings">
+      {{ accounts_payable_mapping_form.non_field_errors }}
+      <label for="{{ accounts_payable_mapping_form.ledgeros_account_id.id_for_label }}">LedgerOS account code</label>
+      {{ accounts_payable_mapping_form.ledgeros_account_id }}
+      {{ accounts_payable_mapping_form.ledgeros_account_id.errors }}
+      <label for="{{ accounts_payable_mapping_form.ledgeros_account_name.id_for_label }}">LedgerOS account name</label>
+      {{ accounts_payable_mapping_form.ledgeros_account_name }}
+      {{ accounts_payable_mapping_form.ledgeros_account_name.errors }}
+      <label for="{{ accounts_payable_mapping_form.ledgeros_account_type.id_for_label }}">LedgerOS account type</label>
+      {{ accounts_payable_mapping_form.ledgeros_account_type }}
+      {{ accounts_payable_mapping_form.ledgeros_account_type.errors }}
+      <label>
+        {{ accounts_payable_mapping_form.is_enabled }}
+        Enabled
+      </label>
+      {{ accounts_payable_mapping_form.is_enabled.errors }}
+      <label for="{{ accounts_payable_mapping_form.notes.id_for_label }}">Notes</label>
+      {{ accounts_payable_mapping_form.notes }}
+      {{ accounts_payable_mapping_form.notes.errors }}
+      <button type="submit" class="button primary">Save AP mapping</button>
+    </form>
+  </div>
+  <div class="card">
     <h2>Account Mappings</h2>
     <ul>
       {% for mapping in setup_obj.account_mappings.all %}

@@ -16,6 +16,7 @@ This repository now includes the Epic 1 through Epic 3 Django foundation for Pro
 - admin/setup screen plus Epic 2 CRUD pages for properties, units, owners, tenants, and leases;
 - Epic 3 tenant-charge workflow for base rent generation and manual charges.
 - Epic 4 payments app for tenant payments, payment applications, and security deposits.
+- Epic 5 vendor bills, vendor payments, debt-service payments, and maintenance summaries.
 
 ## Environment variables
 
@@ -85,6 +86,7 @@ Where to get the LedgerOS values:
 - `docs/epic-2-lessons-learned.md` — Epic 2 retrospective and workflow notes for later epics.
 - `docs/epic-3-lessons-learned.md` — Epic 3 retrospective and charge-workflow notes for later epics.
 - `docs/epic-4-lessons-learned.md` — Epic 4 retrospective and Epic 5 preflight notes.
+- `docs/epic-5.md` — Epic 5 runbook for vendor bills, vendor payments, and debt service.
 - `docs/epic-1.md` — Epic 1 runbook for setup and verification.
 - `docs/epic-2.md` — Epic 2 runbook for setup and CRUD workflows.
 - `docs/epic-3.md` — Epic 3 runbook for rent generation and tenant charges.

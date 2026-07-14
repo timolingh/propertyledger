@@ -686,9 +686,8 @@ Allowed charge statuses:
 
 - `draft`
 - `approved`
-- `sync_pending`
-- `synced`
-- `sync_failed`
+- `ready_to_sync`
+- `posted`
 - `voided`
 
 Initial status: `draft`.
@@ -696,14 +695,12 @@ Initial status: `draft`.
 Valid transitions:
 
 - `draft` -> `approved`
-- `approved` -> `sync_pending`
-- `sync_pending` -> `synced`
-- `sync_pending` -> `sync_failed`
-- `sync_failed` -> `sync_pending`
+- `approved` -> `ready_to_sync`
+- `ready_to_sync` -> `posted`
 - `draft` -> `voided`
-- `approved` -> `voided`, only if not synced
+- `approved` -> `voided`, only if not posted
 
-Once `synced`, do not edit amount, tenant, lease, period, account mapping, or charge type. Corrections after sync must use credit/adjustment workflows in later epics.
+Once `posted`, do not edit amount, tenant, lease, period, account mapping, or charge type. Corrections after posting must use credit/adjustment workflows in later epics.
 
 ## Rent generation identity
 
@@ -725,7 +722,7 @@ Base rent for a lease that starts or ends mid-month must be prorated for the aff
 
 Manual charge types may require additional optional mappings only if implemented. If a manual charge type lacks a valid mapping, the charge may be saved as draft but cannot be approved for LedgerOS sync.
 
-Approving a charge immediately starts LedgerOS sync. After sync, only `due_date` and `description` remain editable.
+Approving a charge immediately starts LedgerOS sync. The local charge status records workflow state, while the related `LedgerOSSyncRecord` records the LedgerOS posting outcome. After posting, only `due_date` and `description` remain editable.
 
 ## LedgerOS sync contract
 
@@ -758,10 +755,10 @@ Required response fields from LedgerOS:
 - User can create manual one-off charge.
 - User can create manual charge not attached to a lease.
 - Charge cannot sync without required mappings.
-- Synced charge creates a LedgerOS invoice through the adapter.
+- Posted charge creates a LedgerOS invoice through the adapter.
 - Retried sync does not duplicate the LedgerOS invoice.
-- Tenant ledger shows draft, approved, synced, and failed charges distinctly.
-- Synced charges are not destructively editable.
+- Tenant ledger shows draft, approved, ready-to-sync, and posted charges distinctly.
+- Posted charges are not destructively editable.
 - Tests cover duplicate rent generation, charge status transitions, required mapping validation, idempotency key generation, sync retry behavior, and tenant ledger visibility.
 
 ## Docker/manual checks
@@ -844,10 +841,9 @@ Allowed payment methods:
 Allowed payment statuses:
 
 - `draft`
-- `applied`
-- `sync_pending`
-- `synced`
-- `sync_failed`
+- `allocated`
+- `ready_to_sync`
+- `posted`
 - `voided`
 
 ### TenantPaymentApplication
@@ -875,6 +871,13 @@ Required fields:
 - description;
 - status;
 - sync record reference where applicable.
+
+Allowed statuses:
+
+- `draft`
+- `ready_to_sync`
+- `posted`
+- `voided`
 
 Allowed event types:
 
@@ -937,6 +940,10 @@ Idempotency keys must include local object ID, event type, and version.
 ---
 
 # Epic 5 — Vendor bills, credit cards, debt service, and maintenance expenses
+
+## Current status
+
+Epic 5 is complete. The implemented flow covers vendor records, vendor bills, maintenance categories, vendor payments, credit-card vendor payments, credit-card payoff handling, debt-service payments, and the supporting accounting sync behavior.
 
 ## Purpose
 
@@ -1007,11 +1014,11 @@ Required fields:
 Allowed statuses:
 
 - `draft`
-- `approved`
-- `sync_pending`
-- `synced`
-- `sync_failed`
+- `ready_to_sync`
+- `posted`
 - `voided`
+
+Vendor bills do not need a separate approval state in Epic 5. A saved bill should move directly into sync when the required prerequisites are present, and otherwise remain locally saved until those prerequisites are satisfied.
 
 ### VendorPayment
 
@@ -1061,6 +1068,13 @@ Required fields:
 - status.
 
 Principal plus interest must equal total amount unless a later escrow/fee component is explicitly added.
+
+Allowed statuses:
+
+- `draft`
+- `ready_to_sync`
+- `posted`
+- `voided`
 
 ## Required account mappings
 
@@ -1118,7 +1132,12 @@ Credit Operating Bank Account     total amount
 
 ## LedgerOS sync contract
 
-LedgerOS resources may include bill, vendor payment, bank transaction, or journal workflow depending on the authoritative LedgerOS contract.
+LedgerOS resources should match the authoritative LedgerOS contract for the workflow:
+
+- vendor bills use `POST /api/v1/bills/`;
+- vendor provisioning uses `POST /api/v1/vendors/`;
+- standard vendor bill payments use `POST /api/v1/payments/`;
+- workflows without a dedicated LedgerOS endpoint, such as credit-card vendor liability handling or debt service, use a generic sync-event that LedgerOS converts into a posted journal entry.
 
 Required source event types:
 
@@ -1128,7 +1147,7 @@ Required source event types:
 - `credit_card.payoff`
 - `debt_service.payment_recorded`
 
-If LedgerOS lacks a required endpoint, stop and ask whether to add a LedgerOS API, use an existing approved journal workflow, or defer the workflow.
+If LedgerOS lacks a required endpoint for a workflow, stop and ask whether to add a LedgerOS API, use an existing approved journal workflow, or defer the workflow.
 
 ## Acceptance criteria
 
@@ -1136,9 +1155,8 @@ If LedgerOS lacks a required endpoint, stop and ask whether to add a LedgerOS AP
 - User can tag bill with maintenance category.
 - User can mark expense as tenant-chargeable.
 - Bill syncs to LedgerOS without duplicate accounting entries under retry.
-- Vendor payment syncs to LedgerOS.
-- Credit-card vendor payment clears AP and increases credit-card liability rather than reducing bank cash.
-- Credit-card payoff reduces credit-card liability and bank cash.
+- Standard vendor payment syncs to LedgerOS.
+- Credit-card vendor payment and credit-card payoff post the expected AP, liability, and bank accounting effect through the LedgerOS sync-event journal bridge.
 - Debt-service payment records principal and interest split.
 - Principal plus interest equals total debt-service payment.
 - Maintenance expense report includes categorized expenses.

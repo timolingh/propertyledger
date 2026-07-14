@@ -655,7 +655,7 @@ LedgerOS Adapter
       v
 Real Estate App
       |
-      | 8. Show charge as posted/synced
+      | 8. Show charge as posted with a synced LedgerOS record
       v
 Scheduler/User
 ```
@@ -667,7 +667,7 @@ Scheduler/User
 3. App applies payment to open charges.
 4. App sends payment event to LedgerOS.
 5. LedgerOS records payment/application.
-6. App updates tenant ledger and sync status.
+6. App updates tenant ledger and records the LedgerOS sync result.
 
 ### 11.4 Owner statement workflow
 

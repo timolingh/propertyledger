@@ -45,8 +45,8 @@ class Command(BaseCommand):
             "is_enabled": True,
         },
         PropertyLedgerSetup.REQUIRED_ACCOUNT_MAPPING_KEYS[5]: {
-            "ledgeros_account_id": "6100",
-            "ledgeros_account_name": "Repairs and Maintenance Expense",
+            "ledgeros_account_id": "5000",
+            "ledgeros_account_name": "Operating Expense",
             "ledgeros_account_type": "expense",
             "is_required": True,
             "is_enabled": True,
@@ -117,16 +117,19 @@ class Command(BaseCommand):
                 created += 1
                 continue
 
-            if (
-                not mapping.ledgeros_account_id
-                or not mapping.ledgeros_account_name
-                or not mapping.ledgeros_account_type
+            changed = False
+            for field_name in (
+                "ledgeros_account_id",
+                "ledgeros_account_name",
+                "ledgeros_account_type",
+                "is_required",
+                "is_enabled",
             ):
-                mapping.ledgeros_account_id = defaults["ledgeros_account_id"]
-                mapping.ledgeros_account_name = defaults["ledgeros_account_name"]
-                mapping.ledgeros_account_type = defaults["ledgeros_account_type"]
-                mapping.is_required = defaults["is_required"]
-                mapping.is_enabled = defaults["is_enabled"]
+                new_value = defaults[field_name]
+                if getattr(mapping, field_name) != new_value:
+                    setattr(mapping, field_name, new_value)
+                    changed = True
+            if changed:
                 mapping.save()
                 updated += 1
 

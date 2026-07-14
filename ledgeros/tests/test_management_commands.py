@@ -67,12 +67,29 @@ class BootstrapLedgerOSAccountMappingsCommandTests(TestCase):
         self.assertEqual(rental_income.ledgeros_account_name, "Rental Income")
         self.assertEqual(rental_income.ledgeros_account_type, "revenue")
 
+        repairs_expense = mappings.get(
+            mapping_key=PropertyLedgerAccountMapping.MappingKey.REPAIRS_AND_MAINTENANCE_EXPENSE
+        )
+        self.assertEqual(repairs_expense.ledgeros_account_id, "5000")
+        self.assertEqual(repairs_expense.ledgeros_account_name, "Operating Expense")
+        self.assertEqual(repairs_expense.ledgeros_account_type, "expense")
+
         call_command("bootstrap_ledgeros_account_mappings")
         self.assertEqual(
             PropertyLedgerAccountMapping.objects.filter(setup=setup).count(),
             len(PropertyLedgerSetup.REQUIRED_ACCOUNT_MAPPING_KEYS)
             + len(PropertyLedgerSetup.OPTIONAL_ACCOUNT_MAPPING_KEYS),
         )
+
+        repairs_expense.ledgeros_account_id = "6100"
+        repairs_expense.ledgeros_account_name = "Repairs and Maintenance Expense"
+        repairs_expense.ledgeros_account_type = "expense"
+        repairs_expense.save()
+
+        call_command("bootstrap_ledgeros_account_mappings")
+        repairs_expense.refresh_from_db()
+        self.assertEqual(repairs_expense.ledgeros_account_id, "5000")
+        self.assertEqual(repairs_expense.ledgeros_account_name, "Operating Expense")
 
 
 class BootstrapLedgerOSSetupSelectionCommandTests(TestCase):

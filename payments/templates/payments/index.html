@@ -5,12 +5,17 @@
 {% block content %}
   <div class="card">
     <h1>Payments</h1>
-    <p class="muted">Review open invoices first, then record a payment against an invoice. Saving records the payment locally; syncing posts the cash and AR change in LedgerOS. Payment history and security deposits remain available underneath.</p>
+    <p class="muted">Use the bills workflow for vendor expenses and the invoices workflow for tenant receipts. Saving records the local transaction first; syncing posts the accounting effect to LedgerOS. Payment history, vendor bills, and security deposits remain available underneath.</p>
     <div style="display:flex; gap:1rem; flex-wrap:wrap;">
+      <a class="button primary" href="{% url 'vendor-bill-list' %}">Vendor bills</a>
+      <a class="button primary" href="{% url 'vendor-payment-list' %}">Vendor payments</a>
+      <a class="button primary" href="{% url 'debt-service-payment-list' %}">Debt service</a>
       <a class="button primary" href="{% url 'invoice-list' %}">Open invoices</a>
       <a class="button primary" href="{% url 'tenant-payment-list' %}">Payment history</a>
       <a class="button primary" href="{% url 'security-deposit-create' %}">Record deposit event</a>
       <a class="button primary" href="{% url 'security-deposit-list' %}">Security deposits</a>
+      <a class="button primary" href="{% url 'vendor-list' %}">Vendors</a>
+      <a class="button primary" href="{% url 'maintenance-category-list' %}">Maintenance categories</a>
     </div>
   </div>
 {% endblock %}

@@ -7,6 +7,7 @@ from ledgeros.models import (
     LedgerOSConnectionSettings,
     Owner,
     Property,
+    PropertyLedgerAccountMapping,
     PropertyLedgerSetup,
     Tenant,
     TenantCharge,
@@ -164,3 +165,33 @@ class PropertyLedgerSetupForm(forms.ModelForm):
             "ledgeros_accounting_period_id",
             "ledgeros_accounting_period_name",
         ]
+
+
+class PropertyLedgerAccountMappingForm(forms.ModelForm):
+    class Meta:
+        model = PropertyLedgerAccountMapping
+        fields = [
+            "ledgeros_account_id",
+            "ledgeros_account_name",
+            "ledgeros_account_type",
+            "is_enabled",
+            "notes",
+        ]
+
+    def __init__(self, *args, mapping_key: str, **kwargs):
+        self.mapping_key = mapping_key
+        super().__init__(*args, **kwargs)
+        self.fields["ledgeros_account_id"].required = False
+        self.fields["ledgeros_account_name"].required = False
+        self.fields["ledgeros_account_type"].required = False
+        self.fields["ledgeros_account_id"].help_text = "LedgerOS account code used for this mapping."
+        self.fields["ledgeros_account_name"].help_text = "Friendly LedgerOS account name."
+        self.fields["ledgeros_account_type"].help_text = "LedgerOS account type, such as asset, liability, expense, revenue, or equity."
+
+    def save(self, commit=True):  # type: ignore[override]
+        obj = super().save(commit=False)
+        obj.mapping_key = self.mapping_key
+        obj.is_required = True
+        if commit:
+            obj.save()
+        return obj

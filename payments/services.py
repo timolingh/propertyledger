@@ -27,7 +27,17 @@ from ledgeros.models import (
     Lease,
 )
 from ledgeros.signing import sign_api_request
-from payments.models import PaymentWorkflowSettings, SecurityDepositEvent, TenantPayment, TenantPaymentApplication
+from payments.models import (
+    DebtServicePayment,
+    PaymentWorkflowSettings,
+    SecurityDepositEvent,
+    TenantPayment,
+    TenantPaymentApplication,
+    Vendor,
+    VendorBill,
+    VendorPayment,
+    _operating_bank_account_name,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -37,6 +47,16 @@ logger = logging.getLogger(__name__)
 class SyncResult:
     status_code: int
     payload: dict[str, Any]
+
+
+def _response_journal_entry_id(payload: dict[str, Any]) -> str | None:
+    journal_entry_payload = payload.get("journal_entry")
+    if isinstance(journal_entry_payload, dict):
+        journal_entry_id = str(journal_entry_payload.get("id") or "").strip()
+        if journal_entry_id:
+            return journal_entry_id
+    journal_entry_id = str(payload.get("journal_entry_id") or "").strip()
+    return journal_entry_id or None
 
 
 class LedgerOSSyncEventService:
@@ -185,6 +205,212 @@ class LedgerOSPaymentService:
             payload=payload,
             idempotency_key=idempotency_key,
         )
+
+
+class LedgerOSVendorBillService:
+    BILL_PATH = "/api/v1/bills/"
+
+    @staticmethod
+    def _vendor_code(vendor: Vendor) -> str:
+        return f"vendor-{vendor.pk}"
+
+    @staticmethod
+    def _external_bill_number(bill: VendorBill) -> str:
+        return f"vendor-bill:{bill.pk}"
+
+    @staticmethod
+    def _build_bill_payload(bill: VendorBill) -> dict[str, Any]:
+        expense_account_code = Epic5AccountingService._account_code(
+            mapping_key=PropertyLedgerAccountMapping.MappingKey.REPAIRS_AND_MAINTENANCE_EXPENSE,
+            field_name="expense_category",
+        )
+        description_parts = [bill.get_expense_category_display()]
+        if bill.maintenance_category_id and bill.maintenance_category:
+            description_parts.append(bill.maintenance_category.name)
+        note = bill.repair_notes.strip() or bill.notes.strip()
+        if note:
+            description_parts.append(note)
+        elif bill.tenant_chargeable:
+            description_parts.append("tenant chargeable")
+
+        return {
+            "vendor_code": LedgerOSVendorBillService._vendor_code(bill.vendor),
+            "external_bill_number": LedgerOSVendorBillService._external_bill_number(bill),
+            "bill_date": bill.bill_date.isoformat(),
+            "due_date": (bill.due_date or bill.bill_date).isoformat(),
+            "total_amount": str(bill.amount.quantize(Decimal("0.01"))),
+            "lines": [
+                {
+                    "account_code": expense_account_code,
+                    "line_description": " - ".join(description_parts),
+                    "amount": str(bill.amount.quantize(Decimal("0.01"))),
+                }
+            ],
+        }
+
+    @staticmethod
+    def submit_bill(*, bill: VendorBill, idempotency_key: str) -> SyncResult:
+        payload = LedgerOSVendorBillService._build_bill_payload(bill)
+        return LedgerOSSyncEventService._submit(
+            method="POST",
+            path=LedgerOSVendorBillService.BILL_PATH,
+            payload=payload,
+            idempotency_key=idempotency_key,
+        )
+
+
+class LedgerOSVendorPaymentService:
+    PAYMENT_PATH = "/api/v1/payments/"
+
+    @staticmethod
+    def _build_payment_payload(payment: VendorPayment) -> dict[str, Any]:
+        bill_sync_record = payment.vendor_bill.sync_record
+        if bill_sync_record is None or not bill_sync_record.external_id:
+            raise ValidationError(
+                {"vendor_bill": "The vendor bill must be synced before the payment can be posted."}
+            )
+
+        return {
+            "source_type": "bill",
+            "source_reference": bill_sync_record.external_id,
+            "payment_date": payment.payment_date.isoformat(),
+            "amount": str(payment.amount.quantize(Decimal("0.01"))),
+        }
+
+    @staticmethod
+    def submit_payment(*, payment: VendorPayment, idempotency_key: str) -> SyncResult:
+        payload = LedgerOSVendorPaymentService._build_payment_payload(payment)
+        return LedgerOSSyncEventService._submit(
+            method="POST",
+            path=LedgerOSVendorPaymentService.PAYMENT_PATH,
+            payload=payload,
+            idempotency_key=idempotency_key,
+        )
+
+
+class LedgerOSVendorSyncService:
+    VENDOR_PATH = "/api/v1/vendors/"
+
+    @staticmethod
+    def _vendor_code(vendor: Vendor) -> str:
+        return f"vendor-{vendor.pk}"
+
+    @staticmethod
+    def _default_ap_account_code() -> str:
+        setup = PropertyLedgerSetup.load()
+        mapping = setup.account_mappings.filter(
+            mapping_key=PropertyLedgerAccountMapping.MappingKey.ACCOUNTS_PAYABLE
+        ).first()
+        if mapping is None or not mapping.is_valid_for_completion:
+            raise ValidationError(
+                {
+                    "accounts_payable": (
+                        "The accounts payable mapping is required and must be valid before this record can sync."
+                    )
+                }
+            )
+        return mapping.ledgeros_account_id.strip()
+
+    @staticmethod
+    def _build_vendor_payload(vendor: Vendor) -> dict[str, Any]:
+        return {
+            "vendor_code": LedgerOSVendorSyncService._vendor_code(vendor),
+            "name": vendor.name,
+            "status": "active" if vendor.is_active else "inactive",
+            "default_ap_account_code": LedgerOSVendorSyncService._default_ap_account_code(),
+        }
+
+    @staticmethod
+    def create_vendor(*, vendor: Vendor) -> SyncResult:
+        payload = LedgerOSVendorSyncService._build_vendor_payload(vendor)
+        return LedgerOSSyncEventService._submit(
+            method="POST",
+            path=LedgerOSVendorSyncService.VENDOR_PATH,
+            payload=payload,
+            idempotency_key=build_idempotency_key(
+                local_object_type="vendor",
+                local_object_id=str(vendor.pk),
+                source_event_type="vendor.upsert_requested",
+                external_id=LedgerOSVendorSyncService._vendor_code(vendor),
+                request_body=payload,
+            ),
+        )
+
+
+class VendorService:
+    @staticmethod
+    def _sync_blockers() -> list[str]:
+        blockers: list[str] = []
+        try:
+            LedgerOSVendorSyncService._default_ap_account_code()
+        except ValidationError as exc:
+            blockers.extend(exc.messages)
+        return blockers
+
+    @staticmethod
+    def _vendor_request_hash(vendor: Vendor) -> str:
+        return TenantPaymentService._sync_record_payload(LedgerOSVendorSyncService._build_vendor_payload(vendor))
+
+    @staticmethod
+    @transaction.atomic
+    def save_and_sync_vendor(vendor: Vendor) -> Vendor:
+        vendor.full_clean()
+        vendor.save()
+        try:
+            request_hash = VendorService._vendor_request_hash(vendor)
+        except ValidationError:
+            request_hash = None
+        if (
+            request_hash is not None
+            and vendor.sync_record
+            and vendor.sync_record.status == LedgerOSSyncRecord.Status.SUCCEEDED
+            and vendor.sync_record.request_hash == request_hash
+        ):
+            return vendor
+        if VendorService._sync_blockers():
+            return vendor
+        return VendorService.sync_vendor(vendor)
+
+    @staticmethod
+    @transaction.atomic
+    def sync_vendor(vendor: Vendor) -> Vendor:
+        request_payload = LedgerOSVendorSyncService._build_vendor_payload(vendor)
+        sync_record = Epic5AccountingService._build_sync_record(
+            local_object_type="vendor",
+            local_object_id=str(vendor.pk),
+            source_event_type="vendor.upsert_requested",
+            external_id=LedgerOSVendorSyncService._vendor_code(vendor),
+            request_payload=request_payload,
+            ledgeros_resource_type="vendor",
+        )
+        vendor.sync_record = sync_record
+        vendor.save(update_fields=["sync_record", "updated_at"])
+
+        sync_record.status = LedgerOSSyncRecord.Status.IN_PROGRESS
+        sync_record.attempt_count += 1
+        sync_record.last_error = None
+        sync_record.save(update_fields=["status", "attempt_count", "last_error", "updated_at"])
+
+        try:
+            result = LedgerOSVendorSyncService.create_vendor(vendor=vendor)
+        except Exception as exc:
+            logger.warning("Vendor sync failed", extra={"vendor_id": vendor.pk, "error": str(exc)})
+            sync_record.status = LedgerOSSyncRecord.Status.FAILED
+            sync_record.last_error = str(exc)
+            sync_record.response_payload = {"status": "failed", "error": str(exc)}
+            sync_record.save(update_fields=["status", "last_error", "response_payload", "updated_at"])
+            return vendor
+
+        sync_record.status = LedgerOSSyncRecord.Status.SUCCEEDED
+        sync_record.ledgeros_resource_id = str(
+            result.payload.get("vendor", {}).get("id")
+            or result.payload.get("id")
+            or sync_record.external_id
+        )
+        sync_record.response_payload = result.payload
+        sync_record.last_synced_at = timezone.now()
+        sync_record.save(update_fields=["status", "ledgeros_resource_id", "response_payload", "last_synced_at", "updated_at"])
+        return vendor
 
 
 class TenantPaymentService:
@@ -337,11 +563,10 @@ class TenantPaymentService:
 
     @staticmethod
     def allocate_payment(payment: TenantPayment, preferred_charge_ids: list[int] | None = None) -> TenantPayment:
-        if payment.status in {
-            TenantPayment.Status.SYNC_PENDING,
-            TenantPayment.Status.SYNCED,
-        }:
-            raise ValidationError({"payment": "Synced payments cannot be reallocated."})
+        if payment.sync_record and payment.sync_record.status == LedgerOSSyncRecord.Status.SUCCEEDED:
+            raise ValidationError({"payment": "Posted payments cannot be reallocated."})
+        if payment.status == TenantPayment.Status.VOIDED:
+            raise ValidationError({"payment": "Voided payments cannot be reallocated."})
 
         settings = PaymentWorkflowSettings.load()
         priority = list(settings.charge_type_priority or [
@@ -414,7 +639,7 @@ class TenantPaymentService:
         if not new_allocations:
             payment.status = TenantPayment.Status.DRAFT
         elif any_failed:
-            payment.status = TenantPayment.Status.SYNC_FAILED
+            payment.status = TenantPayment.Status.ALLOCATED
         elif all_allocations_synced:
             payment.status = TenantPayment.Status.READY_TO_SYNC
         else:
@@ -510,7 +735,7 @@ class TenantPaymentService:
         sync_record.attempt_count += 1
         sync_record.last_error = None
         sync_record.save(update_fields=["status", "attempt_count", "last_error", "updated_at"])
-        payment.status = TenantPayment.Status.SYNC_PENDING
+        payment.status = TenantPayment.Status.READY_TO_SYNC
         payment.save(update_fields=["status", "updated_at"])
 
         try:
@@ -526,8 +751,6 @@ class TenantPaymentService:
             sync_record.last_error = str(exc)
             sync_record.response_payload = {"status": "failed", "error": str(exc)}
             sync_record.save(update_fields=["status", "last_error", "response_payload", "updated_at"])
-            payment.status = TenantPayment.Status.SYNC_FAILED
-            payment.save(update_fields=["status", "updated_at"])
             return payment
 
         sync_record.status = LedgerOSSyncRecord.Status.SUCCEEDED
@@ -536,10 +759,11 @@ class TenantPaymentService:
             or result.payload.get("id")
             or sync_record.external_id
         )
+        sync_record.ledgeros_journal_entry_id = _response_journal_entry_id(result.payload)
         sync_record.response_payload = result.payload
         sync_record.last_synced_at = timezone.now()
-        sync_record.save(update_fields=["status", "ledgeros_resource_id", "response_payload", "last_synced_at", "updated_at"])
-        payment.status = TenantPayment.Status.SYNCED
+        sync_record.save(update_fields=["status", "ledgeros_resource_id", "ledgeros_journal_entry_id", "response_payload", "last_synced_at", "updated_at"])
+        payment.status = TenantPayment.Status.POSTED
         payment.save(update_fields=["status", "updated_at"])
         return payment
 
@@ -569,7 +793,7 @@ class TenantPaymentService:
         sync_record.attempt_count += 1
         sync_record.last_error = None
         sync_record.save(update_fields=["status", "attempt_count", "last_error", "updated_at"])
-        event.status = SecurityDepositEvent.Status.SYNC_PENDING
+        event.status = SecurityDepositEvent.Status.READY_TO_SYNC
         event.save(update_fields=["status", "updated_at"])
 
         try:
@@ -585,8 +809,6 @@ class TenantPaymentService:
             sync_record.last_error = str(exc)
             sync_record.response_payload = {"status": "failed", "error": str(exc)}
             sync_record.save(update_fields=["status", "last_error", "response_payload", "updated_at"])
-            event.status = SecurityDepositEvent.Status.SYNC_FAILED
-            event.save(update_fields=["status", "updated_at"])
             return event
 
         sync_record.status = LedgerOSSyncRecord.Status.SUCCEEDED
@@ -595,10 +817,11 @@ class TenantPaymentService:
             or result.payload.get("id")
             or sync_record.external_id
         )
+        sync_record.ledgeros_journal_entry_id = _response_journal_entry_id(result.payload)
         sync_record.response_payload = result.payload
         sync_record.last_synced_at = timezone.now()
-        sync_record.save(update_fields=["status", "ledgeros_resource_id", "response_payload", "last_synced_at", "updated_at"])
-        event.status = SecurityDepositEvent.Status.SYNCED
+        sync_record.save(update_fields=["status", "ledgeros_resource_id", "ledgeros_journal_entry_id", "response_payload", "last_synced_at", "updated_at"])
+        event.status = SecurityDepositEvent.Status.POSTED
         event.save(update_fields=["status", "updated_at"])
         return event
 
@@ -655,3 +878,573 @@ class SecurityDepositLedgerService:
         )
         total = sum((event.amount for event in events), Decimal("0.00"))
         return total.quantize(Decimal("0.01"))
+
+
+class Epic5AccountingService:
+    @staticmethod
+    def _account_code(*, mapping_key: str, field_name: str) -> str:
+        setup = PropertyLedgerSetup.load()
+        mapping = setup.account_mappings.filter(mapping_key=mapping_key).first()
+        if mapping is None or not mapping.is_valid_for_completion:
+            raise ValidationError(
+                {
+                    field_name: (
+                        f"The {mapping_key.replace('_', ' ')} mapping is required and must be valid before this record can sync."
+                    )
+                }
+            )
+        return mapping.ledgeros_account_id.strip()
+
+    @staticmethod
+    def _build_event_payload(
+        *,
+        source_system: str,
+        domain_event_type: str,
+        external_id: str,
+        source_object_type: str,
+        source_object_id: str,
+        occurred_at: str,
+        payload: dict[str, Any],
+    ) -> dict[str, Any]:
+        return TenantPaymentService._build_sync_event_payload(
+            source_system=source_system,
+            domain_event_type=domain_event_type,
+            external_id=external_id,
+            source_object_type=source_object_type,
+            source_object_id=source_object_id,
+            occurred_at=occurred_at,
+            payload=payload,
+        )
+
+    @staticmethod
+    def _build_sync_record(
+        *,
+        local_object_type: str,
+        local_object_id: str,
+        source_event_type: str,
+        external_id: str,
+        request_payload: dict[str, Any],
+        ledgeros_resource_type: str = "sync_event",
+    ) -> LedgerOSSyncRecord:
+        return TenantPaymentService._build_sync_record(
+            local_object_type=local_object_type,
+            local_object_id=local_object_id,
+            source_event_type=source_event_type,
+            external_id=external_id,
+            request_payload=request_payload,
+            ledgeros_resource_type=ledgeros_resource_type,
+        )
+
+    @staticmethod
+    def _sync_record_payload(payload: dict[str, Any]) -> str:
+        return TenantPaymentService._sync_record_payload(payload)
+
+
+class VendorBillService(Epic5AccountingService):
+    @staticmethod
+    def _sync_blockers(bill: VendorBill) -> list[str]:
+        blockers: list[str] = []
+        if bill.vendor.sync_record is None or bill.vendor.sync_record.status != LedgerOSSyncRecord.Status.SUCCEEDED:
+            blockers.append("The vendor must be synced to LedgerOS before this bill can post.")
+        try:
+            Epic5AccountingService._account_code(
+                mapping_key=PropertyLedgerAccountMapping.MappingKey.ACCOUNTS_PAYABLE,
+                field_name="vendor",
+            )
+            Epic5AccountingService._account_code(
+                mapping_key=PropertyLedgerAccountMapping.MappingKey.REPAIRS_AND_MAINTENANCE_EXPENSE,
+                field_name="expense_category",
+            )
+        except ValidationError as exc:
+            blockers.extend(exc.messages)
+        return blockers
+
+    @staticmethod
+    @transaction.atomic
+    def save_and_sync_bill(bill: VendorBill) -> VendorBill:
+        bill.full_clean()
+        bill.save()
+        if bill.status == VendorBill.Status.VOIDED:
+            return bill
+        if bill.sync_record and bill.sync_record.status == LedgerOSSyncRecord.Status.SUCCEEDED:
+            return bill
+        if VendorBillService._sync_blockers(bill):
+            if bill.status != VendorBill.Status.POSTED:
+                bill.status = VendorBill.Status.DRAFT
+                bill.save(update_fields=["status", "updated_at"])
+            return bill
+        return VendorBillService.sync_bill(bill)
+
+    @staticmethod
+    @transaction.atomic
+    def sync_bill(bill: VendorBill) -> VendorBill:
+        blockers = VendorBillService._sync_blockers(bill)
+        if blockers:
+            raise ValidationError(blockers)
+        request_payload = LedgerOSVendorBillService._build_bill_payload(bill)
+        sync_record = VendorBillService._build_sync_record(
+            local_object_type="vendor_bill",
+            local_object_id=str(bill.pk),
+            source_event_type="vendor_bill.created",
+            external_id=LedgerOSVendorBillService._external_bill_number(bill),
+            request_payload=request_payload,
+            ledgeros_resource_type="bill",
+        )
+        bill.sync_record = sync_record
+        bill.save(update_fields=["sync_record", "updated_at"])
+
+        sync_record.status = LedgerOSSyncRecord.Status.IN_PROGRESS
+        sync_record.attempt_count += 1
+        sync_record.last_error = None
+        sync_record.save(update_fields=["status", "attempt_count", "last_error", "updated_at"])
+        bill.status = VendorBill.Status.READY_TO_SYNC
+        bill.save(update_fields=["status", "updated_at"])
+
+        try:
+            result = LedgerOSSyncEventService._submit(
+                method="POST",
+                path=LedgerOSVendorBillService.BILL_PATH,
+                payload=request_payload,
+                idempotency_key=sync_record.idempotency_key,
+            )
+        except Exception as exc:
+            logger.warning("Vendor bill sync failed", extra={"vendor_bill_id": bill.pk, "error": str(exc)})
+            sync_record.status = LedgerOSSyncRecord.Status.FAILED
+            sync_record.last_error = str(exc)
+            sync_record.response_payload = {"status": "failed", "error": str(exc)}
+            sync_record.save(update_fields=["status", "last_error", "response_payload", "updated_at"])
+            return bill
+
+        sync_record.status = LedgerOSSyncRecord.Status.SUCCEEDED
+        sync_record.ledgeros_resource_id = str(
+            result.payload.get("bill", {}).get("id")
+            or result.payload.get("id")
+            or sync_record.external_id
+        )
+        sync_record.ledgeros_journal_entry_id = str(
+            result.payload.get("journal_entry", {}).get("id")
+            or result.payload.get("journal_entry_id")
+            or ""
+        ) or None
+        sync_record.response_payload = result.payload
+        sync_record.last_synced_at = timezone.now()
+        sync_record.save(update_fields=["status", "ledgeros_resource_id", "ledgeros_journal_entry_id", "response_payload", "last_synced_at", "updated_at"])
+        bill.status = VendorBill.Status.POSTED
+        bill.save(update_fields=["status", "updated_at"])
+        return bill
+
+
+class VendorPaymentService(Epic5AccountingService):
+    @staticmethod
+    def _normalize_payment_account(payment: VendorPayment) -> None:
+        if payment.payment_method == VendorPayment.PaymentMethod.CREDIT_CARD and not payment.is_credit_card_payoff:
+            payment.bank_account_name = ""
+        elif payment.is_credit_card_payoff or payment.payment_method != VendorPayment.PaymentMethod.CREDIT_CARD:
+            if not payment.bank_account_name.strip():
+                payment.bank_account_name = _operating_bank_account_name()
+
+    @staticmethod
+    def _sync_blockers(payment: VendorPayment) -> list[str]:
+        blockers: list[str] = []
+        if payment.vendor_bill_id is None:
+            blockers.append("A vendor bill is required before this payment can sync.")
+            return blockers
+        if payment.vendor_bill.sync_record is None or payment.vendor_bill.sync_record.status != LedgerOSSyncRecord.Status.SUCCEEDED:
+            blockers.append("The related vendor bill must sync successfully before the payment can sync.")
+        if payment.is_credit_card_payoff:
+            try:
+                Epic5AccountingService._account_code(
+                    mapping_key=PropertyLedgerAccountMapping.MappingKey.CREDIT_CARD_LIABILITY,
+                    field_name="credit_card_account_name",
+                )
+                Epic5AccountingService._account_code(
+                    mapping_key=PropertyLedgerAccountMapping.MappingKey.OPERATING_BANK_ACCOUNT,
+                    field_name="bank_account_name",
+                )
+            except ValidationError as exc:
+                blockers.extend(exc.messages)
+        elif payment.payment_method == VendorPayment.PaymentMethod.CREDIT_CARD:
+            try:
+                Epic5AccountingService._account_code(
+                    mapping_key=PropertyLedgerAccountMapping.MappingKey.ACCOUNTS_PAYABLE,
+                    field_name="vendor_bill",
+                )
+                Epic5AccountingService._account_code(
+                    mapping_key=PropertyLedgerAccountMapping.MappingKey.CREDIT_CARD_LIABILITY,
+                    field_name="credit_card_account_name",
+                )
+            except ValidationError as exc:
+                blockers.extend(exc.messages)
+        else:
+            try:
+                Epic5AccountingService._account_code(
+                    mapping_key=PropertyLedgerAccountMapping.MappingKey.ACCOUNTS_PAYABLE,
+                    field_name="vendor_bill",
+                )
+                Epic5AccountingService._account_code(
+                    mapping_key=PropertyLedgerAccountMapping.MappingKey.OPERATING_BANK_ACCOUNT,
+                    field_name="bank_account_name",
+                )
+            except ValidationError as exc:
+                blockers.extend(exc.messages)
+        return blockers
+
+    @staticmethod
+    def _payment_event_details(payment: VendorPayment) -> dict[str, Any]:
+        if payment.is_credit_card_payoff:
+            event_type = "credit_card.payoff"
+            accounting_entries = [
+                {
+                    "account_code": Epic5AccountingService._account_code(
+                        mapping_key=PropertyLedgerAccountMapping.MappingKey.CREDIT_CARD_LIABILITY,
+                        field_name="credit_card_account_name",
+                    ),
+                    "direction": "debit",
+                    "amount": str(payment.amount.quantize(Decimal("0.01"))),
+                },
+                {
+                    "account_code": Epic5AccountingService._account_code(
+                        mapping_key=PropertyLedgerAccountMapping.MappingKey.OPERATING_BANK_ACCOUNT,
+                        field_name="bank_account_name",
+                    ),
+                    "direction": "credit",
+                    "amount": str(payment.amount.quantize(Decimal("0.01"))),
+                },
+            ]
+        elif payment.payment_method == VendorPayment.PaymentMethod.CREDIT_CARD:
+            event_type = "vendor_payment.credit_card"
+            accounting_entries = [
+                {
+                    "account_code": Epic5AccountingService._account_code(
+                        mapping_key=PropertyLedgerAccountMapping.MappingKey.ACCOUNTS_PAYABLE,
+                        field_name="vendor_bill",
+                    ),
+                    "direction": "debit",
+                    "amount": str(payment.amount.quantize(Decimal("0.01"))),
+                },
+                {
+                    "account_code": Epic5AccountingService._account_code(
+                        mapping_key=PropertyLedgerAccountMapping.MappingKey.CREDIT_CARD_LIABILITY,
+                        field_name="credit_card_account_name",
+                    ),
+                    "direction": "credit",
+                    "amount": str(payment.amount.quantize(Decimal("0.01"))),
+                },
+            ]
+        else:
+            event_type = "vendor_payment.sent"
+            accounting_entries = [
+                {
+                    "account_code": Epic5AccountingService._account_code(
+                        mapping_key=PropertyLedgerAccountMapping.MappingKey.ACCOUNTS_PAYABLE,
+                        field_name="vendor_bill",
+                    ),
+                    "direction": "debit",
+                    "amount": str(payment.amount.quantize(Decimal("0.01"))),
+                },
+                {
+                    "account_code": Epic5AccountingService._account_code(
+                        mapping_key=PropertyLedgerAccountMapping.MappingKey.OPERATING_BANK_ACCOUNT,
+                        field_name="bank_account_name",
+                    ),
+                    "direction": "credit",
+                    "amount": str(payment.amount.quantize(Decimal("0.01"))),
+                },
+            ]
+
+        return {
+            "vendor_id": payment.vendor_id,
+            "vendor_bill_id": payment.vendor_bill_id,
+            "payment_date": payment.payment_date.isoformat(),
+            "amount": str(payment.amount.quantize(Decimal("0.01"))),
+            "payment_method": payment.payment_method,
+            "bank_account_name": payment.bank_account_name,
+            "credit_card_account_name": payment.credit_card_account_name,
+            "memo": payment.memo,
+            "check_number": payment.check_number,
+            "check_status": payment.check_status,
+            "is_credit_card_payoff": payment.is_credit_card_payoff,
+            "notes": payment.notes,
+            "accounting_entries": accounting_entries,
+        }
+
+    @staticmethod
+    def _request_payload(payment: VendorPayment) -> tuple[dict[str, Any], str]:
+        if payment.is_credit_card_payoff:
+            domain_event_type = "credit_card.payoff"
+            source_event_type = "credit_card.payoff"
+        elif payment.payment_method == VendorPayment.PaymentMethod.CREDIT_CARD:
+            domain_event_type = "vendor_payment.credit_card"
+            source_event_type = "vendor_payment.credit_card"
+        else:
+            domain_event_type = "vendor_payment.sent"
+            source_event_type = "vendor_payment.sent"
+
+        return VendorPaymentService._build_event_payload(
+            source_system="propertyledger",
+            domain_event_type=domain_event_type,
+            external_id=f"vendor-payment:{payment.pk}",
+            source_object_type="vendor_payment",
+            source_object_id=str(payment.pk),
+            occurred_at=payment.created_at.isoformat(),
+            payload=VendorPaymentService._payment_event_details(payment),
+        ), source_event_type
+
+    @staticmethod
+    @transaction.atomic
+    def save_and_sync_payment(payment: VendorPayment) -> VendorPayment:
+        VendorPaymentService._normalize_payment_account(payment)
+        payment.full_clean()
+        payment.save()
+        if payment.status == VendorPayment.Status.VOIDED:
+            return payment
+        if payment.sync_record and payment.sync_record.status == LedgerOSSyncRecord.Status.SUCCEEDED:
+            return payment
+        if VendorPaymentService._sync_blockers(payment):
+            if payment.status != VendorPayment.Status.POSTED:
+                payment.status = VendorPayment.Status.DRAFT
+                payment.save(update_fields=["status", "updated_at"])
+            return payment
+        return VendorPaymentService.sync_payment(payment)
+
+    @staticmethod
+    @transaction.atomic
+    def sync_payment(payment: VendorPayment) -> VendorPayment:
+        use_payment_endpoint = not payment.is_credit_card_payoff and payment.payment_method != VendorPayment.PaymentMethod.CREDIT_CARD
+        if use_payment_endpoint:
+            request_payload = LedgerOSVendorPaymentService._build_payment_payload(payment)
+            source_event_type = "vendor_payment.sent"
+            ledgeros_resource_type = "payment"
+            ledgeros_path = LedgerOSVendorPaymentService.PAYMENT_PATH
+            response_id_key = "payment"
+            response_journal_key = "journal_entry"
+        else:
+            request_payload, source_event_type = VendorPaymentService._request_payload(payment)
+            ledgeros_resource_type = "sync_event"
+            ledgeros_path = LedgerOSSyncEventService.SYNC_EVENT_PATH
+            response_id_key = "sync_event"
+            response_journal_key = ""
+        sync_record = VendorPaymentService._build_sync_record(
+            local_object_type="vendor_payment",
+            local_object_id=str(payment.pk),
+            source_event_type=source_event_type,
+            external_id=f"vendor-payment:{payment.pk}",
+            request_payload=request_payload,
+            ledgeros_resource_type=ledgeros_resource_type,
+        )
+        payment.sync_record = sync_record
+        payment.save(update_fields=["sync_record", "updated_at"])
+
+        sync_record.status = LedgerOSSyncRecord.Status.IN_PROGRESS
+        sync_record.attempt_count += 1
+        sync_record.last_error = None
+        sync_record.save(update_fields=["status", "attempt_count", "last_error", "updated_at"])
+        payment.status = VendorPayment.Status.READY_TO_SYNC
+        payment.save(update_fields=["status", "updated_at"])
+
+        try:
+            result = LedgerOSSyncEventService._submit(
+                method="POST",
+                path=ledgeros_path,
+                payload=request_payload,
+                idempotency_key=sync_record.idempotency_key,
+            )
+        except Exception as exc:
+            logger.warning("Vendor payment sync failed", extra={"vendor_payment_id": payment.pk, "error": str(exc)})
+            sync_record.status = LedgerOSSyncRecord.Status.FAILED
+            sync_record.last_error = str(exc)
+            sync_record.response_payload = {"status": "failed", "error": str(exc)}
+            sync_record.save(update_fields=["status", "last_error", "response_payload", "updated_at"])
+            return payment
+
+        sync_record.status = LedgerOSSyncRecord.Status.SUCCEEDED
+        sync_record.ledgeros_resource_id = str(
+            result.payload.get(response_id_key, {}).get("id")
+            or result.payload.get("id")
+            or sync_record.external_id
+        )
+        journal_entry_id = _response_journal_entry_id(result.payload)
+        if journal_entry_id:
+            sync_record.ledgeros_journal_entry_id = journal_entry_id
+        sync_record.response_payload = result.payload
+        sync_record.last_synced_at = timezone.now()
+        update_fields = ["status", "ledgeros_resource_id", "response_payload", "last_synced_at", "updated_at"]
+        if journal_entry_id:
+            update_fields.insert(2, "ledgeros_journal_entry_id")
+        sync_record.save(update_fields=update_fields)
+        payment.status = VendorPayment.Status.POSTED
+        payment.save(update_fields=["status", "updated_at"])
+        return payment
+
+
+class DebtServicePaymentService(Epic5AccountingService):
+    @staticmethod
+    def _normalize_payment_account(payment: DebtServicePayment) -> None:
+        if not payment.payment_account_name.strip():
+            payment.payment_account_name = _operating_bank_account_name()
+
+    @staticmethod
+    def _sync_blockers(payment: DebtServicePayment) -> list[str]:
+        blockers: list[str] = []
+        try:
+            Epic5AccountingService._account_code(
+                mapping_key=PropertyLedgerAccountMapping.MappingKey.MORTGAGE_OR_LOAN_LIABILITY,
+                field_name="loan_liability_account_name",
+            )
+            Epic5AccountingService._account_code(
+                mapping_key=PropertyLedgerAccountMapping.MappingKey.INTEREST_EXPENSE,
+                field_name="interest_expense_account_name",
+            )
+            Epic5AccountingService._account_code(
+                mapping_key=PropertyLedgerAccountMapping.MappingKey.OPERATING_BANK_ACCOUNT,
+                field_name="payment_account_name",
+            )
+        except ValidationError as exc:
+            blockers.extend(exc.messages)
+        return blockers
+
+    @staticmethod
+    def _payment_event_details(payment: DebtServicePayment) -> dict[str, Any]:
+        return {
+            "property_id": payment.property_id,
+            "lender_id": payment.lender_id,
+            "payment_date": payment.payment_date.isoformat(),
+            "total_amount": str(payment.total_amount.quantize(Decimal("0.01"))),
+            "principal_amount": str(payment.principal_amount.quantize(Decimal("0.01"))),
+            "interest_amount": str(payment.interest_amount.quantize(Decimal("0.01"))),
+            "payment_account_name": payment.payment_account_name,
+            "loan_liability_account_name": payment.loan_liability_account_name,
+            "interest_expense_account_name": payment.interest_expense_account_name,
+            "memo": payment.memo,
+            "accounting_entries": [
+                {
+                    "account_code": Epic5AccountingService._account_code(
+                        mapping_key=PropertyLedgerAccountMapping.MappingKey.MORTGAGE_OR_LOAN_LIABILITY,
+                        field_name="loan_liability_account_name",
+                    ),
+                    "direction": "debit",
+                    "amount": str(payment.principal_amount.quantize(Decimal("0.01"))),
+                },
+                {
+                    "account_code": Epic5AccountingService._account_code(
+                        mapping_key=PropertyLedgerAccountMapping.MappingKey.INTEREST_EXPENSE,
+                        field_name="interest_expense_account_name",
+                    ),
+                    "direction": "debit",
+                    "amount": str(payment.interest_amount.quantize(Decimal("0.01"))),
+                },
+                {
+                    "account_code": Epic5AccountingService._account_code(
+                        mapping_key=PropertyLedgerAccountMapping.MappingKey.OPERATING_BANK_ACCOUNT,
+                        field_name="payment_account_name",
+                    ),
+                    "direction": "credit",
+                    "amount": str(payment.total_amount.quantize(Decimal("0.01"))),
+                },
+            ],
+        }
+
+    @staticmethod
+    def _request_payload(payment: DebtServicePayment) -> dict[str, Any]:
+        return DebtServicePaymentService._build_event_payload(
+            source_system="propertyledger",
+            domain_event_type="debt_service.payment_recorded",
+            external_id=f"debt-service-payment:{payment.pk}",
+            source_object_type="debt_service_payment",
+            source_object_id=str(payment.pk),
+            occurred_at=payment.created_at.isoformat(),
+            payload=DebtServicePaymentService._payment_event_details(payment),
+        )
+
+    @staticmethod
+    @transaction.atomic
+    def save_and_sync_payment(payment: DebtServicePayment) -> DebtServicePayment:
+        DebtServicePaymentService._normalize_payment_account(payment)
+        payment.full_clean()
+        payment.save()
+        if payment.status == DebtServicePayment.Status.VOIDED:
+            return payment
+        if payment.sync_record and payment.sync_record.status == LedgerOSSyncRecord.Status.SUCCEEDED:
+            return payment
+        if DebtServicePaymentService._sync_blockers(payment):
+            if payment.status != DebtServicePayment.Status.POSTED:
+                payment.status = DebtServicePayment.Status.DRAFT
+                payment.save(update_fields=["status", "updated_at"])
+            return payment
+        return DebtServicePaymentService.sync_payment(payment)
+
+    @staticmethod
+    @transaction.atomic
+    def sync_payment(payment: DebtServicePayment) -> DebtServicePayment:
+        request_payload = DebtServicePaymentService._request_payload(payment)
+        sync_record = DebtServicePaymentService._build_sync_record(
+            local_object_type="debt_service_payment",
+            local_object_id=str(payment.pk),
+            source_event_type="debt_service.payment_recorded",
+            external_id=f"debt-service-payment:{payment.pk}",
+            request_payload=request_payload,
+        )
+        payment.sync_record = sync_record
+        payment.save(update_fields=["sync_record", "updated_at"])
+
+        sync_record.status = LedgerOSSyncRecord.Status.IN_PROGRESS
+        sync_record.attempt_count += 1
+        sync_record.last_error = None
+        sync_record.save(update_fields=["status", "attempt_count", "last_error", "updated_at"])
+        payment.status = DebtServicePayment.Status.READY_TO_SYNC
+        payment.save(update_fields=["status", "updated_at"])
+
+        try:
+            result = LedgerOSSyncEventService._submit(
+                method="POST",
+                path=LedgerOSSyncEventService.SYNC_EVENT_PATH,
+                payload=request_payload,
+                idempotency_key=sync_record.idempotency_key,
+            )
+        except Exception as exc:
+            logger.warning("Debt service payment sync failed", extra={"debt_service_payment_id": payment.pk, "error": str(exc)})
+            sync_record.status = LedgerOSSyncRecord.Status.FAILED
+            sync_record.last_error = str(exc)
+            sync_record.response_payload = {"status": "failed", "error": str(exc)}
+            sync_record.save(update_fields=["status", "last_error", "response_payload", "updated_at"])
+            return payment
+
+        sync_record.status = LedgerOSSyncRecord.Status.SUCCEEDED
+        sync_record.ledgeros_resource_id = str(
+            result.payload.get("sync_event", {}).get("id")
+            or result.payload.get("id")
+            or sync_record.external_id
+        )
+        sync_record.ledgeros_journal_entry_id = _response_journal_entry_id(result.payload)
+        sync_record.response_payload = result.payload
+        sync_record.last_synced_at = timezone.now()
+        sync_record.save(update_fields=["status", "ledgeros_resource_id", "ledgeros_journal_entry_id", "response_payload", "last_synced_at", "updated_at"])
+        payment.status = DebtServicePayment.Status.POSTED
+        payment.save(update_fields=["status", "updated_at"])
+        return payment
+
+
+class MaintenanceExpenseSummaryService:
+    @staticmethod
+    def summary_rows() -> list[dict[str, Any]]:
+        rows: list[dict[str, Any]] = []
+        query = (
+            VendorBill.objects.filter(sync_record__status=LedgerOSSyncRecord.Status.SUCCEEDED)
+            .select_related("maintenance_category", "property", "unit", "vendor")
+            .values("expense_category", "maintenance_category__name")
+            .annotate(total_amount=models.Sum("amount"), bill_count=models.Count("id"))
+            .order_by("expense_category", "maintenance_category__name")
+        )
+        for row in query:
+            rows.append(
+                {
+                    "expense_category": row["expense_category"],
+                    "expense_category_label": dict(VendorBill.ExpenseCategory.choices).get(
+                        row["expense_category"], row["expense_category"]
+                    ),
+                    "maintenance_category_name": row["maintenance_category__name"] or "-",
+                    "total_amount": (row["total_amount"] or Decimal("0.00")).quantize(Decimal("0.01")),
+                    "bill_count": row["bill_count"] or 0,
+                }
+            )
+        return rows
