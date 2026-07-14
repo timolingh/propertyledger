@@ -941,6 +941,10 @@ Idempotency keys must include local object ID, event type, and version.
 
 # Epic 5 — Vendor bills, credit cards, debt service, and maintenance expenses
 
+## Current status
+
+Epic 5 is complete. The implemented flow covers vendor records, vendor bills, maintenance categories, vendor payments, credit-card vendor payments, credit-card payoff handling, debt-service payments, and the supporting accounting sync behavior.
+
 ## Purpose
 
 Support vendor bills, property/unit expense attribution, credit-card-paid vendor bills, manual debt-service payments, and accounting-relevant maintenance tracking.

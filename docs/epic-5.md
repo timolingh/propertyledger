@@ -4,6 +4,10 @@
 
 This document contains the working guide for Epic 5 in PropertyLedger.
 
+## Current status
+
+Epic 5 is complete. The remaining notes here are the runbook and verification guidance for the implemented vendor-bill, credit-card, and debt-service flows.
+
 Epic 5 adds:
 
 - vendor records;
@@ -31,6 +35,7 @@ Epic 5 does not include:
 - [`docs/propertyledger-prd.md`](../docs/propertyledger-prd.md)
 - [`docs/propertyledger-implementation-epics.md`](../docs/propertyledger-implementation-epics.md)
 - [`docs/epic-4-lessons-learned.md`](../docs/epic-4-lessons-learned.md)
+- [`docs/epic-5-lessons-learned.md`](../docs/epic-5-lessons-learned.md)
 - [`payments/models.py`](../payments/models.py)
 - [`payments/forms.py`](../payments/forms.py)
 - [`payments/services.py`](../payments/services.py)
