@@ -178,13 +178,28 @@ class VendorPaymentForm(_SyncEditableModelForm):
         super().__init__(*args, **kwargs)
         self.fields["vendor"].queryset = Vendor.objects.filter(is_active=True)
         self.fields["vendor_bill"].queryset = VendorBill.objects.select_related("vendor", "property").all()
-        self.fields["bank_account_name"].help_text = "Locked to the configured operating bank account for MVP vendor payments."
-        if not self.instance or not self.instance.pk:
+        self.fields["bank_account_name"].help_text = (
+            "Used for non-credit-card vendor payments and credit-card payoffs; "
+            "credit-card vendor payments leave this blank."
+        )
+        if self.instance and self.instance.pk:
+            if self.instance.payment_method == VendorPayment.PaymentMethod.CREDIT_CARD and not self.instance.is_credit_card_payoff:
+                self.fields["bank_account_name"].initial = ""
+        else:
             try:
                 self.fields["bank_account_name"].initial = _operating_bank_account_name()
             except ValidationError:
                 self.fields["bank_account_name"].initial = ""
         self._apply_sync_edit_restrictions()
+
+    def clean(self):
+        cleaned_data = super().clean()
+        if (
+            cleaned_data.get("payment_method") == VendorPayment.PaymentMethod.CREDIT_CARD
+            and not cleaned_data.get("is_credit_card_payoff")
+        ):
+            cleaned_data["bank_account_name"] = ""
+        return cleaned_data
 
 
 class DebtServicePaymentForm(_SyncEditableModelForm):

@@ -760,7 +760,7 @@ class Epic5AccountingServiceTests(TestCase):
             amount=Decimal("125.00"),
             payment_method=VendorPayment.PaymentMethod.CREDIT_CARD,
             credit_card_account_name="Card Liability",
-            bank_account_name="",
+            bank_account_name="Operating Bank",
             memo="Card swipe",
             is_credit_card_payoff=False,
         )
@@ -784,6 +784,7 @@ class Epic5AccountingServiceTests(TestCase):
         self.assertEqual(card_payment.sync_record.source_event_type, "vendor_payment.credit_card")
         self.assertEqual(card_payment.sync_record.response_payload["sync_event"]["id"], "sync_payment_1")
         self.assertEqual(card_payment.sync_record.ledgeros_journal_entry_id, "je_payment_1")
+        self.assertEqual(card_payment.bank_account_name, "")
         self.assertEqual(payoff.status, VendorPayment.Status.POSTED)
         self.assertEqual(payoff.sync_record.source_event_type, "credit_card.payoff")
         self.assertEqual(payoff.sync_record.response_payload["sync_event"]["id"], "sync_payment_2")
@@ -792,6 +793,7 @@ class Epic5AccountingServiceTests(TestCase):
         fourth_request_path, fourth_payload = _decode_mock_request(mock_urlopen.call_args_list[3])
         self.assertEqual(third_request_path, "http://ledgeros-web:8000/api/v1/sync-events/")
         self.assertEqual(third_payload["domain_event_type"], "vendor_payment.credit_card")
+        self.assertEqual(third_payload["payload"]["bank_account_name"], "")
         self.assertEqual(fourth_request_path, "http://ledgeros-web:8000/api/v1/sync-events/")
         self.assertEqual(fourth_payload["domain_event_type"], "credit_card.payoff")
 

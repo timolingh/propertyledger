@@ -1037,7 +1037,9 @@ class VendorBillService(Epic5AccountingService):
 class VendorPaymentService(Epic5AccountingService):
     @staticmethod
     def _normalize_payment_account(payment: VendorPayment) -> None:
-        if payment.is_credit_card_payoff or payment.payment_method != VendorPayment.PaymentMethod.CREDIT_CARD:
+        if payment.payment_method == VendorPayment.PaymentMethod.CREDIT_CARD and not payment.is_credit_card_payoff:
+            payment.bank_account_name = ""
+        elif payment.is_credit_card_payoff or payment.payment_method != VendorPayment.PaymentMethod.CREDIT_CARD:
             if not payment.bank_account_name.strip():
                 payment.bank_account_name = _operating_bank_account_name()
 
