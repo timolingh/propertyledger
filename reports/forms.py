@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+from datetime import date
+
 from django import forms
 from django.db import models
 
-from ledgeros.models import Owner, Property
+from ledgeros.models import Owner, Property, Tenant
 from reports.models import OwnerContributionDistribution
 from reports.services import statement_period_bounds
 
@@ -63,3 +65,34 @@ class OwnerStatementForm(forms.Form):
         elif period_type == self.PeriodType.CUSTOM:
             raise forms.ValidationError("Custom ranges require both a start and end date.")
         return cleaned_data
+
+
+class PropertyDateRangeForm(forms.Form):
+    property = forms.ModelChoiceField(queryset=Property.objects.filter(status=Property.Status.ACTIVE), required=False)
+    period_start = forms.DateField(widget=forms.DateInput(attrs={"type": "date"}), required=False)
+    period_end = forms.DateField(widget=forms.DateInput(attrs={"type": "date"}), required=False)
+    as_of_date = forms.DateField(widget=forms.DateInput(attrs={"type": "date"}), required=False)
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        today = date.today()
+        first_day = today.replace(day=1)
+        self.fields["period_start"].initial = self.fields["period_start"].initial or first_day
+        self.fields["period_end"].initial = self.fields["period_end"].initial or today
+        self.fields["as_of_date"].initial = self.fields["as_of_date"].initial or today
+
+
+class TenantLedgerReportForm(PropertyDateRangeForm):
+    tenant = forms.ModelChoiceField(queryset=Tenant.objects.filter(is_active=True), required=False)
+
+
+class LedgerOSDateRangeForm(forms.Form):
+    period_start = forms.DateField(widget=forms.DateInput(attrs={"type": "date"}), required=False)
+    period_end = forms.DateField(widget=forms.DateInput(attrs={"type": "date"}), required=False)
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        today = date.today()
+        first_day = today.replace(day=1)
+        self.fields["period_start"].initial = self.fields["period_start"].initial or first_day
+        self.fields["period_end"].initial = self.fields["period_end"].initial or today

@@ -92,6 +92,7 @@ Where to get the LedgerOS values:
 - `docs/epic-3.md` — Epic 3 runbook for rent generation and tenant charges.
 - `docs/epic-4.md` — Epic 4 runbook for tenant payments, credits, and security deposits.
 - `docs/epic-7.md` — Epic 7 runbook for owner statements and manual owner activity.
+- `docs/epic-8.md` — Epic 8 runbook for the reports app and in-page LedgerOS reports.
 - `CLAUDE.md` — guidance for AI agents working on the PropertyLedger repo.
 
 ## Testing

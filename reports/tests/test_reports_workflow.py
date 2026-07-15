@@ -248,6 +248,163 @@ class ReportsWorkflowTests(TestCase):
         self.assertContains(response, "300.00")
         self.assertContains(response, "85.00")
 
+    def test_reports_home_lists_property_and_ledgeros_reports(self):
+        response = self.client.get(reverse("reports-home"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Rent roll")
+        self.assertContains(response, "Tenant ledger")
+        self.assertContains(response, "Trial balance")
+        self.assertContains(response, "Audit drilldown")
+
+    def test_rent_roll_report_lists_active_lease(self):
+        response = self.client.get(reverse("rent-roll-report"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Property One")
+        self.assertContains(response, "Unit 1")
+        self.assertContains(response, "Tenant One")
+        self.assertContains(response, "1000.00")
+
+    def test_tenant_ledger_report_shows_running_balance(self):
+        self._create_synced_charge("100.00")
+        self._create_synced_payment("90.00")
+
+        response = self.client.get(
+            reverse("tenant-ledger-report"),
+            {
+                "property": self.property.pk,
+                "tenant": self.tenant.pk,
+                "period_start": "2026-05-01",
+                "period_end": "2026-05-31",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Charge")
+        self.assertContains(response, "Payment")
+        self.assertContains(response, "100.00")
+        self.assertContains(response, "90.00")
+        self.assertContains(response, "10.00")
+
+    def test_delinquency_report_shows_open_balance(self):
+        self._create_synced_charge("100.00")
+
+        response = self.client.get(
+            reverse("delinquency-report"),
+            {
+                "property": self.property.pk,
+                "as_of_date": "2026-05-31",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Delinquent charges")
+        self.assertContains(response, "100.00")
+
+    def test_property_income_expense_report_summarizes_synced_activity(self):
+        self._create_synced_charge("100.00")
+        self._create_synced_payment("90.00")
+        self._create_synced_bill("25.00", VendorBill.ExpenseCategory.REPAIRS_AND_MAINTENANCE)
+        self._create_synced_bill("10.00", VendorBill.ExpenseCategory.MANAGEMENT_FEE)
+
+        response = self.client.get(
+            reverse("property-income-expense-report"),
+            {
+                "property": self.property.pk,
+                "period_start": "2026-05-01",
+                "period_end": "2026-05-31",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Income by charge type")
+        self.assertContains(response, "Expenses by bill type")
+        self.assertContains(response, "Cash collections memo")
+        self.assertContains(response, "100.00")
+        self.assertContains(response, "25.00")
+        self.assertContains(response, "10.00")
+
+    def test_owner_statement_report_page_is_separate_from_epic7_export(self):
+        response = self.client.get(
+            reverse("owner-statement-report"),
+            {
+                "owner": self.owner.pk,
+                "property": self.property.pk,
+                "period_type": "month",
+                "period_start": "2026-05-15",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Owner Statement Report")
+        self.assertContains(response, "Open Epic 7 statement")
+        self.assertNotContains(response, "Export CSV")
+
+    def test_security_deposit_and_expense_summaries_render(self):
+        self._create_synced_deposit_event("300.00", SecurityDepositEvent.EventType.RECEIVED)
+        self._create_synced_deposit_event("50.00", SecurityDepositEvent.EventType.DEDUCTED)
+        self._create_synced_bill("10.00", VendorBill.ExpenseCategory.MANAGEMENT_FEE)
+        self._create_synced_bill("25.00", VendorBill.ExpenseCategory.REPAIRS_AND_MAINTENANCE)
+
+        deposit_response = self.client.get(
+            reverse("security-deposit-ledger-report"),
+            {
+                "property": self.property.pk,
+                "period_start": "2026-05-01",
+                "period_end": "2026-05-31",
+            },
+        )
+        management_response = self.client.get(
+            reverse("management-fee-expense-summary-report"),
+            {
+                "property": self.property.pk,
+                "period_start": "2026-05-01",
+                "period_end": "2026-05-31",
+            },
+        )
+        maintenance_response = self.client.get(
+            reverse("maintenance-expense-summary-report"),
+            {
+                "property": self.property.pk,
+                "period_start": "2026-05-01",
+                "period_end": "2026-05-31",
+            },
+        )
+
+        self.assertEqual(deposit_response.status_code, 200)
+        self.assertContains(deposit_response, "Security deposit events")
+        self.assertContains(deposit_response, "300.00")
+        self.assertContains(deposit_response, "50.00")
+        self.assertEqual(management_response.status_code, 200)
+        self.assertContains(management_response, "Management fee expenses")
+        self.assertContains(management_response, "10.00")
+        self.assertEqual(maintenance_response.status_code, 200)
+        self.assertContains(maintenance_response, "Maintenance expenses")
+        self.assertContains(maintenance_response, "25.00")
+
+    @patch.dict(os.environ, {"LEDGEROS_HMAC_SECRET": "secret"}, clear=False)
+    @patch("reports.services.urlopen")
+    def test_ledgeros_trial_balance_report_renders_inside_propertyledger(self, mock_urlopen):
+        mock_urlopen.return_value = _FakeResponse(
+            status=200,
+            payload=json.dumps(
+                [
+                    {"account_code": "1000", "account_name": "Operating Bank", "balance": "150.00"},
+                    {"account_code": "4000", "account_name": "Rental Income", "balance": "-150.00"},
+                ]
+            ).encode("utf-8"),
+        )
+
+        response = self.client.get(reverse("ledgeros-trial-balance-report"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "LedgerOS Trial Balance")
+        self.assertContains(response, "Operating Bank")
+        self.assertContains(response, "150.00")
+        self.assertEqual(mock_urlopen.call_count, 1)
+        self.assertIn("/api/v1/trial-balance/", mock_urlopen.call_args.args[0].full_url)
+
     def test_pending_sync_report_shows_unsynced_statement_items(self):
         OwnerContributionDistribution.objects.create(
             owner=self.owner,

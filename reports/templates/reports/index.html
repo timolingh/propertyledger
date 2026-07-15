@@ -5,11 +5,32 @@
 {% block content %}
   <div class="card">
     <h1>Reports</h1>
-    <p class="muted">Generate owner statements from synced activity, preview them before exporting, and review pending-sync items separately.</p>
+    <p class="muted">PropertyLedger reports stay inside PropertyLedger. LedgerOS accounting reports are rendered in-page from the LedgerOS API.</p>
     <div style="display:flex; gap:1rem; flex-wrap:wrap;">
-      <a class="button primary" href="{{ owner_statement_url }}">Owner statements</a>
-      <a class="button primary" href="{{ pending_sync_url }}">Pending sync</a>
       <a class="button primary" href="{{ owner_activity_list_url }}">Owner activity</a>
+      <a class="button primary" href="{{ pending_sync_url }}">Pending sync</a>
+    </div>
+  </div>
+  <div class="card">
+    <h2>PropertyLedger reports</h2>
+    <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 0.75rem;">
+      {% for report in property_reports %}
+        <a class="button" href="{{ report.url }}" style="display:block; text-align:left;">
+          <strong>{{ report.label }}</strong>
+          <div class="muted">{{ report.description }}</div>
+        </a>
+      {% endfor %}
+    </div>
+  </div>
+  <div class="card">
+    <h2>LedgerOS reports</h2>
+    <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 0.75rem;">
+      {% for report in ledgeros_reports %}
+        <a class="button" href="{{ report.url }}" style="display:block; text-align:left;">
+          <strong>{{ report.label }}</strong>
+          <div class="muted">{{ report.description }}</div>
+        </a>
+      {% endfor %}
     </div>
   </div>
   <div class="card">
@@ -17,4 +38,3 @@
     <a class="button primary" href="{{ create_owner_activity_url }}">Add owner activity</a>
   </div>
 {% endblock %}
-
