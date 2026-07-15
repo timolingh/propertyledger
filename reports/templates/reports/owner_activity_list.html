@@ -1,0 +1,48 @@
+{% extends "ledgeros/base.html" %}
+
+{% block title %}Owner Activity | PropertyLedger{% endblock %}
+
+{% block content %}
+  <div class="card">
+    <h1>Owner Activity</h1>
+    <p class="muted">Record owner contributions and distributions. Official statement totals only include synced records.</p>
+    <a class="button primary" href="{% url 'owner-activity-create' %}">Add owner activity</a>
+  </div>
+  <div class="card">
+    <table>
+      <thead>
+        <tr>
+          <th>Owner</th>
+          <th>Property</th>
+          <th>Type</th>
+          <th>Date</th>
+          <th>Amount</th>
+          <th>Status</th>
+          <th>Sync</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for activity in activities %}
+          <tr>
+            <td>{{ activity.owner }}</td>
+            <td>{{ activity.property }}</td>
+            <td>{{ activity.get_event_type_display }}</td>
+            <td>{{ activity.event_date }}</td>
+            <td>{{ activity.amount }}</td>
+            <td>{{ activity.get_status_display }}</td>
+            <td>{{ activity.sync_status|default:"-" }}</td>
+            <td class="actions">
+              <a href="{% url 'owner-activity-detail' activity.pk %}">View</a>
+              <a href="{% url 'owner-activity-edit' activity.pk %}">Edit</a>
+              <a href="{% url 'owner-activity-archive' activity.pk %}">Archive</a>
+            </td>
+          </tr>
+        {% empty %}
+          <tr><td colspan="8" class="muted">No owner activity yet.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+{% endblock %}
+

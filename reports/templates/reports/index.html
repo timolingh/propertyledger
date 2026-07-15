@@ -1,0 +1,20 @@
+{% extends "ledgeros/base.html" %}
+
+{% block title %}Reports | PropertyLedger{% endblock %}
+
+{% block content %}
+  <div class="card">
+    <h1>Reports</h1>
+    <p class="muted">Generate owner statements from synced activity, preview them before exporting, and review pending-sync items separately.</p>
+    <div style="display:flex; gap:1rem; flex-wrap:wrap;">
+      <a class="button primary" href="{{ owner_statement_url }}">Owner statements</a>
+      <a class="button primary" href="{{ pending_sync_url }}">Pending sync</a>
+      <a class="button primary" href="{{ owner_activity_list_url }}">Owner activity</a>
+    </div>
+  </div>
+  <div class="card">
+    <p class="muted">Use owner activity to record contributions and distributions before syncing them to LedgerOS.</p>
+    <a class="button primary" href="{{ create_owner_activity_url }}">Add owner activity</a>
+  </div>
+{% endblock %}
+

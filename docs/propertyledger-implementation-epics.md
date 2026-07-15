@@ -1295,11 +1295,22 @@ Before coding Epic 7, produce a short decision log covering:
 - reconciliation to LedgerOS-posted activity;
 - export/save behavior.
 
+## Decision Log
+
+Epic 7 decisions are now fixed as follows:
+
+- statement scope is `owner + property`;
+- statement periods support preset `month`, `quarter`, and `year` ranges, plus arbitrary date ranges;
+- owner contributions and owner distributions sync to LedgerOS so property records and accounting records stay aligned;
+- management-fee expenses are displayed only through the existing expense/bill/journal workflow and do not get a dedicated Epic 7 entry flow;
+- the statement artifact is preview/export only;
+- official statement totals include only synced records, with pending-sync items surfaced in a separate report.
+
 ## In scope
 
 - owner statement generation;
 - owner statement preview;
-- owner statement saved record or export, if selected by implementation;
+- owner statement export;
 - manual management-fee expense display where recorded;
 - owner contributions/distributions as manual records;
 - owner/property attribution for all statement lines;
@@ -1374,7 +1385,18 @@ An owner statement must show:
 - security deposit activity if relevant to the owner view;
 - net summary.
 
-Draft/unsynced records may be shown for operational visibility only if clearly labeled. Official totals must reconcile to posted/synced activity.
+Draft/unsynced records must not appear in the official statement totals. They may appear only in the pending-sync report.
+
+### Pending-sync report
+
+Epic 7 must also provide a report or view for statement-related items that are pending sync.
+
+At minimum, that report should surface:
+
+- owner contributions awaiting LedgerOS posting;
+- owner distributions awaiting LedgerOS posting;
+- any other statement-related record that has not yet reached a synced state;
+- enough context to explain why the item is excluded from official statement totals.
 
 ## Acceptance criteria
 
@@ -1382,14 +1404,23 @@ Draft/unsynced records may be shown for operational visibility only if clearly l
 - User can manually record management-fee expenses through normal expense/bill/journal workflow.
 - Owner statement shows rent collected, expenses, manually recorded management-fee expenses, contributions/distributions, and net summary.
 - Statement totals reconcile to underlying posted/synced activity.
-- Statement clearly excludes or labels draft/unsynced items.
-- Tests cover statement period filtering, attribution, contribution/distribution treatment, and reconciliation to synced records.
+- Statement clearly excludes draft/unsynced items from official totals.
+- Pending-sync items are available in a separate report.
+- Tests cover statement period filtering, owner/property scoping, contribution/distribution treatment, sync inclusion rules, and pending-sync visibility.
 
 ## Docker/manual checks
 
 - Run tests inside Docker.
 - Create owner/property activity across a statement period.
 - Generate owner statement and compare totals to source records.
+
+## Follow-on roadmap
+
+The Epic 7 baseline is intentionally preview/export focused. Useful next-step enhancements are:
+
+- statement drill-down lines that link each summary row to the underlying source records;
+- a dedicated owner-activity detail action for manual sync or retry from the record detail page;
+- pending-sync grouping by source type with inline failure reasons where available.
 
 ---
 
