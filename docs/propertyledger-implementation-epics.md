@@ -1179,6 +1179,28 @@ If LedgerOS lacks a required endpoint for a workflow, stop and ask whether to ad
 
 Expose guided banking and reconciliation actions without implementing automated bank-feed ingestion, and reserve the check-writing workflow needed before practical deployment.
 
+## Decision log
+
+Epic 6 has been clarified and partially implemented against the sibling LedgerOS v2 API surface.
+
+Confirmed decisions:
+
+- Epic 6 scope for this pass: MVP banking and reconciliation visibility only
+- Missing LedgerOS banking API handling: add the narrow LedgerOS API only if a required read/write surface is absent
+- Reconciliation scope for this pass: visibility only
+- Deposit and withdrawal payloads: use whatever LedgerOS already exposes
+- No LedgerOS code change was required for the current MVP visibility pass
+
+Current implementation status:
+
+- PropertyLedger now consumes the existing LedgerOS banking endpoints for visibility
+- The banking UI is read-only for Epic 6 MVP
+- Check writing remains deferred unless explicitly expanded later
+
+See also:
+
+- [`docs/epic-6.md`](epic-6.md)
+
 ## Implementation-readiness requirement
 
 Before coding Epic 6, produce a short decision log covering:

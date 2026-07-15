@@ -8,6 +8,7 @@ from payments.views import (
     MaintenanceCategoryCreateView,
     MaintenanceCategoryListView,
     MaintenanceCategoryUpdateView,
+    BankingVisibilityView,
     TenantInvoiceDetailView,
     TenantInvoiceListView,
     SecurityDepositEventCreateView,
@@ -35,6 +36,7 @@ from payments.views import (
 
 urlpatterns = [
     path("", PaymentsLandingView.as_view(), name="payments-home"),
+    path("banking/", BankingVisibilityView.as_view(), name="banking-dashboard"),
     path("vendors/", VendorListView.as_view(), name="vendor-list"),
     path("vendors/add/", VendorCreateView.as_view(), name="vendor-create"),
     path("vendors/<int:pk>/edit/", VendorUpdateView.as_view(), name="vendor-edit"),

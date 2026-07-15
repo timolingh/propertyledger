@@ -1,0 +1,83 @@
+{% extends "ledgeros/base.html" %}
+
+{% block title %}Banking Visibility | PropertyLedger{% endblock %}
+
+{% block content %}
+  <div class="card">
+    <h1>Banking Visibility</h1>
+    <p class="muted">Read-only visibility into LedgerOS bank accounts and reconciliation status. Epic 6 MVP does not include bank-feed ingestion or reconciliation actions.</p>
+    <div style="display:flex; gap:1rem; flex-wrap:wrap;">
+      <a class="button" href="{% url 'payments-home' %}">Back to payments</a>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Bank Accounts</h2>
+    {% if bank_accounts_error %}
+      <p class="status-bad">{{ bank_accounts_error }}</p>
+    {% endif %}
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Bank</th>
+          <th>Account #</th>
+          <th>Ledger Account</th>
+          <th>Status</th>
+          <th>Current Balance</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for account in bank_accounts %}
+          <tr>
+            <td>{{ account.name }}</td>
+            <td>{{ account.bank_name }}</td>
+            <td>{{ account.account_number|default:"-" }}</td>
+            <td>{{ account.ledger_account_name }} <span class="muted">({{ account.ledger_account_code }})</span></td>
+            <td>{{ account.status }}</td>
+            <td>{{ account.current_balance }}</td>
+          </tr>
+        {% empty %}
+          <tr>
+            <td colspan="6" class="muted">No bank accounts available.</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <div class="card">
+    <h2>Reconciliations</h2>
+    {% if bank_reconciliations_error %}
+      <p class="status-bad">{{ bank_reconciliations_error }}</p>
+    {% endif %}
+    <table>
+      <thead>
+        <tr>
+          <th>Account</th>
+          <th>Period</th>
+          <th>Status</th>
+          <th>Statement Ending Balance</th>
+          <th>Book Balance</th>
+          <th>Cleared Balance</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for reconciliation in bank_reconciliations %}
+          <tr>
+            <td>{{ reconciliation.bank_account_name }}</td>
+            <td>{{ reconciliation.start_date }} to {{ reconciliation.end_date }}</td>
+            <td>{{ reconciliation.status }}</td>
+            <td>{{ reconciliation.statement_ending_balance }}</td>
+            <td>{{ reconciliation.book_balance }}</td>
+            <td>{{ reconciliation.cleared_balance }}</td>
+          </tr>
+        {% empty %}
+          <tr>
+            <td colspan="6" class="muted">No reconciliations available.</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+{% endblock %}
