@@ -1,0 +1,77 @@
+{% extends "ledgeros/base.html" %}
+
+{% block content %}
+  <div class="card">
+    <h1>{{ report_title }}</h1>
+    <p class="muted">{{ report_summary }}</p>
+    {% if report_note %}
+      <p class="muted">{{ report_note }}</p>
+    {% endif %}
+    {% if form %}
+      <form method="get">
+        {{ form.as_p }}
+        <button type="submit" class="button primary">Run report</button>
+      </form>
+    {% endif %}
+    {% if alternate_url and alternate_label %}
+      <div style="display:flex; gap:1rem; flex-wrap:wrap;">
+        <a class="button primary" href="{{ alternate_url }}">{{ alternate_label }}</a>
+      </div>
+    {% endif %}
+  </div>
+
+  {% if error_message %}
+    <div class="card banner banner-bad">
+      <strong>Report unavailable</strong>
+      <div class="muted">{{ error_message }}</div>
+    </div>
+  {% endif %}
+
+  {% if summary_items %}
+    <div class="card">
+      <h2>Summary</h2>
+      <table>
+        <tbody>
+          {% for label, value in summary_items %}
+            <tr>
+              <th style="width: 20rem;">{{ label }}</th>
+              <td>{{ value }}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% endif %}
+
+  {% for section in sections %}
+    <div class="card">
+      <h2>{{ section.title }}</h2>
+      {% if section.summary %}
+        <p class="muted">{{ section.summary }}</p>
+      {% endif %}
+      <table>
+        <thead>
+          <tr>
+            {% for column in section.columns %}
+              <th>{{ column }}</th>
+            {% endfor %}
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in section.rows %}
+            <tr>
+              {% for cell in row %}
+                <td>{{ cell }}</td>
+              {% endfor %}
+            </tr>
+          {% empty %}
+            <tr>
+              <td colspan="{{ section.columns|length }}" class="muted">{{ section.empty_message }}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% endfor %}
+{% endblock %}
+

@@ -1430,6 +1430,8 @@ The Epic 7 baseline is intentionally preview/export focused. Useful next-step en
 
 Expose PropertyLedger reports first while preserving access to LedgerOS accounting reports.
 
+The implementation-ready Epic 8 decisions are captured in `docs/epic-8.md`.
+
 ## Implementation-readiness requirement
 
 Before coding Epic 8, produce a report definition table. Each report must define:
@@ -1495,7 +1497,7 @@ Real estate financial reports must reconcile to LedgerOS-posted resources where 
 - PropertyLedger reports are accessible from primary navigation.
 - Each report defines period and scope.
 - Reports exclude draft/unposted accounting activity where official financial totals are shown.
-- Drill-down links show source records where practical.
+- Drill-down remains deferred unless the source API already exposes it.
 - Property income/expense and owner statement totals reconcile to posted/synced accounting activity.
 - LedgerOS accounting-source reports and statuses are read from LedgerOS APIs where available.
 - Property/unit/tenant/owner-context reports are computed in PropertyLedger and reconciled to LedgerOS-posted resources.
