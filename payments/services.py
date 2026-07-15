@@ -178,6 +178,113 @@ class LedgerOSSyncEventService:
             raise RuntimeError(str(exc)) from exc
 
 
+class LedgerOSBankingReadService:
+    BANK_ACCOUNTS_PATH = "/api/v1/bank-accounts/"
+    BANK_RECONCILIATIONS_PATH = "/api/v1/bank-reconciliations/"
+
+    @staticmethod
+    def _format_http_error(exc: HTTPError, *, path: str) -> str:
+        try:
+            raw_body = exc.read()
+        except Exception:
+            raw_body = b""
+
+        if raw_body:
+            try:
+                body = raw_body.decode("utf-8").strip()
+            except Exception:
+                body = raw_body.decode("utf-8", errors="replace").strip()
+            if body:
+                return f"LedgerOS returned HTTP {exc.code} for GET {path}: {body}"
+
+        return f"LedgerOS returned HTTP {exc.code} for GET {path}: {exc.reason}"
+
+    @staticmethod
+    def _canonical_json_bytes(payload: bytes = b"") -> bytes:
+        return payload
+
+    @staticmethod
+    def _connection_values() -> tuple[str, str, str, str, int, str]:
+        return LedgerOSSyncEventService._connection_values()
+
+    @staticmethod
+    def _request_json(*, path: str) -> Any:
+        base_url, host_header, client_id, secret, timeout, api_key = LedgerOSBankingReadService._connection_values()
+        if not base_url:
+            raise ValidationError({"ledgeros": "Missing LedgerOS configuration: base_url"})
+
+        body = LedgerOSBankingReadService._canonical_json_bytes()
+        timestamp = str(int(time.time()))
+        nonce = uuid.uuid4().hex
+        signed = sign_api_request(
+            method="GET",
+            path=path,
+            body=body,
+            timestamp=timestamp,
+            nonce=nonce,
+            client_id=client_id,
+            secret=secret,
+        )
+        headers = {
+            "X-LedgerOS-Client-Id": client_id,
+            "X-LedgerOS-Timestamp": timestamp,
+            "X-LedgerOS-Nonce": nonce,
+            "X-LedgerOS-Signature": signed.signature,
+        }
+        if host_header:
+            headers["Host"] = host_header
+        if api_key:
+            headers["Authorization"] = f"Bearer {api_key}"
+
+        request = Request(f"{base_url.rstrip('/')}{path}", method="GET", headers=headers)
+        try:
+            with urlopen(request, timeout=timeout) as response:
+                response_raw = response.read().decode("utf-8").strip()
+                if response.status != 200:
+                    raise RuntimeError(
+                        f"LedgerOS returned HTTP {response.status} for GET {path}: {response_raw}"
+                    )
+                if not response_raw:
+                    return []
+                try:
+                    response_payload = json.loads(response_raw)
+                except json.JSONDecodeError as exc:
+                    raise RuntimeError("LedgerOS banking response was not valid JSON.") from exc
+                return response_payload
+        except HTTPError as exc:
+            raise RuntimeError(LedgerOSBankingReadService._format_http_error(exc, path=path)) from exc
+        except (URLError, TimeoutError, OSError, ValueError) as exc:
+            raise RuntimeError(str(exc)) from exc
+
+    @staticmethod
+    def _coerce_list_payload(payload: Any, *, path: str) -> list[dict[str, Any]]:
+        if isinstance(payload, list):
+            return [item for item in payload if isinstance(item, dict)]
+        if isinstance(payload, dict):
+            results = payload.get("results")
+            if isinstance(results, list):
+                return [item for item in results if isinstance(item, dict)]
+        raise RuntimeError(f"LedgerOS returned an unexpected payload for GET {path}.")
+
+    @staticmethod
+    def list_bank_accounts() -> list[dict[str, Any]]:
+        payload = LedgerOSBankingReadService._request_json(path=LedgerOSBankingReadService.BANK_ACCOUNTS_PATH)
+        return LedgerOSBankingReadService._coerce_list_payload(
+            payload,
+            path=LedgerOSBankingReadService.BANK_ACCOUNTS_PATH,
+        )
+
+    @staticmethod
+    def list_bank_reconciliations() -> list[dict[str, Any]]:
+        payload = LedgerOSBankingReadService._request_json(
+            path=LedgerOSBankingReadService.BANK_RECONCILIATIONS_PATH
+        )
+        return LedgerOSBankingReadService._coerce_list_payload(
+            payload,
+            path=LedgerOSBankingReadService.BANK_RECONCILIATIONS_PATH,
+        )
+
+
 class LedgerOSPaymentService:
     PAYMENT_PATH = "/api/v1/payments/"
 

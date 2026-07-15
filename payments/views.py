@@ -35,6 +35,7 @@ from payments.models import (
 )
 from payments.services import (
     DebtServicePaymentService,
+    LedgerOSBankingReadService,
     MaintenanceExpenseSummaryService,
     SecurityDepositLedgerService,
     TenantPaymentService,
@@ -79,6 +80,7 @@ class PaymentsAppContextMixin(LedgerOSAppContextMixin):
             "maintenance_category_list_url": reverse("maintenance-category-list"),
             "vendor_payment_list_url": reverse("vendor-payment-list"),
             "debt_service_payment_list_url": reverse("debt-service-payment-list"),
+            "banking_dashboard_url": reverse("banking-dashboard"),
             "invoice_list_url": reverse("invoice-list"),
             "invoice_history_url": reverse("tenant-payment-list"),
             "security_deposit_create_url": reverse("security-deposit-create"),
@@ -192,6 +194,42 @@ class PaymentsCrudFormView(LoginRequiredMixin, PaymentsAppContextMixin):
 
 class PaymentsLandingView(PaymentsAppContextMixin, TemplateView):
     template_name = "payments/index.html"
+
+
+class BankingVisibilityView(LoginRequiredMixin, PaymentsAppContextMixin, TemplateView):
+    login_url = reverse_lazy("admin:login")
+    template_name = "payments/banking.html"
+
+    @staticmethod
+    def _format_error(exc: Exception) -> str:
+        return str(exc)
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        bank_accounts_error = ""
+        reconciliations_error = ""
+
+        try:
+            bank_accounts = LedgerOSBankingReadService.list_bank_accounts()
+        except (ValidationError, RuntimeError) as exc:
+            bank_accounts = []
+            bank_accounts_error = self._format_error(exc)
+
+        try:
+            bank_reconciliations = LedgerOSBankingReadService.list_bank_reconciliations()
+        except (ValidationError, RuntimeError) as exc:
+            bank_reconciliations = []
+            reconciliations_error = self._format_error(exc)
+
+        context.update(
+            {
+                "bank_accounts": bank_accounts,
+                "bank_accounts_error": bank_accounts_error,
+                "bank_reconciliations": bank_reconciliations,
+                "bank_reconciliations_error": reconciliations_error,
+            }
+        )
+        return context
 
 
 class TenantInvoiceListView(LoginRequiredMixin, PaymentsAppContextMixin, ListView):

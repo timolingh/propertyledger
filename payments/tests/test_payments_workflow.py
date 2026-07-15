@@ -162,6 +162,7 @@ class PaymentsLandingViewTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, reverse("invoice-list"))
+        self.assertContains(response, reverse("banking-dashboard"))
         self.assertContains(response, "Open invoices")
 
 
