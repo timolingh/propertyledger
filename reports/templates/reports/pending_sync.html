@@ -1,0 +1,67 @@
+{% extends "ledgeros/base.html" %}
+
+{% block title %}Pending Sync | PropertyLedger{% endblock %}
+
+{% block content %}
+  <div class="card">
+    <h1>Pending Sync</h1>
+    <p class="muted">Only synced records count toward official owner statement totals. These items are waiting to post or need attention.</p>
+  </div>
+  <div class="card">
+    <h2>Owner activity</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>Owner</th>
+          <th>Property</th>
+          <th>Type</th>
+          <th>Date</th>
+          <th>Amount</th>
+          <th>Status</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for activity in pending.owner_activity_items %}
+          <tr>
+            <td>{{ activity.owner }}</td>
+            <td>{{ activity.property }}</td>
+            <td>{{ activity.get_event_type_display }}</td>
+            <td>{{ activity.event_date }}</td>
+            <td>{{ activity.amount }}</td>
+            <td>{{ activity.get_status_display }}</td>
+          </tr>
+        {% empty %}
+          <tr><td colspan="6" class="muted">No pending owner activity.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <div class="card">
+    <h2>Management fee bills</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>Vendor</th>
+          <th>Property</th>
+          <th>Date</th>
+          <th>Amount</th>
+          <th>Status</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for bill in pending.management_fee_bills %}
+          <tr>
+            <td>{{ bill.vendor }}</td>
+            <td>{{ bill.property }}</td>
+            <td>{{ bill.bill_date }}</td>
+            <td>{{ bill.amount }}</td>
+            <td>{{ bill.get_status_display }}</td>
+          </tr>
+        {% empty %}
+          <tr><td colspan="5" class="muted">No pending management fee bills.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+{% endblock %}
+

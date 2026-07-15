@@ -1,0 +1,43 @@
+{% extends "ledgeros/base.html" %}
+
+{% block title %}Owner Statement | PropertyLedger{% endblock %}
+
+{% block content %}
+  <div class="card">
+    <h1>Owner Statement</h1>
+    <form method="get">
+      {{ form.as_p }}
+      <button type="submit" class="button primary">Preview statement</button>
+    </form>
+    {% if statement %}
+      <div style="display:flex; gap:1rem; flex-wrap:wrap;">
+        <a class="button primary" href="{{ export_url }}?owner={{ statement.owner.pk }}&property={{ statement.property.pk }}&period_type={{ statement.period_type }}&period_start={{ statement.period_start|date:'Y-m-d' }}{% if statement.period_end %}&period_end={{ statement.period_end|date:'Y-m-d' }}{% endif %}">Export CSV</a>
+      </div>
+    {% endif %}
+  </div>
+  {% if statement %}
+    <div class="card">
+      <h2>{{ statement.owner }} / {{ statement.property }}</h2>
+      <p class="muted">{{ statement.period_start }} to {{ statement.period_end }}</p>
+      <table>
+        <thead>
+          <tr><th>Metric</th><th>Amount</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Rent charged</td><td>{{ statement.rent_charged }}</td></tr>
+          <tr><td>Rent collected</td><td>{{ statement.rent_collected }}</td></tr>
+          <tr><td>Property expenses</td><td>{{ statement.property_expenses }}</td></tr>
+          <tr><td>Maintenance expenses</td><td>{{ statement.maintenance_expenses }}</td></tr>
+          <tr><td>Management fee expenses</td><td>{{ statement.management_fee_expenses }}</td></tr>
+          <tr><td>Owner contributions</td><td>{{ statement.contributions }}</td></tr>
+          <tr><td>Owner distributions</td><td>{{ statement.distributions }}</td></tr>
+          <tr><td>Security deposit received</td><td>{{ statement.deposit_received }}</td></tr>
+          <tr><td>Security deposit deducted</td><td>{{ statement.deposit_deducted }}</td></tr>
+          <tr><td>Security deposit refunded</td><td>{{ statement.deposit_refunded }}</td></tr>
+          <tr><td><strong>Net summary</strong></td><td><strong>{{ statement.net_summary }}</strong></td></tr>
+        </tbody>
+      </table>
+    </div>
+  {% endif %}
+{% endblock %}
+

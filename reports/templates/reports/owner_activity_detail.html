@@ -1,0 +1,23 @@
+{% extends "ledgeros/base.html" %}
+
+{% block title %}Owner Activity | PropertyLedger{% endblock %}
+
+{% block content %}
+  <div class="card">
+    <h1>Owner Activity</h1>
+    <p><strong>Owner:</strong> {{ activity.owner }}</p>
+    <p><strong>Property:</strong> {{ activity.property }}</p>
+    <p><strong>Type:</strong> {{ activity.get_event_type_display }}</p>
+    <p><strong>Date:</strong> {{ activity.event_date }}</p>
+    <p><strong>Amount:</strong> {{ activity.amount }}</p>
+    <p><strong>Status:</strong> {{ activity.get_status_display }}</p>
+    <p><strong>Sync:</strong> {{ activity.sync_status|default:"-" }}</p>
+    <p><strong>Description:</strong> {{ activity.description|default:"-" }}</p>
+    <p><strong>Notes:</strong> {{ activity.notes|default:"-" }}</p>
+    <div style="display:flex; gap:1rem; flex-wrap:wrap;">
+      <a class="button primary" href="{{ edit_url }}">Edit</a>
+      <a class="button" href="{{ list_url }}">Back</a>
+    </div>
+  </div>
+{% endblock %}
+

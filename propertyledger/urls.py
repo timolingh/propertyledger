@@ -6,4 +6,5 @@ urlpatterns = [
     path("admin/", admin.site.urls),
     path("", include("ledgeros.urls")),
     path("payments/", include("payments.urls")),
+    path("reports/", include("reports.urls")),
 ]

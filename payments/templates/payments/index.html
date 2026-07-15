@@ -8,6 +8,7 @@
     <p class="muted">Use the bills workflow for vendor expenses and the invoices workflow for tenant receipts. Saving records the local transaction first; syncing posts the accounting effect to LedgerOS. Payment history, vendor bills, and security deposits remain available underneath.</p>
     <div style="display:flex; gap:1rem; flex-wrap:wrap;">
       <a class="button primary" href="{% url 'banking-dashboard' %}">Banking visibility</a>
+      <a class="button primary" href="{% url 'reports-home' %}">Reports</a>
       <a class="button primary" href="{% url 'vendor-bill-list' %}">Vendor bills</a>
       <a class="button primary" href="{% url 'vendor-payment-list' %}">Vendor payments</a>
       <a class="button primary" href="{% url 'debt-service-payment-list' %}">Debt service</a>
