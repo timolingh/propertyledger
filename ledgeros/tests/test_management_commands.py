@@ -4,14 +4,22 @@ import os
 import json
 from unittest.mock import patch
 
+from django.contrib.auth import get_user_model
 from django.core.management import call_command
 from django.test import TestCase
 
 from ledgeros.models import (
     LedgerOSConnectionSettings,
+    Owner,
+    Property,
     PropertyLedgerAccountMapping,
     PropertyLedgerSetup,
+    Tenant,
+    TenantCharge,
+    Unit,
 )
+from ledgeros.roles import get_user_role_label
+from payments.models import MaintenanceCategory, SecurityDepositEvent, Vendor, VendorBill, VendorPayment
 
 
 class BootstrapLedgerOSConnectionSettingsCommandTests(TestCase):
@@ -115,3 +123,32 @@ class BootstrapLedgerOSSetupSelectionCommandTests(TestCase):
         self.assertEqual(setup.ledgeros_entity_name, "Default Entity")
         self.assertEqual(setup.ledgeros_accounting_period_id, "period_1")
         self.assertEqual(setup.ledgeros_accounting_period_name, "Bootstrap FY2026")
+
+
+class BetaDemoDataCommandTests(TestCase):
+    def test_command_seeds_beta_demo_data_and_demo_users(self):
+        call_command("seed_beta_demo_data", password="BetaTest123!")
+
+        self.assertEqual(Owner.objects.filter(name="Cedar Grove Holdings LLC").count(), 1)
+        property_obj = Property.objects.get(name="Cedar Grove Apartments")
+        self.assertEqual(property_obj.primary_owner.name, "Cedar Grove Holdings LLC")
+        self.assertEqual(Unit.objects.filter(property=property_obj).count(), 3)
+        self.assertEqual(Tenant.objects.count(), 3)
+        self.assertEqual(TenantCharge.objects.filter(charge_type=TenantCharge.ChargeType.BASE_RENT).count(), 3)
+        self.assertEqual(TenantCharge.objects.filter(charge_type=TenantCharge.ChargeType.OTHER_MANUAL).count(), 1)
+        self.assertEqual(Vendor.objects.count(), 3)
+        self.assertEqual(MaintenanceCategory.objects.count(), 3)
+        self.assertEqual(VendorBill.objects.count(), 3)
+        self.assertEqual(VendorPayment.objects.count(), 1)
+        self.assertEqual(SecurityDepositEvent.objects.count(), 3)
+
+        User = get_user_model()
+        admin_user = User.objects.get(username="beta-admin")
+        manager_user = User.objects.get(username="beta-manager")
+        bookkeeper_user = User.objects.get(username="beta-bookkeeper")
+
+        self.assertTrue(admin_user.is_staff)
+        self.assertTrue(admin_user.is_superuser)
+        self.assertEqual(get_user_role_label(admin_user), "Admin")
+        self.assertEqual(get_user_role_label(manager_user), "Property manager")
+        self.assertEqual(get_user_role_label(bookkeeper_user), "Bookkeeper")

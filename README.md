@@ -79,23 +79,11 @@ Where to get the LedgerOS values:
 
 ## Included docs
 
-- `docs/propertyledger-prd.md` — product requirements document.
-- `docs/propertyledger-implementation-epics.md` — buildable implementation epics for AI agents.
-- `docs/ledgeros-integration-contract.md` — local Epic 1 LedgerOS integration contract.
-- `docs/epic-1-lessons-learned.md` — Epic 1 retrospective and setup notes for later epics.
-- `docs/epic-2-lessons-learned.md` — Epic 2 retrospective and workflow notes for later epics.
-- `docs/epic-3-lessons-learned.md` — Epic 3 retrospective and charge-workflow notes for later epics.
-- `docs/epic-4-lessons-learned.md` — Epic 4 retrospective and Epic 5 preflight notes.
-- `docs/epic-5.md` — Epic 5 runbook for vendor bills, vendor payments, and debt service.
-- `docs/epic-1.md` — Epic 1 runbook for setup and verification.
-- `docs/epic-2.md` — Epic 2 runbook for setup and CRUD workflows.
-- `docs/epic-3.md` — Epic 3 runbook for rent generation and tenant charges.
-- `docs/epic-4.md` — Epic 4 runbook for tenant payments, credits, and security deposits.
-- `docs/epic-7.md` — Epic 7 runbook for owner statements and manual owner activity.
-- `docs/epic-8.md` — Epic 8 runbook for the reports app and in-page LedgerOS reports.
-- `docs/epic-10.md` — Epic 10 decision record for API documentation and connector support.
-- `docs/api.md` — public API reference for the current `/api` surface.
-- `docs/connector-guide.md` — connector and agent guide with examples and sandbox flow.
+- `docs/technical-manual.md` — architecture, API, sync, configuration, and testing reference.
+- `docs/user-manual.md` — day-to-day product usage guide for property managers and bookkeepers.
+- `docs/quick-start.md` — minimal startup and smoke-check guide.
+- `docs/beta-testing.md` — manual beta-testing checklist for admin, manager, and bookkeeper roles.
+- `docs/archive/` — archived epic docs and historical decision records.
 - `CLAUDE.md` — guidance for AI agents working on the PropertyLedger repo.
 
 ## Testing
@@ -181,6 +169,7 @@ Bootstrap principle: keep the user in PropertyLedger for setup and seed the Ledg
 Before coding, an AI agent should read:
 
 1. `CLAUDE.md`
-2. `docs/propertyledger-prd.md`
-3. `docs/propertyledger-implementation-epics.md`
-4. The LedgerOS docs that define API authentication, idempotency, accounting invariants, reporting invariants, and epic implementation discipline.
+2. `docs/technical-manual.md`
+3. `docs/user-manual.md` when the task affects user-facing workflows
+4. `docs/quick-start.md` when the task affects local setup or smoke checks
+5. The archived docs in `docs/archive/` only when historical implementation context is needed

@@ -8,7 +8,7 @@ Before coding:
 - State domain assumptions explicitly.
 - Identify whether the change affects LedgerOS sync, ledger entries, reports, balances, payments, invoices, bills, reconciliations, taxes, owner statements, tenant ledgers, property/unit reporting, or audit trails.
 - If accounting treatment is ambiguous, stop and ask.
-- Before changing accounting behavior, read `docs/propertyledger-prd.md`, `docs/propertyledger-implementation-epics.md`, and the relevant LedgerOS accounting guidance. Keep code, tests, and docs aligned.
+- Before changing accounting behavior, read `docs/technical-manual.md` and the archived docs in `docs/archive/` only when historical context is needed. Keep code, tests, and docs aligned.
 
 Simplicity:
 - Prefer explicit domain functions over generalized abstractions.
@@ -37,12 +37,12 @@ Goal-driven execution:
 
 Before implementing or reviewing any epic, read and follow:
 
-- `docs/propertyledger-prd.md`
-- `docs/propertyledger-implementation-epics.md`
-- the relevant LedgerOS API/accounting contract documentation
+- `docs/technical-manual.md`
+- `docs/user-manual.md` when the work affects user flows
+- `docs/quick-start.md` when the work affects setup or smoke checks
+- archived docs in `docs/archive/` when you need historical implementation context
 
-Every epic must include a requirement traceability matrix, explicit deferred/out-of-scope items, automated tests for implemented property/accounting invariants, and Docker-ready manual acceptance checks.
-Every epic should also have its own runbook in `docs/epic-N.md` format so setup, verification, and domain rules stay close to the code.
+Every change should still have clear traceability, explicit deferred/out-of-scope items, automated tests for implemented property/accounting invariants, and Docker-ready manual acceptance checks. Keep the active documentation set consolidated instead of recreating one-off epic runbooks.
 
 ## LedgerOS Boundary Discipline
 
