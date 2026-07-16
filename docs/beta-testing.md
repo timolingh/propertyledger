@@ -1,95 +1,204 @@
-# Beta Testing Guide
+# Beta Focus Group Session Guide
 
-This guide is for human beta testers.
+Use this guide when you are running a one-hour beta session with real users.
 
-It starts from a clean slate, prepares both local repos, and then walks through role-based manual checks.
+The goal is not to “test every feature.” The goal is to watch people try to understand the product, move through the core workflows, and explain where the experience feels clear or confusing.
 
-## 1. Reset to a clean slate
+## Session setup
 
-Run the reset script first if you want to clear local demo data and start over:
+Start from a clean slate before the group arrives:
 
 ```bash
 bash scripts/beta-reset.sh
 ```
 
-This resets both local Docker stacks:
-
-- `propertyledger`
-- `ledgeros_v2`
-
-Use this when:
-
-- you want to start fresh;
-- you previously ran a beta seed and want to wipe the demo data;
-- you want to reproduce the initial beta experience from scratch.
-
-## 2. Prepare the system
-
-After resetting, run the beta seed:
+Then seed the demo environment:
 
 ```bash
 bash scripts/beta-seed.sh
 ```
 
-It seeds the sibling `ledgeros_v2` repo first, then seeds PropertyLedger with the demo setup data, property, units, tenants, vendors, starter charges, starter bills, and demo users needed for manual testing.
+This prepares both local stacks and seeds a realistic demo property-management setup.
 
-What the preparation step does:
+### Seeded demo data
 
-- starts both local stacks;
-- imports the sample LedgerOS chart of accounts;
-- creates or reuses an open accounting period;
-- bootstraps PropertyLedger connection settings;
-- bootstraps required account mappings;
-- seeds the demo property and role users.
+The session should use these specific records:
 
-## 3. Demo accounts
+- owner: `Cedar Grove Holdings LLC`
+- property: `Cedar Grove Apartments`
+- units: `101`, `102`, `103`
+- tenants: `Avery Jordan`, `Brooke Chen`, `Carlos Rivera`
+- vendors: `Ace Plumbing`, `Bright Electric`, `GreenLine Landscaping`
+- maintenance categories: `Plumbing`, `Electrical`, `Landscaping`
+- demo users: `beta-admin`, `beta-manager`, `beta-bookkeeper`
 
-After seeding, use these demo users:
+Representative records participants should encounter:
 
-- `beta-admin`
-- `beta-manager`
-- `beta-bookkeeper`
+- unit `101` with tenant `Avery Jordan`, rent `1450.00`, deposit `1450.00`
+- unit `102` with tenant `Brooke Chen`, rent `1575.00`, deposit `1575.00`
+- unit `103` with tenant `Carlos Rivera`, rent `1695.00`, deposit `1695.00`
+- a draft tenant charge called `Landscape cleanup charge` for `125.00`
+- vendor bills for:
+  - `Ace Plumbing` for `240.00`
+  - `Bright Electric` for `180.00`
+  - `GreenLine Landscaping` for `315.00`
+- a draft vendor payment for `Ace Plumbing` with check number `BETA-1001`
+- three draft security deposit events tied to the three leases
 
-Use the password you passed to the seed command, or the default if you did not supply one.
+Default demo password:
 
-## 4. Admin checklist
+- `PropertyLedgerBeta123!`
 
-1. Sign in as `beta-admin`.
-2. Open the admin screen.
-3. Confirm the connection settings, account mappings, and setup rows are present.
-4. Open the setup screen and verify the demo property and setup state are visible.
-5. Confirm the demo property is named `Cedar Grove Apartments`.
-6. Confirm the vendor and tenant records are present.
+## How to run the hour
 
-## 5. Property manager checklist
+Ask participants to move through the product in the order below.
 
-1. Sign in as `beta-manager`.
-2. Open the properties, units, tenants, and leases screens.
-3. Confirm the demo property and three units are visible.
-4. Confirm the three demo tenants are visible.
-5. Open a lease and check that the property, unit, and tenant relationships make sense.
-6. Verify you can review the operational records without touching system configuration.
+1. Start with the admin/setup view.
+2. Move into property management.
+3. Finish with payments, bills, and reports.
+4. End with open-ended feedback.
 
-## 6. Bookkeeper checklist
+Tell people up front that they should think out loud. You want them to narrate what they expect to happen before they click.
 
-1. Sign in as `beta-bookkeeper`.
-2. Open the payments area.
-3. Confirm the vendor list, vendor bills, tenant payments, and security deposit views are available.
-4. Open the seeded vendor bills and confirm the amounts and vendor names look realistic.
-5. Review the reports area and confirm the seeded property appears in reporting pages.
-6. If you are testing record entry, create a small additional charge or payment and confirm it follows the normal workflow.
+## Minute 0 to 10: First impression and setup
 
-## 7. Suggested order
+Give the group the admin user first:
 
-1. Seed the beta data.
-2. Review the admin checklist.
-3. Review the property manager checklist.
-4. Review the bookkeeper checklist.
-5. Capture notes on what felt confusing, slow, or missing.
+- username: `beta-admin`
+- password: `PropertyLedgerBeta123!`
 
-## 8. Notes for feedback
+Ask them to open the admin screen:
 
-- Did the demo data feel realistic?
-- Were the role permissions obvious?
-- Was the setup screen understandable?
-- Did any terminology feel inconsistent with real property management work?
+- `http://localhost:8000/admin/`
+
+Then send them to the setup screen:
+
+- `http://localhost:8000/`
+
+Ask them to do these things in order:
+
+1. Look for the LedgerOS connection and setup status.
+2. Confirm the page already shows the LedgerOS entity and accounting period.
+3. Find the setup information for `Cedar Grove Apartments`.
+4. Say out loud whether the page feels ready to use or still feels half-configured.
+
+What to listen for:
+
+- Do they understand what LedgerOS is doing here?
+- Do they know whether they are “set up” yet?
+- Do they have to guess where to begin?
+
+## Minute 10 to 25: Property management flow
+
+Switch them to the property manager account:
+
+- username: `beta-manager`
+- password: `PropertyLedgerBeta123!`
+
+Ask them to move through these pages:
+
+- `http://localhost:8000/properties/`
+- `http://localhost:8000/units/`
+- `http://localhost:8000/tenants/`
+- `http://localhost:8000/leases/`
+
+Ask them to complete these tasks:
+
+1. Find `Cedar Grove Apartments`.
+2. Find units `101`, `102`, and `103`.
+3. Find tenants `Avery Jordan`, `Brooke Chen`, and `Carlos Rivera`.
+4. Open one lease and explain, in plain language, who lives in which unit and what the rent is.
+5. Tell you whether the relationships between property, unit, tenant, and lease feel obvious.
+
+Use this as a concrete prompt:
+
+- “Show me who lives in unit `101` and what rent they pay.”
+
+What to listen for:
+
+- Can they navigate by instinct?
+- Do they understand the object model without explanation?
+- Do they notice when a record belongs to another record?
+
+## Minute 25 to 40: Payments and bills
+
+Switch them to the bookkeeper account:
+
+- username: `beta-bookkeeper`
+- password: `PropertyLedgerBeta123!`
+
+Ask them to open the payments area:
+
+- `http://localhost:8000/payments/`
+
+Then give them this sequence:
+
+1. Find the vendor bills.
+2. Identify the bill for `Ace Plumbing`.
+3. Identify the bill for `Bright Electric`.
+4. Identify the bill for `GreenLine Landscaping`.
+5. Open the vendor payment for `Ace Plumbing`.
+6. Open the security deposit area and look for the three seeded deposit events.
+
+Ask them to describe what seems ready for action and what seems like a draft or in-progress record.
+
+Use concrete prompts like:
+
+- “Which of these bills looks most like something you would actually enter today?”
+- “Which fields help you trust that the bill is attached to the right property?”
+- “Does the payment screen make it clear what has already been recorded?”
+
+What to listen for:
+
+- Can they tell bills, payments, and deposits apart?
+- Do the statuses make sense?
+- Do the amounts feel believable?
+
+## Minute 40 to 50: Reports and confidence check
+
+Ask participants to review the reports area and confirm `Cedar Grove Apartments` appears in the reporting pages.
+
+If they need help, direct them to the reporting views already available in the app and ask them to answer these questions:
+
+1. What would you expect to learn from this report?
+2. Does the report seem tied to the property they were just exploring?
+3. Would they trust this screen enough to make a decision from it?
+
+This is the right time to ask whether the product feels accounting-first, property-first, or something in between.
+
+## Minute 50 to 60: Open feedback
+
+Close the session with a short discussion.
+
+Ask each person:
+
+1. What was the easiest thing to understand?
+2. What felt confusing or too hidden?
+3. Which screen would you change first?
+4. Which one record, label, or amount made the product feel real?
+5. What would you expect to do next if this were your actual job?
+
+Capture feedback on:
+
+- whether the seeded examples felt realistic;
+- whether the names, amounts, and dates helped them orient quickly;
+- whether the setup screen explained the product well enough;
+- whether the property, payments, and reports workflows felt connected.
+
+## Moderator notes
+
+- Keep the group moving, but do not rush them past confusion.
+- If a participant pauses, ask what they expected to happen.
+- Do not explain the system too early; let the interface speak first.
+- Focus on comprehension, confidence, and workflow clarity, not just task completion.
+- If a screen surprises them, treat that as useful feedback rather than a failure.
+
+## Suggested debrief
+
+After the session, compare notes on these questions:
+
+- Did the product make its purpose obvious within the first few minutes?
+- Did the seeded data help people understand the workflows?
+- Were there any screens that felt like internal tooling instead of a product for real users?
+- Did the property manager and bookkeeper flows feel distinct enough?
+- Did the session surface terminology that should be simplified?
