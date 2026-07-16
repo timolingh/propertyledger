@@ -71,6 +71,14 @@ docker compose -f docker-compose.yml run --rm propertyledger-web python manage.p
 make check
 ```
 
+## Beta testing
+
+If you are doing user beta testing, start with the beta guide:
+
+- [Beta Testing Guide](./beta-testing.md)
+
+Use the beta seed command first, then follow the manual role checklists in the guide.
+
 ## If something fails
 
 - Check the `.env` values first.
@@ -82,4 +90,3 @@ make check
 
 - [Technical Manual](./technical-manual.md)
 - [User Manual](./user-manual.md)
-

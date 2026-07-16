@@ -82,6 +82,7 @@ Where to get the LedgerOS values:
 - `docs/technical-manual.md` — architecture, API, sync, configuration, and testing reference.
 - `docs/user-manual.md` — day-to-day product usage guide for property managers and bookkeepers.
 - `docs/quick-start.md` — minimal startup and smoke-check guide.
+- `docs/beta-testing.md` — manual beta-testing checklist for admin, manager, and bookkeeper roles.
 - `docs/archive/` — archived epic docs and historical decision records.
 - `CLAUDE.md` — guidance for AI agents working on the PropertyLedger repo.
 
