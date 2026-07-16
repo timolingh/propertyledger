@@ -150,6 +150,9 @@
   </head>
   <body>
     <header>
+      {% if user.is_authenticated %}
+        <span class="muted" style="color:#ddd; margin-right: 1rem;">{{ user.get_username }}</span>
+      {% endif %}
       <a href="{% url 'ledgeros-setup' %}">Setup</a>
       <a href="{% url 'owner-list' %}">Owners</a>
       <a href="{% url 'property-list' %}">Properties</a>
@@ -159,11 +162,17 @@
       <a href="{% url 'charge-list' %}">Invoices</a>
       <a href="{% url 'payments-home' %}">Payments</a>
       <a href="{% url 'reports-home' %}">Reports</a>
+      <a href="{% url 'audit-log' %}">Audit log</a>
       <a href="{% url 'banking-dashboard' %}">Banking</a>
       <a href="{% url 'vendor-list' %}">Vendors</a>
       <a href="{% url 'vendor-bill-list' %}">Bills</a>
       <a href="{% url 'maintenance-category-list' %}">Maintenance</a>
       <a href="/admin/">Admin</a>
+      {% if user.is_authenticated %}
+        <a href="{% url 'logout' %}">Logout</a>
+      {% else %}
+        <a href="{% url 'login' %}">Login</a>
+      {% endif %}
     </header>
     <main>
       {% if setup_obj and not setup_is_complete %}
@@ -194,6 +203,12 @@
         <div class="banner banner-ok">
           <strong>Setup complete</strong>
           <div class="muted">PropertyLedger is ready for Epic 2 workflows.</div>
+        </div>
+      {% endif %}
+      {% if current_role_label %}
+        <div class="banner">
+          <strong>Role</strong>
+          <div class="muted">{{ current_role_label }}</div>
         </div>
       {% endif %}
       {% if messages %}

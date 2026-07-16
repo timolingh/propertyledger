@@ -27,6 +27,7 @@ from ledgeros.models import (
     TenantCharge,
     Unit,
 )
+from ledgeros.roles import ROLE_ADMIN, assign_user_role
 from ledgeros.services import TenantChargeService
 
 
@@ -189,6 +190,11 @@ class LedgerOSApiTests(TestCase):
 
 
 class LedgerOSSetupViewTests(TestCase):
+    def setUp(self):
+        self.user = get_user_model().objects.create_user(username="admin", password="password")
+        assign_user_role(self.user, ROLE_ADMIN)
+        self.client.force_login(self.user)
+
     def test_setup_view_renders_and_saves_configuration(self):
         response = self.client.get(reverse("ledgeros-setup"))
 

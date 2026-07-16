@@ -4,6 +4,7 @@ import builtins
 from datetime import date
 from decimal import Decimal
 
+from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db import models
 from django.db.models import Q
@@ -293,6 +294,40 @@ class TimestampedModel(models.Model):
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+
+
+class AuditLog(TimestampedModel):
+    class Outcome(models.TextChoices):
+        SUCCESS = "success", "Success"
+        FAILURE = "failure", "Failure"
+
+    action = models.CharField(max_length=128)
+    actor = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="audit_logs",
+        blank=True,
+        null=True,
+    )
+    record_type = models.CharField(max_length=128)
+    record_id = models.CharField(max_length=64)
+    source = models.CharField(max_length=64, default="ui")
+    outcome = models.CharField(max_length=16, choices=Outcome.choices, default=Outcome.SUCCESS)
+    metadata = models.JSONField(default=dict, blank=True)
+
+    class Meta:
+        ordering = ["-created_at", "-id"]
+
+    def save(self, *args, **kwargs):  # type: ignore[override]
+        if self.pk:
+            raise ValidationError("Audit logs are immutable.")
+        super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):  # type: ignore[override]
+        raise ValidationError("Audit logs are immutable.")
+
+    def __str__(self) -> str:
+        return f"{self.action} ({self.outcome})"
 
 
 class Owner(TimestampedModel):
