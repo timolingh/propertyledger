@@ -94,6 +94,8 @@ class AuditLoggingTests(TestCase):
         response = self.client.get(reverse("ledgeros-setup"))
 
         self.assertEqual(response.status_code, 403)
+        self.assertContains(response, "Access denied", status_code=403)
+        self.assertContains(response, "Go back", status_code=403)
         entry = AuditLog.objects.get(action="access_denied")
         self.assertEqual(entry.outcome, AuditLog.Outcome.FAILURE)
         self.assertEqual(entry.record_type, "LedgerOSSetupView")

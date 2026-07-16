@@ -4,6 +4,8 @@ from django.urls import include, path
 
 from propertyledger.views import AppHomeRedirectView
 
+handler403 = "propertyledger.views.forbidden_view"
+
 urlpatterns = [
     path("home/", AppHomeRedirectView.as_view(), name="app-home"),
     path(
