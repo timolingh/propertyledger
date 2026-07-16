@@ -150,6 +150,7 @@
   </head>
   <body>
     <header>
+      <a href="{% url 'app-home' %}">Home</a>
       {% if user.is_authenticated %}
         <span class="muted" style="color:#ddd; margin-right: 1rem;">{{ user.get_username }}</span>
       {% endif %}

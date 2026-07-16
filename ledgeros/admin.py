@@ -11,6 +11,7 @@ from ledgeros.models import (
     LedgerOSSyncRecord,
     Owner,
     Property,
+    RoleLandingPage,
     PropertyLedgerAccountMapping,
     PropertyLedgerSetup,
     Tenant,
@@ -231,3 +232,16 @@ class AuditLogAdmin(admin.ModelAdmin):
         return json.dumps(obj.metadata, indent=2, sort_keys=True)
 
     metadata_json.short_description = "Metadata"
+
+
+@admin.register(RoleLandingPage)
+class RoleLandingPageAdmin(admin.ModelAdmin):
+    list_display = [
+        "group_name",
+        "landing_url_name",
+        "priority",
+        "is_active",
+        "created_at",
+    ]
+    list_filter = ["is_active"]
+    search_fields = ["group_name", "landing_url_name", "notes"]

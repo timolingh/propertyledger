@@ -330,6 +330,20 @@ class AuditLog(TimestampedModel):
         return f"{self.action} ({self.outcome})"
 
 
+class RoleLandingPage(TimestampedModel):
+    group_name = models.CharField(max_length=255, unique=True)
+    landing_url_name = models.CharField(max_length=255)
+    priority = models.PositiveSmallIntegerField(default=0)
+    is_active = models.BooleanField(default=True)
+    notes = models.TextField(blank=True, default="")
+
+    class Meta:
+        ordering = ["priority", "group_name", "id"]
+
+    def __str__(self) -> str:
+        return f"{self.group_name} -> {self.landing_url_name}"
+
+
 class Owner(TimestampedModel):
     name = models.CharField(max_length=255)
     email = models.EmailField(blank=True, default="")

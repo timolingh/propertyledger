@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 from django.contrib.auth import get_user_model
+from django.contrib.auth.models import Group
 from django.test import TestCase
 from django.urls import reverse
 
 from ledgeros.models import AuditLog
+from ledgeros.models import RoleLandingPage
+from ledgeros.navigation import ensure_role_landing_pages
 from ledgeros.roles import (
     ROLE_ADMIN,
     ROLE_BOOKKEEPER,
@@ -31,6 +34,32 @@ class RoleBootstrapTests(TestCase):
                 ROLE_READ_ONLY_VIEWER,
             },
         )
+
+    def test_ensure_role_groups_assigns_default_permissions(self):
+        groups = ensure_role_groups()
+
+        property_manager_perms = set(
+            groups[ROLE_PROPERTY_MANAGER].permissions.values_list("codename", flat=True)
+        )
+        self.assertIn("add_property", property_manager_perms)
+        self.assertIn("change_lease", property_manager_perms)
+        self.assertIn("view_tenantcharge", property_manager_perms)
+        self.assertNotIn("delete_property", property_manager_perms)
+
+        bookkeeper_perms = set(
+            groups[ROLE_BOOKKEEPER].permissions.values_list("codename", flat=True)
+        )
+        self.assertIn("add_vendorbill", bookkeeper_perms)
+        self.assertIn("change_tenantpayment", bookkeeper_perms)
+        self.assertIn("view_ownercontributiondistribution", bookkeeper_perms)
+        self.assertNotIn("delete_vendorbill", bookkeeper_perms)
+
+        read_only_perms = set(
+            groups[ROLE_READ_ONLY_VIEWER].permissions.values_list("codename", flat=True)
+        )
+        self.assertIn("view_property", read_only_perms)
+        self.assertIn("view_auditlog", read_only_perms)
+        self.assertNotIn("add_property", read_only_perms)
 
 
 class RoleAssignmentTests(TestCase):
@@ -90,6 +119,9 @@ class AuditLoggingTests(TestCase):
 
 
 class AppLoginTests(TestCase):
+    def setUp(self):
+        ensure_role_landing_pages()
+
     def test_non_staff_user_can_sign_in_and_use_app_login(self):
         user = get_user_model().objects.create_user(username="viewer", password="password")
         assign_user_role(user, ROLE_READ_ONLY_VIEWER)
@@ -100,7 +132,24 @@ class AppLoginTests(TestCase):
         )
 
         self.assertEqual(response.status_code, 302)
-        self.assertEqual(response.url, "/")
+        self.assertEqual(response.url, "/home/")
 
-        home = self.client.get(reverse("reports-home"))
-        self.assertEqual(home.status_code, 200)
+        home = self.client.get(reverse("app-home"))
+        self.assertEqual(home.status_code, 302)
+        self.assertEqual(home.url, reverse("reports-home"))
+
+    def test_custom_group_redirects_via_config_table(self):
+        custom_group = Group.objects.create(name="PropertyLedger Inspector")
+        RoleLandingPage.objects.create(
+            group_name=custom_group.name,
+            landing_url_name="reports-home",
+            priority=5,
+        )
+        user = get_user_model().objects.create_user(username="inspector", password="password")
+        user.groups.add(custom_group)
+
+        self.client.login(username="inspector", password="password")
+        response = self.client.get(reverse("app-home"))
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.url, reverse("reports-home"))
