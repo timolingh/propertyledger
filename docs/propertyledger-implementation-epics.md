@@ -1588,6 +1588,8 @@ Can view records and reports. Cannot create, post, sync, reverse, configure, or 
 
 # Epic 10 — API documentation and agent-built connector support
 
+Decision record: [`docs/epic-10.md`](./epic-10.md)
+
 ## Purpose
 
 Make the system usable by sophisticated users and AI agents building connectors.

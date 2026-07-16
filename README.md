@@ -93,6 +93,9 @@ Where to get the LedgerOS values:
 - `docs/epic-4.md` — Epic 4 runbook for tenant payments, credits, and security deposits.
 - `docs/epic-7.md` — Epic 7 runbook for owner statements and manual owner activity.
 - `docs/epic-8.md` — Epic 8 runbook for the reports app and in-page LedgerOS reports.
+- `docs/epic-10.md` — Epic 10 decision record for API documentation and connector support.
+- `docs/api.md` — public API reference for the current `/api` surface.
+- `docs/connector-guide.md` — connector and agent guide with examples and sandbox flow.
 - `CLAUDE.md` — guidance for AI agents working on the PropertyLedger repo.
 
 ## Testing
