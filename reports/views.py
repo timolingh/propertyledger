@@ -7,11 +7,12 @@ from typing import Any
 
 from django.contrib import messages
 from django.core.exceptions import ValidationError
-from django.contrib.auth.mixins import LoginRequiredMixin
 from django.http import HttpResponse
 from django.urls import reverse, reverse_lazy
 from django.views.generic import CreateView, DetailView, ListView, TemplateView, UpdateView
 
+from ledgeros.audit import audit_success
+from ledgeros.permissions import BookkeepingRoleRequiredMixin, ReportingRoleRequiredMixin
 from ledgeros.models import Owner, Property
 from payments.models import VendorBill
 from reports.forms import (
@@ -48,9 +49,10 @@ class ReportsAppContextMixin(LedgerOSAppContextMixin):
         return steps
 
 
-class ReportsLandingView(LoginRequiredMixin, ReportsAppContextMixin, TemplateView):
-    login_url = reverse_lazy("admin:login")
+class ReportsLandingView(ReportingRoleRequiredMixin, ReportsAppContextMixin, TemplateView):
+    login_url = reverse_lazy("login")
     template_name = "reports/index.html"
+    allowed_roles = ReportingRoleRequiredMixin.allowed_roles
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
@@ -84,11 +86,12 @@ class ReportsLandingView(LoginRequiredMixin, ReportsAppContextMixin, TemplateVie
         return context
 
 
-class OwnerContributionDistributionListView(LoginRequiredMixin, ReportsAppContextMixin, ListView):
-    login_url = reverse_lazy("admin:login")
+class OwnerContributionDistributionListView(ReportingRoleRequiredMixin, ReportsAppContextMixin, ListView):
+    login_url = reverse_lazy("login")
     model = OwnerContributionDistribution
     template_name = "reports/owner_activity_list.html"
     context_object_name = "activities"
+    allowed_roles = ReportingRoleRequiredMixin.allowed_roles
 
     def get_queryset(self):
         return OwnerContributionDistribution.objects.select_related("owner", "property", "sync_record")
@@ -99,8 +102,8 @@ class OwnerContributionDistributionListView(LoginRequiredMixin, ReportsAppContex
         return context
 
 
-class OwnerContributionDistributionCreateView(LoginRequiredMixin, ReportsAppContextMixin, CreateView):
-    login_url = reverse_lazy("admin:login")
+class OwnerContributionDistributionCreateView(BookkeepingRoleRequiredMixin, ReportsAppContextMixin, CreateView):
+    login_url = reverse_lazy("login")
     model = OwnerContributionDistribution
     form_class = OwnerContributionDistributionForm
     template_name = "ledgeros/crud_form.html"
@@ -108,9 +111,16 @@ class OwnerContributionDistributionCreateView(LoginRequiredMixin, ReportsAppCont
     page_title = "Owner activity"
     page_action = "Save owner activity"
     list_url_name = "owner-activity-list"
+    allowed_roles = BookkeepingRoleRequiredMixin.allowed_roles
 
     def form_valid(self, form):
         response = super().form_valid(form)
+        audit_success(
+            action="owner_activity_created",
+            record=self.object,
+            user=self.request.user,
+            source="ui",
+        )
         messages.success(self.request, "Owner activity saved.")
         if self.object.status in {
             OwnerContributionDistribution.Status.READY_TO_SYNC,
@@ -123,8 +133,8 @@ class OwnerContributionDistributionCreateView(LoginRequiredMixin, ReportsAppCont
         return response
 
 
-class OwnerContributionDistributionUpdateView(LoginRequiredMixin, ReportsAppContextMixin, UpdateView):
-    login_url = reverse_lazy("admin:login")
+class OwnerContributionDistributionUpdateView(BookkeepingRoleRequiredMixin, ReportsAppContextMixin, UpdateView):
+    login_url = reverse_lazy("login")
     model = OwnerContributionDistribution
     form_class = OwnerContributionDistributionForm
     template_name = "ledgeros/crud_form.html"
@@ -132,9 +142,16 @@ class OwnerContributionDistributionUpdateView(LoginRequiredMixin, ReportsAppCont
     page_title = "Owner activity"
     page_action = "Update owner activity"
     list_url_name = "owner-activity-list"
+    allowed_roles = BookkeepingRoleRequiredMixin.allowed_roles
 
     def form_valid(self, form):
         response = super().form_valid(form)
+        audit_success(
+            action="owner_activity_updated",
+            record=self.object,
+            user=self.request.user,
+            source="ui",
+        )
         messages.success(self.request, "Owner activity updated.")
         if self.object.status in {
             OwnerContributionDistribution.Status.READY_TO_SYNC,
@@ -147,11 +164,12 @@ class OwnerContributionDistributionUpdateView(LoginRequiredMixin, ReportsAppCont
         return response
 
 
-class OwnerContributionDistributionDetailView(LoginRequiredMixin, ReportsAppContextMixin, DetailView):
-    login_url = reverse_lazy("admin:login")
+class OwnerContributionDistributionDetailView(ReportingRoleRequiredMixin, ReportsAppContextMixin, DetailView):
+    login_url = reverse_lazy("login")
     model = OwnerContributionDistribution
     template_name = "reports/owner_activity_detail.html"
     context_object_name = "activity"
+    allowed_roles = ReportingRoleRequiredMixin.allowed_roles
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
@@ -161,20 +179,28 @@ class OwnerContributionDistributionDetailView(LoginRequiredMixin, ReportsAppCont
 
 
 class OwnerContributionDistributionArchiveView(LedgerOSCrudArchiveView):
-    login_url = reverse_lazy("admin:login")
+    login_url = reverse_lazy("login")
     model = OwnerContributionDistribution
     success_url = reverse_lazy("owner-activity-list")
     page_title = "Owner activity"
     list_url_name = "owner-activity-list"
+    allowed_roles = BookkeepingRoleRequiredMixin.allowed_roles
 
     def archive_object(self, obj):
         obj.status = OwnerContributionDistribution.Status.VOIDED
         obj.save(update_fields=["status", "updated_at"])
+        audit_success(
+            action="owner_activity_archived",
+            record=obj,
+            user=self.request.user,
+            source="ui",
+        )
 
 
-class OwnerStatementView(LoginRequiredMixin, ReportsAppContextMixin, TemplateView):
-    login_url = reverse_lazy("admin:login")
+class OwnerStatementView(ReportingRoleRequiredMixin, ReportsAppContextMixin, TemplateView):
+    login_url = reverse_lazy("login")
     template_name = "reports/owner_statement.html"
+    allowed_roles = ReportingRoleRequiredMixin.allowed_roles
 
     def get_form(self) -> OwnerStatementForm:
         return OwnerStatementForm(self.request.GET or None)
@@ -197,8 +223,9 @@ class OwnerStatementView(LoginRequiredMixin, ReportsAppContextMixin, TemplateVie
         return context
 
 
-class OwnerStatementExportView(LoginRequiredMixin, ReportsAppContextMixin, TemplateView):
-    login_url = reverse_lazy("admin:login")
+class OwnerStatementExportView(ReportingRoleRequiredMixin, ReportsAppContextMixin, TemplateView):
+    login_url = reverse_lazy("login")
+    allowed_roles = ReportingRoleRequiredMixin.allowed_roles
 
     def get(self, request, *args, **kwargs):
         form = OwnerStatementForm(request.GET or None)
@@ -238,9 +265,10 @@ class OwnerStatementExportView(LoginRequiredMixin, ReportsAppContextMixin, Templ
         return response
 
 
-class OwnerPendingSyncReportView(LoginRequiredMixin, ReportsAppContextMixin, TemplateView):
-    login_url = reverse_lazy("admin:login")
+class OwnerPendingSyncReportView(ReportingRoleRequiredMixin, ReportsAppContextMixin, TemplateView):
+    login_url = reverse_lazy("login")
     template_name = "reports/pending_sync.html"
+    allowed_roles = ReportingRoleRequiredMixin.allowed_roles
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
@@ -334,8 +362,8 @@ def _normalize_remote_payload(payload: Any) -> dict[str, Any]:
     return {"summary_items": [("Value", payload)], "sections": []}
 
 
-class ReportsBaseView(LoginRequiredMixin, ReportsAppContextMixin, TemplateView):
-    login_url = reverse_lazy("admin:login")
+class ReportsBaseView(ReportingRoleRequiredMixin, ReportsAppContextMixin, TemplateView):
+    login_url = reverse_lazy("login")
     template_name = "reports/report_page.html"
     form_class = None
     report_title = ""
@@ -343,6 +371,7 @@ class ReportsBaseView(LoginRequiredMixin, ReportsAppContextMixin, TemplateView):
     report_note = ""
     alternate_url = ""
     alternate_label = ""
+    allowed_roles = ReportingRoleRequiredMixin.allowed_roles
 
     def get_form(self):
         if self.form_class is None:

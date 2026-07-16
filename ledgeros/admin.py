@@ -1,3 +1,5 @@
+import json
+
 from django import forms
 from django.contrib import admin
 from django.db import models
@@ -5,9 +7,11 @@ from django.db import models
 from ledgeros.models import (
     Lease,
     LedgerOSConnectionSettings,
+    AuditLog,
     LedgerOSSyncRecord,
     Owner,
     Property,
+    RoleLandingPage,
     PropertyLedgerAccountMapping,
     PropertyLedgerSetup,
     Tenant,
@@ -179,3 +183,65 @@ class LedgerOSSyncRecordAdmin(admin.ModelAdmin):
         "external_id",
         "idempotency_key",
     ]
+
+
+@admin.register(AuditLog)
+class AuditLogAdmin(admin.ModelAdmin):
+    list_display = [
+        "created_at",
+        "action",
+        "outcome",
+        "actor",
+        "record_type",
+        "record_id",
+        "source",
+    ]
+    list_filter = ["outcome", "source", "created_at"]
+    search_fields = [
+        "action",
+        "actor__username",
+        "record_type",
+        "record_id",
+        "source",
+    ]
+    readonly_fields = [
+        "created_at",
+        "updated_at",
+        "action",
+        "actor",
+        "record_type",
+        "record_id",
+        "source",
+        "outcome",
+        "metadata_json",
+    ]
+
+    def get_queryset(self, request):
+        return super().get_queryset(request).select_related("actor")
+
+    def has_add_permission(self, request):  # pragma: no cover - admin behavior
+        return False
+
+    def has_change_permission(self, request, obj=None):  # pragma: no cover - admin behavior
+        return False
+
+    def has_delete_permission(self, request, obj=None):  # pragma: no cover - admin behavior
+        return False
+
+    def metadata_json(self, obj):  # pragma: no cover - admin behavior
+        return json.dumps(obj.metadata, indent=2, sort_keys=True)
+
+    metadata_json.short_description = "Metadata"
+
+
+@admin.register(RoleLandingPage)
+class RoleLandingPageAdmin(admin.ModelAdmin):
+    list_display = [
+        "group_name",
+        "landing_url_name",
+        "priority",
+        "is_active",
+        "created_at",
+    ]
+    list_filter = ["is_active"]
+    search_fields = ["group_name", "landing_url_name", "notes"]

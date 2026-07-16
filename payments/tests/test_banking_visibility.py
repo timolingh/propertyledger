@@ -9,6 +9,7 @@ from django.test import TestCase
 from django.urls import reverse
 
 from ledgeros.models import LedgerOSConnectionSettings
+from ledgeros.roles import ROLE_BOOKKEEPER, assign_user_role
 from payments.services import LedgerOSBankingReadService
 
 
@@ -70,6 +71,7 @@ class BankingVisibilityViewTests(TestCase):
     def setUp(self):
         _configure_ledgeros_settings()
         self.user = get_user_model().objects.create_user(username="tester", password="password")
+        assign_user_role(self.user, ROLE_BOOKKEEPER)
         self.client.force_login(self.user)
 
     @patch.dict(os.environ, {"LEDGEROS_HMAC_SECRET": "secret"}, clear=False)

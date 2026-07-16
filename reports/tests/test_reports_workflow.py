@@ -23,6 +23,7 @@ from ledgeros.models import (
     TenantCharge,
     Unit,
 )
+from ledgeros.roles import ROLE_READ_ONLY_VIEWER, assign_user_role
 from payments.models import MaintenanceCategory, SecurityDepositEvent, TenantPayment, Vendor, VendorBill
 from reports.models import OwnerContributionDistribution
 from reports.services import OwnerActivityService
@@ -106,6 +107,7 @@ class ReportsWorkflowTests(TestCase):
         _configure_ledgeros_settings()
         _configure_report_mappings()
         self.user = get_user_model().objects.create_user(username="tester", password="password")
+        assign_user_role(self.user, ROLE_READ_ONLY_VIEWER)
         self.client.force_login(self.user)
 
         self.owner = Owner.objects.create(name="Owner One", is_active=True)

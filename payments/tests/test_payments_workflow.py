@@ -17,6 +17,7 @@ from django.urls import reverse
 
 from ledgeros.models import LedgerOSConnectionSettings, LedgerOSSyncRecord, Owner, Property, Tenant, TenantCharge, Unit
 from ledgeros.models import PropertyLedgerAccountMapping, PropertyLedgerSetup
+from ledgeros.roles import ROLE_READ_ONLY_VIEWER, assign_user_role
 from payments.models import DebtServicePayment, MaintenanceCategory, PaymentWorkflowSettings, SecurityDepositEvent, TenantPayment, Vendor, VendorBill, VendorPayment
 from payments.services import (
     DebtServicePaymentService,
@@ -157,6 +158,11 @@ class PaymentWorkflowSettingsCommandTests(TestCase):
 
 
 class PaymentsLandingViewTests(TestCase):
+    def setUp(self):
+        self.user = get_user_model().objects.create_user(username="viewer", password="password")
+        assign_user_role(self.user, ROLE_READ_ONLY_VIEWER)
+        self.client.force_login(self.user)
+
     def test_landing_page_exposes_record_payment_cta(self):
         response = self.client.get(reverse("payments-home"))
 

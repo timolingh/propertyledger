@@ -1,0 +1,11 @@
+{% extends "ledgeros/base.html" %}
+
+{% block title %}Access denied | PropertyLedger{% endblock %}
+
+{% block content %}
+  <div class="card">
+    <h1>Access denied</h1>
+    <p class="muted">You are signed in, but your role does not allow access to this page.</p>
+    <a class="button primary" href="{{ back_url }}">Go back</a>
+  </div>
+{% endblock %}

@@ -1,6 +1,7 @@
 from django.urls import path
 
 from ledgeros.views import (
+    AuditLogView,
     LeaseArchiveView,
     LeaseCreateView,
     LeaseListView,
@@ -35,6 +36,7 @@ from ledgeros.views import (
 
 urlpatterns = [
     path("", LedgerOSSetupView.as_view(), name="ledgeros-setup"),
+    path("audit/", AuditLogView.as_view(), name="audit-log"),
     path("owners/", OwnerListView.as_view(), name="owner-list"),
     path("owners/add/", OwnerCreateView.as_view(), name="owner-create"),
     path("owners/<int:pk>/edit/", OwnerUpdateView.as_view(), name="owner-edit"),

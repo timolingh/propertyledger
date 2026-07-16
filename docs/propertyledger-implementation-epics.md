@@ -1513,6 +1513,8 @@ Real estate financial reports must reconcile to LedgerOS-posted resources where 
 
 # Epic 9 — Roles, permissions, audit, and production readiness
 
+Decision record: [`docs/epic-9.md`](./epic-9.md)
+
 ## Purpose
 
 Add MVP role model, audit visibility, and production-readiness basics.

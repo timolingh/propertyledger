@@ -6,7 +6,6 @@ from typing import Any
 
 from django.contrib import messages
 from django.core.exceptions import ValidationError
-from django.contrib.auth.mixins import LoginRequiredMixin
 from django.http import HttpResponseRedirect
 from django.urls import reverse, reverse_lazy
 from django.db import IntegrityError, transaction
@@ -15,6 +14,16 @@ from rest_framework import generics
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from ledgeros.audit import audit_success
+from ledgeros.models import AuditLog
+from ledgeros.permissions import (
+    AdminRoleRequiredMixin,
+    BookkeepingRoleRequiredMixin,
+    PropertyManagementRoleRequiredMixin,
+    ReportingRoleRequiredMixin,
+    RoleRequiredMixin,
+)
+from ledgeros.roles import get_user_role_label
 from ledgeros.forms import (
     LeaseForm,
     LedgerOSConnectionSettingsForm,
@@ -211,7 +220,9 @@ class LedgerOSAppContextMixin:
     def get_app_context(self) -> dict[str, Any]:
         setup_obj = PropertyLedgerSetup.load()
         setup_flow_steps = self.get_setup_flow_steps()
+        request = getattr(self, "request", None)
         return {
+            "current_role_label": get_user_role_label(request.user if request else None),
             "setup_obj": setup_obj,
             "setup_completion_error_groups": setup_obj.setup_completion_error_groups(),
             "setup_is_complete": (
@@ -231,8 +242,9 @@ class LedgerOSAppContextMixin:
         return context
 
 
-class LedgerOSSetupView(LedgerOSAppContextMixin, TemplateView):
+class LedgerOSSetupView(AdminRoleRequiredMixin, LedgerOSAppContextMixin, TemplateView):
     template_name = "ledgeros/setup.html"
+    allowed_roles = AdminRoleRequiredMixin.allowed_roles
 
     def _accounts_payable_mapping_form(self, setup_obj, data=None):
         mapping_key = PropertyLedgerAccountMapping.MappingKey.ACCOUNTS_PAYABLE
@@ -280,6 +292,13 @@ class LedgerOSSetupView(LedgerOSAppContextMixin, TemplateView):
                 mapping = ap_mapping_form.save(commit=False)
                 mapping.setup = setup_obj
                 mapping.save()
+                audit_success(
+                    action="ledgeros_mapping_saved",
+                    record=mapping,
+                    user=request.user,
+                    source="ui",
+                    metadata={"mapping_key": mapping.mapping_key},
+                )
                 messages.success(request, "Accounts payable mapping saved.")
                 return HttpResponseRedirect(reverse("ledgeros-setup"))
             context = self.get_context_data(accounts_payable_mapping_form=ap_mapping_form)
@@ -288,19 +307,26 @@ class LedgerOSSetupView(LedgerOSAppContextMixin, TemplateView):
         form = LedgerOSConnectionSettingsForm(request.POST, instance=settings_obj)
         if form.is_valid():
             form.save()
+            audit_success(
+                action="ledgeros_connection_saved",
+                record=settings_obj,
+                user=request.user,
+                source="ui",
+            )
             messages.success(request, "LedgerOS connection settings saved.")
             return HttpResponseRedirect(reverse("ledgeros-setup"))
         context = self.get_context_data(form=form)
         return self.render_to_response(context)
 
 
-class LedgerOSCrudListView(LoginRequiredMixin, LedgerOSAppContextMixin, ListView):
-    login_url = reverse_lazy("admin:login")
+class LedgerOSCrudListView(RoleRequiredMixin, LedgerOSAppContextMixin, ListView):
+    login_url = reverse_lazy("login")
     template_name = "ledgeros/crud_list.html"
     context_object_name = "objects"
     page_title = ""
     create_url_name = ""
     create_label = "Add"
+    allowed_roles: tuple[str, ...] = ()
 
     def get_create_gate_context(self) -> dict[str, Any]:
         return {
@@ -323,12 +349,14 @@ class LedgerOSCrudListView(LoginRequiredMixin, LedgerOSAppContextMixin, ListView
         raise NotImplementedError
 
 
-class LedgerOSCrudFormView(LoginRequiredMixin, LedgerOSAppContextMixin):
-    login_url = reverse_lazy("admin:login")
+class LedgerOSCrudFormView(RoleRequiredMixin, LedgerOSAppContextMixin):
+    login_url = reverse_lazy("login")
     template_name = "ledgeros/crud_form.html"
     page_title = ""
     page_action = ""
     list_url_name = ""
+    allowed_roles: tuple[str, ...] = ()
+    audit_action = ""
 
     def get_create_gate_context(self) -> dict[str, Any]:
         return {
@@ -348,14 +376,22 @@ class LedgerOSCrudFormView(LoginRequiredMixin, LedgerOSAppContextMixin):
 
     def form_valid(self, form):
         self.object = form.save()
+        audit_success(
+            action=self.audit_action or f"{self.model.__name__.lower()}_saved",
+            record=self.object,
+            user=self.request.user,
+            source="ui",
+        )
         return HttpResponseRedirect(reverse(self.list_url_name))
 
 
-class LedgerOSCrudArchiveView(LoginRequiredMixin, LedgerOSAppContextMixin, DeleteView):
-    login_url = reverse_lazy("admin:login")
+class LedgerOSCrudArchiveView(RoleRequiredMixin, LedgerOSAppContextMixin, DeleteView):
+    login_url = reverse_lazy("login")
     template_name = "ledgeros/crud_confirm_delete.html"
     list_url_name = ""
     page_title = ""
+    allowed_roles: tuple[str, ...] = ()
+    audit_action = ""
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
@@ -369,10 +405,26 @@ class LedgerOSCrudArchiveView(LoginRequiredMixin, LedgerOSAppContextMixin, Delet
     def form_valid(self, form):
         self.object = self.get_object()
         self.archive_object(self.object)
+        audit_success(
+            action=self.audit_action or f"{self.model.__name__.lower()}_archived",
+            record=self.object,
+            user=self.request.user,
+            source="ui",
+        )
         return HttpResponseRedirect(self.get_success_url())
 
     def archive_object(self, obj):
         raise NotImplementedError
+
+
+class AuditLogView(ReportingRoleRequiredMixin, LedgerOSAppContextMixin, ListView):
+    model = AuditLog
+    template_name = "ledgeros/audit_log.html"
+    context_object_name = "audit_logs"
+    allowed_roles = ReportingRoleRequiredMixin.allowed_roles
+
+    def get_queryset(self):
+        return AuditLog.objects.select_related("actor").order_by("-created_at", "-id")[:100]
 
 
 class LocalHealthAPIView(APIView):
@@ -495,6 +547,7 @@ class OwnerListView(LedgerOSCrudListView):
     page_title = "Owners"
     create_url_name = "owner-create"
     create_label = "Add owner"
+    allowed_roles = PropertyManagementRoleRequiredMixin.allowed_roles
 
     def get_rows(self, objects):
         return [
@@ -514,6 +567,7 @@ class OwnerCreateView(LedgerOSCrudFormView, CreateView):
     page_title = "Add owner"
     page_action = "Create owner"
     list_url_name = "owner-list"
+    allowed_roles = PropertyManagementRoleRequiredMixin.allowed_roles
 
 
 class OwnerUpdateView(LedgerOSCrudFormView, UpdateView):
@@ -522,12 +576,14 @@ class OwnerUpdateView(LedgerOSCrudFormView, UpdateView):
     page_title = "Edit owner"
     page_action = "Save owner"
     list_url_name = "owner-list"
+    allowed_roles = PropertyManagementRoleRequiredMixin.allowed_roles
 
 
 class OwnerArchiveView(LedgerOSCrudArchiveView):
     model = Owner
     page_title = "Archive owner"
     list_url_name = "owner-list"
+    allowed_roles = PropertyManagementRoleRequiredMixin.allowed_roles
 
     def archive_object(self, obj):
         obj.is_active = False
@@ -539,6 +595,7 @@ class PropertyListView(LedgerOSCrudListView):
     page_title = "Properties"
     create_url_name = "property-create"
     create_label = "Add property"
+    allowed_roles = PropertyManagementRoleRequiredMixin.allowed_roles
 
     def get_create_gate_context(self) -> dict[str, Any]:
         if Owner.objects.filter(is_active=True).exists():
@@ -570,6 +627,7 @@ class PropertyCreateView(LedgerOSCrudFormView, CreateView):
     page_title = "Add property"
     page_action = "Create property"
     list_url_name = "property-list"
+    allowed_roles = PropertyManagementRoleRequiredMixin.allowed_roles
 
     def get_create_gate_context(self) -> dict[str, Any]:
         if Owner.objects.filter(is_active=True).exists():
@@ -598,6 +656,13 @@ class PropertyCreateView(LedgerOSCrudFormView, CreateView):
                 _add_form_error_from_exception(form, exc)
                 transaction.set_rollback(True)
                 validation_failed = True
+        if not validation_failed:
+            audit_success(
+                action="property_created",
+                record=self.object,
+                user=self.request.user,
+                source="ui",
+            )
         if validation_failed:
             return self.form_invalid(form)
         return HttpResponseRedirect(reverse(self.list_url_name))
@@ -609,12 +674,14 @@ class PropertyUpdateView(LedgerOSCrudFormView, UpdateView):
     page_title = "Edit property"
     page_action = "Save property"
     list_url_name = "property-list"
+    allowed_roles = PropertyManagementRoleRequiredMixin.allowed_roles
 
 
 class PropertyArchiveView(LedgerOSCrudArchiveView):
     model = Property
     page_title = "Archive property"
     list_url_name = "property-list"
+    allowed_roles = PropertyManagementRoleRequiredMixin.allowed_roles
 
     def archive_object(self, obj):
         obj.units.update(status=Unit.Status.ARCHIVED)
@@ -628,6 +695,7 @@ class UnitListView(LedgerOSCrudListView):
     page_title = "Units"
     create_url_name = "unit-create"
     create_label = "Add unit"
+    allowed_roles = PropertyManagementRoleRequiredMixin.allowed_roles
 
     def get_create_gate_context(self) -> dict[str, Any]:
         if Property.objects.exists():
@@ -657,6 +725,7 @@ class UnitCreateView(LedgerOSCrudFormView, CreateView):
     page_title = "Add unit"
     page_action = "Create unit"
     list_url_name = "unit-list"
+    allowed_roles = PropertyManagementRoleRequiredMixin.allowed_roles
 
     def get_create_gate_context(self) -> dict[str, Any]:
         if Property.objects.exists():
@@ -675,12 +744,14 @@ class UnitUpdateView(LedgerOSCrudFormView, UpdateView):
     page_title = "Edit unit"
     page_action = "Save unit"
     list_url_name = "unit-list"
+    allowed_roles = PropertyManagementRoleRequiredMixin.allowed_roles
 
 
 class UnitArchiveView(LedgerOSCrudArchiveView):
     model = Unit
     page_title = "Archive unit"
     list_url_name = "unit-list"
+    allowed_roles = PropertyManagementRoleRequiredMixin.allowed_roles
 
     def archive_object(self, obj):
         obj.leases.update(status=Lease.Status.CANCELLED)
@@ -693,6 +764,7 @@ class TenantListView(LedgerOSCrudListView):
     page_title = "Tenants"
     create_url_name = "tenant-create"
     create_label = "Add tenant"
+    allowed_roles = PropertyManagementRoleRequiredMixin.allowed_roles
 
     def get_rows(self, objects):
         return [
@@ -712,6 +784,7 @@ class TenantCreateView(LedgerOSCrudFormView, CreateView):
     page_title = "Add tenant"
     page_action = "Create tenant"
     list_url_name = "tenant-list"
+    allowed_roles = PropertyManagementRoleRequiredMixin.allowed_roles
 
     def form_valid(self, form):
         validation_failed = False
@@ -728,6 +801,13 @@ class TenantCreateView(LedgerOSCrudFormView, CreateView):
                 _add_form_error_from_exception(form, exc)
                 transaction.set_rollback(True)
                 validation_failed = True
+        if not validation_failed:
+            audit_success(
+                action="tenant_created",
+                record=self.object,
+                user=self.request.user,
+                source="ui",
+            )
         if validation_failed:
             return self.form_invalid(form)
         return HttpResponseRedirect(reverse(self.list_url_name))
@@ -739,12 +819,14 @@ class TenantUpdateView(LedgerOSCrudFormView, UpdateView):
     page_title = "Edit tenant"
     page_action = "Save tenant"
     list_url_name = "tenant-list"
+    allowed_roles = PropertyManagementRoleRequiredMixin.allowed_roles
 
 
 class TenantArchiveView(LedgerOSCrudArchiveView):
     model = Tenant
     page_title = "Archive tenant"
     list_url_name = "tenant-list"
+    allowed_roles = PropertyManagementRoleRequiredMixin.allowed_roles
 
     def archive_object(self, obj):
         obj.leases.update(status=Lease.Status.CANCELLED)
@@ -757,6 +839,7 @@ class LeaseListView(LedgerOSCrudListView):
     page_title = "Leases"
     create_url_name = "lease-create"
     create_label = "Add lease"
+    allowed_roles = PropertyManagementRoleRequiredMixin.allowed_roles
 
     def get_create_gate_context(self) -> dict[str, Any]:
         unit_missing = not Unit.objects.exists()
@@ -800,6 +883,7 @@ class LeaseCreateView(LedgerOSCrudFormView, CreateView):
     page_title = "Add lease"
     page_action = "Create lease"
     list_url_name = "lease-list"
+    allowed_roles = PropertyManagementRoleRequiredMixin.allowed_roles
 
     def get_create_gate_context(self) -> dict[str, Any]:
         unit_missing = not Unit.objects.exists()
@@ -828,12 +912,14 @@ class LeaseUpdateView(LedgerOSCrudFormView, UpdateView):
     page_title = "Edit lease"
     page_action = "Save lease"
     list_url_name = "lease-list"
+    allowed_roles = PropertyManagementRoleRequiredMixin.allowed_roles
 
 
 class LeaseArchiveView(LedgerOSCrudArchiveView):
     model = Lease
     page_title = "Archive lease"
     list_url_name = "lease-list"
+    allowed_roles = PropertyManagementRoleRequiredMixin.allowed_roles
 
     def archive_object(self, obj):
         obj.status = Lease.Status.CANCELLED
@@ -849,6 +935,7 @@ class TenantChargeListView(LedgerOSCrudListView):
         ("approve", "Approve selected"),
         ("archive", "Archive selected"),
     ]
+    allowed_roles = BookkeepingRoleRequiredMixin.allowed_roles
 
     def get_create_gate_context(self) -> dict[str, Any]:
         if Property.objects.exists():
@@ -913,6 +1000,13 @@ class TenantChargeListView(LedgerOSCrudListView):
                     continue
                 TenantChargeService.approve_charge(charge)
                 approved_count += 1
+                audit_success(
+                    action="tenant_charge_bulk_approved",
+                    record=charge,
+                    user=request.user,
+                    source="ui",
+                    metadata={"bulk_action": action},
+                )
             if approved_count:
                 messages.success(
                     request,
@@ -932,6 +1026,13 @@ class TenantChargeListView(LedgerOSCrudListView):
                 if charge.status != TenantCharge.Status.VOIDED:
                     charge.status = TenantCharge.Status.VOIDED
                     charge.save(update_fields=["status", "updated_at"])
+                    audit_success(
+                        action="tenant_charge_bulk_archived",
+                        record=charge,
+                        user=request.user,
+                        source="ui",
+                        metadata={"bulk_action": action},
+                    )
                     archived_count += 1
             messages.success(
                 request,
@@ -969,11 +1070,12 @@ class TenantChargeListView(LedgerOSCrudListView):
         return context
 
 
-class TenantChargeDetailView(LoginRequiredMixin, LedgerOSAppContextMixin, DetailView):
+class TenantChargeDetailView(ReportingRoleRequiredMixin, LedgerOSAppContextMixin, DetailView):
     model = TenantCharge
     template_name = "ledgeros/charge_detail.html"
     context_object_name = "invoice"
-    login_url = reverse_lazy("admin:login")
+    login_url = reverse_lazy("login")
+    allowed_roles = ReportingRoleRequiredMixin.allowed_roles
 
     def get_queryset(self):
         return TenantCharge.objects.select_related("sync_record", "property", "tenant", "lease").prefetch_related(
@@ -996,6 +1098,7 @@ class TenantChargeCreateView(LedgerOSCrudFormView, CreateView):
     page_title = "Add invoice"
     page_action = "Create invoice"
     list_url_name = "charge-list"
+    allowed_roles = BookkeepingRoleRequiredMixin.allowed_roles
 
     def get_create_gate_context(self) -> dict[str, Any]:
         if Property.objects.exists():
@@ -1011,6 +1114,19 @@ class TenantChargeCreateView(LedgerOSCrudFormView, CreateView):
         self.object = form.save()
         if self.object.status == TenantCharge.Status.APPROVED:
             TenantChargeService.approve_charge(self.object)
+            audit_success(
+                action="tenant_charge_approved",
+                record=self.object,
+                user=self.request.user,
+                source="ui",
+            )
+        else:
+            audit_success(
+                action="tenant_charge_created",
+                record=self.object,
+                user=self.request.user,
+                source="ui",
+            )
         return HttpResponseRedirect(reverse(self.list_url_name))
 
 
@@ -1020,6 +1136,7 @@ class TenantChargeUpdateView(LedgerOSCrudFormView, UpdateView):
     page_title = "Edit invoice"
     page_action = "Save invoice"
     list_url_name = "charge-list"
+    allowed_roles = BookkeepingRoleRequiredMixin.allowed_roles
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
@@ -1044,6 +1161,19 @@ class TenantChargeUpdateView(LedgerOSCrudFormView, UpdateView):
         self.object = form.save()
         if self.object.status == TenantCharge.Status.APPROVED:
             TenantChargeService.approve_charge(self.object)
+            audit_success(
+                action="tenant_charge_updated_and_approved",
+                record=self.object,
+                user=self.request.user,
+                source="ui",
+            )
+        else:
+            audit_success(
+                action="tenant_charge_updated",
+                record=self.object,
+                user=self.request.user,
+                source="ui",
+            )
         return HttpResponseRedirect(reverse(self.list_url_name))
 
 
@@ -1051,6 +1181,7 @@ class TenantChargeArchiveView(LedgerOSCrudArchiveView):
     model = TenantCharge
     page_title = "Archive invoice"
     list_url_name = "charge-list"
+    allowed_roles = BookkeepingRoleRequiredMixin.allowed_roles
 
     def archive_object(self, obj):
         obj.status = TenantCharge.Status.VOIDED

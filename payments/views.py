@@ -6,12 +6,13 @@ from typing import Any
 
 from django.contrib import messages
 from django.core.exceptions import ValidationError
-from django.contrib.auth.mixins import LoginRequiredMixin
 from django.http import HttpResponseRedirect
 from django.urls import reverse, reverse_lazy
 from django.utils import timezone
 from django.views.generic import CreateView, DetailView, ListView, TemplateView, UpdateView
 
+from ledgeros.audit import audit_success
+from ledgeros.permissions import BookkeepingRoleRequiredMixin, ReportingRoleRequiredMixin
 from ledgeros.models import LedgerOSSyncRecord, Property, TenantCharge
 from ledgeros.views import LedgerOSAppContextMixin, LedgerOSCrudArchiveView
 from payments.forms import (
@@ -135,13 +136,14 @@ def _invoice_payment_history(invoice: TenantCharge) -> list[dict[str, Any]]:
     return entries
 
 
-class PaymentsCrudListView(LoginRequiredMixin, PaymentsAppContextMixin, ListView):
-    login_url = reverse_lazy("admin:login")
+class PaymentsCrudListView(BookkeepingRoleRequiredMixin, PaymentsAppContextMixin, ListView):
+    login_url = reverse_lazy("login")
     template_name = "ledgeros/crud_list.html"
     context_object_name = "objects"
     page_title = ""
     create_url_name = ""
     create_label = "Add"
+    allowed_roles = BookkeepingRoleRequiredMixin.allowed_roles
 
     def get_create_gate_context(self) -> dict[str, Any]:
         return {
@@ -164,13 +166,14 @@ class PaymentsCrudListView(LoginRequiredMixin, PaymentsAppContextMixin, ListView
         raise NotImplementedError
 
 
-class PaymentsCrudFormView(LoginRequiredMixin, PaymentsAppContextMixin):
-    login_url = reverse_lazy("admin:login")
+class PaymentsCrudFormView(BookkeepingRoleRequiredMixin, PaymentsAppContextMixin):
+    login_url = reverse_lazy("login")
     template_name = "ledgeros/crud_form.html"
     page_title = ""
     page_action = ""
     list_url_name = ""
     detail_url_name = ""
+    allowed_roles = BookkeepingRoleRequiredMixin.allowed_roles
 
     def get_create_gate_context(self) -> dict[str, Any]:
         return {
@@ -192,13 +195,15 @@ class PaymentsCrudFormView(LoginRequiredMixin, PaymentsAppContextMixin):
         raise NotImplementedError
 
 
-class PaymentsLandingView(PaymentsAppContextMixin, TemplateView):
+class PaymentsLandingView(ReportingRoleRequiredMixin, PaymentsAppContextMixin, TemplateView):
     template_name = "payments/index.html"
+    allowed_roles = ReportingRoleRequiredMixin.allowed_roles
 
 
-class BankingVisibilityView(LoginRequiredMixin, PaymentsAppContextMixin, TemplateView):
-    login_url = reverse_lazy("admin:login")
+class BankingVisibilityView(BookkeepingRoleRequiredMixin, PaymentsAppContextMixin, TemplateView):
+    login_url = reverse_lazy("login")
     template_name = "payments/banking.html"
+    allowed_roles = BookkeepingRoleRequiredMixin.allowed_roles
 
     @staticmethod
     def _format_error(exc: Exception) -> str:
@@ -232,11 +237,12 @@ class BankingVisibilityView(LoginRequiredMixin, PaymentsAppContextMixin, Templat
         return context
 
 
-class TenantInvoiceListView(LoginRequiredMixin, PaymentsAppContextMixin, ListView):
+class TenantInvoiceListView(ReportingRoleRequiredMixin, PaymentsAppContextMixin, ListView):
     model = TenantCharge
     template_name = "payments/invoice_list.html"
     context_object_name = "invoices"
-    login_url = reverse_lazy("admin:login")
+    login_url = reverse_lazy("login")
+    allowed_roles = ReportingRoleRequiredMixin.allowed_roles
 
     def get_queryset(self):
         return (
@@ -268,11 +274,12 @@ class TenantInvoiceListView(LoginRequiredMixin, PaymentsAppContextMixin, ListVie
         return context
 
 
-class TenantInvoiceDetailView(LoginRequiredMixin, PaymentsAppContextMixin, DetailView):
+class TenantInvoiceDetailView(ReportingRoleRequiredMixin, PaymentsAppContextMixin, DetailView):
     model = TenantCharge
     template_name = "payments/invoice_detail.html"
     context_object_name = "invoice"
-    login_url = reverse_lazy("admin:login")
+    login_url = reverse_lazy("login")
+    allowed_roles = ReportingRoleRequiredMixin.allowed_roles
 
     def get_queryset(self):
         return (
@@ -298,6 +305,12 @@ class TenantInvoiceDetailView(LoginRequiredMixin, PaymentsAppContextMixin, Detai
                     form.add_error(None, message)
             else:
                 payment.refresh_from_db()
+                audit_success(
+                    action="invoice_payment_recorded",
+                    record=payment,
+                    user=request.user,
+                    source="ui",
+                )
                 errors = _payment_sync_errors(payment)
                 sync_status = payment.sync_record.status if payment.sync_record else ""
                 if sync_status == LedgerOSSyncRecord.Status.FAILED:
@@ -349,11 +362,12 @@ class TenantInvoiceDetailView(LoginRequiredMixin, PaymentsAppContextMixin, Detai
         return context
 
 
-class TenantPaymentListView(LoginRequiredMixin, PaymentsAppContextMixin, ListView):
+class TenantPaymentListView(ReportingRoleRequiredMixin, PaymentsAppContextMixin, ListView):
     model = TenantPayment
     template_name = "payments/tenant_payment_list.html"
     context_object_name = "payments"
-    login_url = reverse_lazy("admin:login")
+    login_url = reverse_lazy("login")
+    allowed_roles = ReportingRoleRequiredMixin.allowed_roles
 
     def get_queryset(self):
         return TenantPayment.objects.select_related("tenant", "property", "sync_record").prefetch_related("applications__charge").order_by("-payment_date", "-id")
@@ -372,6 +386,12 @@ class TenantPaymentListView(LoginRequiredMixin, PaymentsAppContextMixin, ListVie
                 messages.error(request, "; ".join(exc.messages))
             else:
                 payment.refresh_from_db()
+                audit_success(
+                    action="tenant_payment_allocated",
+                    record=payment,
+                    user=request.user,
+                    source="ui",
+                )
                 errors = _payment_sync_errors(payment)
                 if errors:
                     messages.warning(
@@ -389,6 +409,12 @@ class TenantPaymentListView(LoginRequiredMixin, PaymentsAppContextMixin, ListVie
                 messages.error(request, "; ".join(exc.messages))
             else:
                 payment.refresh_from_db()
+                audit_success(
+                    action="tenant_payment_synced",
+                    record=payment,
+                    user=request.user,
+                    source="ui",
+                )
                 errors = _payment_sync_errors(payment)
                 sync_status = payment.sync_record.status if payment.sync_record else ""
                 if sync_status == LedgerOSSyncRecord.Status.FAILED:
@@ -404,22 +430,30 @@ class TenantPaymentListView(LoginRequiredMixin, PaymentsAppContextMixin, ListVie
         return HttpResponseRedirect(reverse("tenant-payment-list"))
 
 
-class TenantPaymentCreateView(LoginRequiredMixin, PaymentsAppContextMixin, CreateView):
+class TenantPaymentCreateView(BookkeepingRoleRequiredMixin, PaymentsAppContextMixin, CreateView):
     model = TenantPayment
     form_class = TenantPaymentForm
     template_name = "payments/payment_form.html"
-    login_url = reverse_lazy("admin:login")
+    login_url = reverse_lazy("login")
+    allowed_roles = BookkeepingRoleRequiredMixin.allowed_roles
 
     def form_valid(self, form):
         self.object = form.save()
+        audit_success(
+            action="tenant_payment_created",
+            record=self.object,
+            user=self.request.user,
+            source="ui",
+        )
         return HttpResponseRedirect(reverse("tenant-payment-detail", args=[self.object.pk]))
 
 
-class TenantPaymentUpdateView(LoginRequiredMixin, PaymentsAppContextMixin, UpdateView):
+class TenantPaymentUpdateView(BookkeepingRoleRequiredMixin, PaymentsAppContextMixin, UpdateView):
     model = TenantPayment
     form_class = TenantPaymentForm
     template_name = "payments/payment_form.html"
-    login_url = reverse_lazy("admin:login")
+    login_url = reverse_lazy("login")
+    allowed_roles = BookkeepingRoleRequiredMixin.allowed_roles
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
@@ -427,14 +461,21 @@ class TenantPaymentUpdateView(LoginRequiredMixin, PaymentsAppContextMixin, Updat
 
     def form_valid(self, form):
         self.object = form.save()
+        audit_success(
+            action="tenant_payment_updated",
+            record=self.object,
+            user=self.request.user,
+            source="ui",
+        )
         return HttpResponseRedirect(reverse("tenant-payment-detail", args=[self.object.pk]))
 
 
-class TenantPaymentDetailView(LoginRequiredMixin, PaymentsAppContextMixin, DetailView):
+class TenantPaymentDetailView(ReportingRoleRequiredMixin, PaymentsAppContextMixin, DetailView):
     model = TenantPayment
     template_name = "payments/payment_detail.html"
     context_object_name = "payment"
-    login_url = reverse_lazy("admin:login")
+    login_url = reverse_lazy("login")
+    allowed_roles = ReportingRoleRequiredMixin.allowed_roles
 
     def get_queryset(self):
         return TenantPayment.objects.select_related("tenant", "property", "sync_record").prefetch_related("applications__charge", "applications__sync_record")
@@ -449,6 +490,12 @@ class TenantPaymentDetailView(LoginRequiredMixin, PaymentsAppContextMixin, Detai
                 messages.error(request, "; ".join(exc.messages))
             else:
                 self.object.refresh_from_db()
+                audit_success(
+                    action="tenant_payment_allocated",
+                    record=self.object,
+                    user=request.user,
+                    source="ui",
+                )
                 errors = _payment_sync_errors(self.object)
                 if errors:
                     messages.warning(
@@ -465,6 +512,12 @@ class TenantPaymentDetailView(LoginRequiredMixin, PaymentsAppContextMixin, Detai
                 messages.error(request, "; ".join(exc.messages))
             else:
                 self.object.refresh_from_db()
+                audit_success(
+                    action="tenant_payment_synced",
+                    record=self.object,
+                    user=request.user,
+                    source="ui",
+                )
                 errors = _payment_sync_errors(self.object)
                 sync_status = self.object.sync_record.status if self.object.sync_record else ""
                 if sync_status == LedgerOSSyncRecord.Status.FAILED:
@@ -520,17 +573,19 @@ class TenantPaymentArchiveView(LedgerOSCrudArchiveView):
     model = TenantPayment
     page_title = "Archive payment"
     list_url_name = "tenant-payment-list"
+    allowed_roles = BookkeepingRoleRequiredMixin.allowed_roles
 
     def archive_object(self, obj):
         obj.status = TenantPayment.Status.VOIDED
         obj.save(update_fields=["status", "updated_at"])
 
 
-class SecurityDepositEventListView(LoginRequiredMixin, PaymentsAppContextMixin, ListView):
+class SecurityDepositEventListView(ReportingRoleRequiredMixin, PaymentsAppContextMixin, ListView):
     model = SecurityDepositEvent
     template_name = "payments/security_deposit_list.html"
     context_object_name = "events"
-    login_url = reverse_lazy("admin:login")
+    login_url = reverse_lazy("login")
+    allowed_roles = ReportingRoleRequiredMixin.allowed_roles
 
     def get_queryset(self):
         return SecurityDepositEvent.objects.select_related("tenant", "property", "unit", "lease", "sync_record").order_by("-event_date", "-id")
@@ -563,22 +618,30 @@ class SecurityDepositEventListView(LoginRequiredMixin, PaymentsAppContextMixin, 
         return HttpResponseRedirect(reverse("security-deposit-list"))
 
 
-class SecurityDepositEventCreateView(LoginRequiredMixin, PaymentsAppContextMixin, CreateView):
+class SecurityDepositEventCreateView(BookkeepingRoleRequiredMixin, PaymentsAppContextMixin, CreateView):
     model = SecurityDepositEvent
     form_class = SecurityDepositEventForm
     template_name = "payments/security_deposit_form.html"
-    login_url = reverse_lazy("admin:login")
+    login_url = reverse_lazy("login")
+    allowed_roles = BookkeepingRoleRequiredMixin.allowed_roles
 
     def form_valid(self, form):
         self.object = form.save()
+        audit_success(
+            action="security_deposit_created",
+            record=self.object,
+            user=self.request.user,
+            source="ui",
+        )
         return HttpResponseRedirect(reverse("security-deposit-detail", args=[self.object.pk]))
 
 
-class SecurityDepositEventUpdateView(LoginRequiredMixin, PaymentsAppContextMixin, UpdateView):
+class SecurityDepositEventUpdateView(BookkeepingRoleRequiredMixin, PaymentsAppContextMixin, UpdateView):
     model = SecurityDepositEvent
     form_class = SecurityDepositEventForm
     template_name = "payments/security_deposit_form.html"
-    login_url = reverse_lazy("admin:login")
+    login_url = reverse_lazy("login")
+    allowed_roles = BookkeepingRoleRequiredMixin.allowed_roles
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
@@ -586,14 +649,21 @@ class SecurityDepositEventUpdateView(LoginRequiredMixin, PaymentsAppContextMixin
 
     def form_valid(self, form):
         self.object = form.save()
+        audit_success(
+            action="security_deposit_updated",
+            record=self.object,
+            user=self.request.user,
+            source="ui",
+        )
         return HttpResponseRedirect(reverse("security-deposit-detail", args=[self.object.pk]))
 
 
-class SecurityDepositEventDetailView(LoginRequiredMixin, PaymentsAppContextMixin, DetailView):
+class SecurityDepositEventDetailView(ReportingRoleRequiredMixin, PaymentsAppContextMixin, DetailView):
     model = SecurityDepositEvent
     template_name = "payments/security_deposit_detail.html"
     context_object_name = "event"
-    login_url = reverse_lazy("admin:login")
+    login_url = reverse_lazy("login")
+    allowed_roles = ReportingRoleRequiredMixin.allowed_roles
 
     def get_queryset(self):
         return SecurityDepositEvent.objects.select_related("tenant", "property", "unit", "lease", "sync_record")
@@ -608,6 +678,12 @@ class SecurityDepositEventDetailView(LoginRequiredMixin, PaymentsAppContextMixin
                 messages.error(request, "; ".join(exc.messages))
             else:
                 self.object.refresh_from_db()
+                audit_success(
+                    action="security_deposit_synced",
+                    record=self.object,
+                    user=request.user,
+                    source="ui",
+                )
                 sync_status = self.object.sync_record.status if self.object.sync_record else ""
                 if sync_status == LedgerOSSyncRecord.Status.FAILED:
                     messages.error(
@@ -626,11 +702,12 @@ class SecurityDepositEventDetailView(LoginRequiredMixin, PaymentsAppContextMixin
         return context
 
 
-class VendorListView(PaymentsCrudListView):
+class VendorListView(ReportingRoleRequiredMixin, PaymentsCrudListView):
     model = Vendor
     page_title = "Vendors"
     create_url_name = "vendor-create"
     create_label = "Add vendor"
+    allowed_roles = ReportingRoleRequiredMixin.allowed_roles
 
     def get_rows(self, objects):
         return [
@@ -649,11 +726,18 @@ class VendorCreateView(PaymentsCrudFormView, CreateView):
     page_title = "Add vendor"
     page_action = "Create vendor"
     list_url_name = "vendor-list"
+    allowed_roles = BookkeepingRoleRequiredMixin.allowed_roles
 
     def form_valid(self, form):
         self.object = form.save(commit=False)
         VendorService.save_and_sync_vendor(self.object)
         self.object.refresh_from_db()
+        audit_success(
+            action="vendor_saved",
+            record=self.object,
+            user=self.request.user,
+            source="ui",
+        )
         if self.object.sync_record and self.object.sync_record.status == LedgerOSSyncRecord.Status.SUCCEEDED:
             messages.success(self.request, "Vendor saved and provisioned in LedgerOS.")
         elif self.object.sync_record and self.object.sync_record.status == LedgerOSSyncRecord.Status.FAILED:
@@ -676,11 +760,18 @@ class VendorUpdateView(PaymentsCrudFormView, UpdateView):
     page_title = "Edit vendor"
     page_action = "Save vendor"
     list_url_name = "vendor-list"
+    allowed_roles = BookkeepingRoleRequiredMixin.allowed_roles
 
     def form_valid(self, form):
         self.object = form.save(commit=False)
         VendorService.save_and_sync_vendor(self.object)
         self.object.refresh_from_db()
+        audit_success(
+            action="vendor_updated",
+            record=self.object,
+            user=self.request.user,
+            source="ui",
+        )
         if self.object.sync_record and self.object.sync_record.status == LedgerOSSyncRecord.Status.SUCCEEDED:
             messages.success(self.request, "Vendor saved and provisioned in LedgerOS.")
         elif self.object.sync_record and self.object.sync_record.status == LedgerOSSyncRecord.Status.FAILED:
@@ -697,11 +788,12 @@ class VendorUpdateView(PaymentsCrudFormView, UpdateView):
         return HttpResponseRedirect(reverse(self.list_url_name))
 
 
-class MaintenanceCategoryListView(PaymentsCrudListView):
+class MaintenanceCategoryListView(ReportingRoleRequiredMixin, PaymentsCrudListView):
     model = MaintenanceCategory
     page_title = "Maintenance categories"
     create_url_name = "maintenance-category-create"
     create_label = "Add category"
+    allowed_roles = ReportingRoleRequiredMixin.allowed_roles
 
     def get_rows(self, objects):
         return [
@@ -720,9 +812,16 @@ class MaintenanceCategoryCreateView(PaymentsCrudFormView, CreateView):
     page_title = "Add maintenance category"
     page_action = "Create category"
     list_url_name = "maintenance-category-list"
+    allowed_roles = BookkeepingRoleRequiredMixin.allowed_roles
 
     def form_valid(self, form):
         self.object = form.save()
+        audit_success(
+            action="maintenance_category_created",
+            record=self.object,
+            user=self.request.user,
+            source="ui",
+        )
         return HttpResponseRedirect(reverse(self.list_url_name))
 
 
@@ -732,18 +831,26 @@ class MaintenanceCategoryUpdateView(PaymentsCrudFormView, UpdateView):
     page_title = "Edit maintenance category"
     page_action = "Save category"
     list_url_name = "maintenance-category-list"
+    allowed_roles = BookkeepingRoleRequiredMixin.allowed_roles
 
     def form_valid(self, form):
         self.object = form.save()
+        audit_success(
+            action="maintenance_category_updated",
+            record=self.object,
+            user=self.request.user,
+            source="ui",
+        )
         return HttpResponseRedirect(reverse(self.list_url_name))
 
 
-class VendorBillListView(PaymentsCrudListView):
+class VendorBillListView(ReportingRoleRequiredMixin, PaymentsCrudListView):
     model = VendorBill
     page_title = "Vendor bills"
     create_url_name = "vendor-bill-create"
     create_label = "Add bill"
     template_name = "payments/vendor_bill_list.html"
+    allowed_roles = ReportingRoleRequiredMixin.allowed_roles
 
     def get_create_gate_context(self) -> dict[str, Any]:
         if Vendor.objects.filter(is_active=True).exists() and Property.objects.exists():
@@ -782,6 +889,7 @@ class VendorBillCreateView(PaymentsCrudFormView, CreateView):
     page_title = "Add vendor bill"
     page_action = "Save bill"
     list_url_name = "vendor-bill-list"
+    allowed_roles = BookkeepingRoleRequiredMixin.allowed_roles
 
     def get_create_gate_context(self) -> dict[str, Any]:
         if Vendor.objects.filter(is_active=True).exists() and Property.objects.exists():
@@ -796,6 +904,12 @@ class VendorBillCreateView(PaymentsCrudFormView, CreateView):
     def form_valid(self, form):
         self.object = form.save(commit=False)
         VendorBillService.save_and_sync_bill(self.object)
+        audit_success(
+            action="vendor_bill_created",
+            record=self.object,
+            user=self.request.user,
+            source="ui",
+        )
         return HttpResponseRedirect(reverse("vendor-bill-detail", args=[self.object.pk]))
 
 
@@ -805,18 +919,26 @@ class VendorBillUpdateView(PaymentsCrudFormView, UpdateView):
     page_title = "Edit vendor bill"
     page_action = "Save bill"
     list_url_name = "vendor-bill-list"
+    allowed_roles = BookkeepingRoleRequiredMixin.allowed_roles
 
     def form_valid(self, form):
         self.object = form.save(commit=False)
         VendorBillService.save_and_sync_bill(self.object)
+        audit_success(
+            action="vendor_bill_updated",
+            record=self.object,
+            user=self.request.user,
+            source="ui",
+        )
         return HttpResponseRedirect(reverse("vendor-bill-detail", args=[self.object.pk]))
 
 
-class VendorBillDetailView(LoginRequiredMixin, PaymentsAppContextMixin, DetailView):
+class VendorBillDetailView(ReportingRoleRequiredMixin, PaymentsAppContextMixin, DetailView):
     model = VendorBill
     template_name = "payments/vendor_bill_detail.html"
     context_object_name = "bill"
-    login_url = reverse_lazy("admin:login")
+    login_url = reverse_lazy("login")
+    allowed_roles = ReportingRoleRequiredMixin.allowed_roles
 
     def get_queryset(self):
         return VendorBill.objects.select_related("vendor", "property", "unit", "maintenance_category", "sync_record")
@@ -831,6 +953,12 @@ class VendorBillDetailView(LoginRequiredMixin, PaymentsAppContextMixin, DetailVi
                 messages.error(request, "; ".join(exc.messages))
             else:
                 self.object.refresh_from_db()
+                audit_success(
+                    action="vendor_bill_synced",
+                    record=self.object,
+                    user=request.user,
+                    source="ui",
+                )
                 sync_status = self.object.sync_record.status if self.object.sync_record else ""
                 if sync_status == LedgerOSSyncRecord.Status.FAILED:
                     messages.error(
@@ -861,11 +989,12 @@ class VendorBillDetailView(LoginRequiredMixin, PaymentsAppContextMixin, DetailVi
         return context
 
 
-class VendorPaymentListView(PaymentsCrudListView):
+class VendorPaymentListView(ReportingRoleRequiredMixin, PaymentsCrudListView):
     model = VendorPayment
     page_title = "Vendor payments"
     create_url_name = "vendor-payment-create"
     create_label = "Add payment"
+    allowed_roles = ReportingRoleRequiredMixin.allowed_roles
 
     def get_create_gate_context(self) -> dict[str, Any]:
         if VendorBill.objects.exists():
@@ -898,6 +1027,7 @@ class VendorPaymentCreateView(PaymentsCrudFormView, CreateView):
     page_title = "Add vendor payment"
     page_action = "Save payment"
     list_url_name = "vendor-payment-list"
+    allowed_roles = BookkeepingRoleRequiredMixin.allowed_roles
 
     def get_create_gate_context(self) -> dict[str, Any]:
         if VendorBill.objects.exists():
@@ -912,6 +1042,12 @@ class VendorPaymentCreateView(PaymentsCrudFormView, CreateView):
     def form_valid(self, form):
         self.object = form.save(commit=False)
         VendorPaymentService.save_and_sync_payment(self.object)
+        audit_success(
+            action="vendor_payment_created",
+            record=self.object,
+            user=self.request.user,
+            source="ui",
+        )
         return HttpResponseRedirect(reverse("vendor-payment-detail", args=[self.object.pk]))
 
 
@@ -921,18 +1057,26 @@ class VendorPaymentUpdateView(PaymentsCrudFormView, UpdateView):
     page_title = "Edit vendor payment"
     page_action = "Save payment"
     list_url_name = "vendor-payment-list"
+    allowed_roles = BookkeepingRoleRequiredMixin.allowed_roles
 
     def form_valid(self, form):
         self.object = form.save(commit=False)
         VendorPaymentService.save_and_sync_payment(self.object)
+        audit_success(
+            action="vendor_payment_updated",
+            record=self.object,
+            user=self.request.user,
+            source="ui",
+        )
         return HttpResponseRedirect(reverse("vendor-payment-detail", args=[self.object.pk]))
 
 
-class VendorPaymentDetailView(LoginRequiredMixin, PaymentsAppContextMixin, DetailView):
+class VendorPaymentDetailView(ReportingRoleRequiredMixin, PaymentsAppContextMixin, DetailView):
     model = VendorPayment
     template_name = "payments/vendor_payment_detail.html"
     context_object_name = "payment"
-    login_url = reverse_lazy("admin:login")
+    login_url = reverse_lazy("login")
+    allowed_roles = ReportingRoleRequiredMixin.allowed_roles
 
     def get_queryset(self):
         return VendorPayment.objects.select_related("vendor", "vendor_bill", "vendor_bill__sync_record", "sync_record")
@@ -947,6 +1091,12 @@ class VendorPaymentDetailView(LoginRequiredMixin, PaymentsAppContextMixin, Detai
                 messages.error(request, "; ".join(exc.messages))
             else:
                 self.object.refresh_from_db()
+                audit_success(
+                    action="vendor_payment_synced",
+                    record=self.object,
+                    user=request.user,
+                    source="ui",
+                )
                 sync_status = self.object.sync_record.status if self.object.sync_record else ""
                 if sync_status == LedgerOSSyncRecord.Status.FAILED:
                     messages.error(
@@ -977,11 +1127,12 @@ class VendorPaymentDetailView(LoginRequiredMixin, PaymentsAppContextMixin, Detai
         return context
 
 
-class DebtServicePaymentListView(PaymentsCrudListView):
+class DebtServicePaymentListView(ReportingRoleRequiredMixin, PaymentsCrudListView):
     model = DebtServicePayment
     page_title = "Debt service payments"
     create_url_name = "debt-service-payment-create"
     create_label = "Add payment"
+    allowed_roles = ReportingRoleRequiredMixin.allowed_roles
 
     def get_create_gate_context(self) -> dict[str, Any]:
         if Vendor.objects.filter(is_active=True).exists() and Property.objects.exists():
@@ -1011,6 +1162,7 @@ class DebtServicePaymentCreateView(PaymentsCrudFormView, CreateView):
     page_title = "Add debt service payment"
     page_action = "Save payment"
     list_url_name = "debt-service-payment-list"
+    allowed_roles = BookkeepingRoleRequiredMixin.allowed_roles
 
     def get_create_gate_context(self) -> dict[str, Any]:
         if Vendor.objects.filter(is_active=True).exists() and Property.objects.exists():
@@ -1025,6 +1177,12 @@ class DebtServicePaymentCreateView(PaymentsCrudFormView, CreateView):
     def form_valid(self, form):
         self.object = form.save(commit=False)
         DebtServicePaymentService.save_and_sync_payment(self.object)
+        audit_success(
+            action="debt_service_payment_created",
+            record=self.object,
+            user=self.request.user,
+            source="ui",
+        )
         return HttpResponseRedirect(reverse("debt-service-payment-detail", args=[self.object.pk]))
 
 
@@ -1034,18 +1192,26 @@ class DebtServicePaymentUpdateView(PaymentsCrudFormView, UpdateView):
     page_title = "Edit debt service payment"
     page_action = "Save payment"
     list_url_name = "debt-service-payment-list"
+    allowed_roles = BookkeepingRoleRequiredMixin.allowed_roles
 
     def form_valid(self, form):
         self.object = form.save(commit=False)
         DebtServicePaymentService.save_and_sync_payment(self.object)
+        audit_success(
+            action="debt_service_payment_updated",
+            record=self.object,
+            user=self.request.user,
+            source="ui",
+        )
         return HttpResponseRedirect(reverse("debt-service-payment-detail", args=[self.object.pk]))
 
 
-class DebtServicePaymentDetailView(LoginRequiredMixin, PaymentsAppContextMixin, DetailView):
+class DebtServicePaymentDetailView(ReportingRoleRequiredMixin, PaymentsAppContextMixin, DetailView):
     model = DebtServicePayment
     template_name = "payments/debt_service_payment_detail.html"
     context_object_name = "payment"
-    login_url = reverse_lazy("admin:login")
+    login_url = reverse_lazy("login")
+    allowed_roles = ReportingRoleRequiredMixin.allowed_roles
 
     def get_queryset(self):
         return DebtServicePayment.objects.select_related("property", "lender", "sync_record")
@@ -1060,6 +1226,12 @@ class DebtServicePaymentDetailView(LoginRequiredMixin, PaymentsAppContextMixin, 
                 messages.error(request, "; ".join(exc.messages))
             else:
                 self.object.refresh_from_db()
+                audit_success(
+                    action="debt_service_payment_synced",
+                    record=self.object,
+                    user=request.user,
+                    source="ui",
+                )
                 sync_status = self.object.sync_record.status if self.object.sync_record else ""
                 if sync_status == LedgerOSSyncRecord.Status.FAILED:
                     messages.error(

@@ -1,0 +1,50 @@
+{% extends "ledgeros/base.html" %}
+
+{% block title %}Audit Log | PropertyLedger{% endblock %}
+
+{% block content %}
+  <div class="card">
+    <h1>Audit Log</h1>
+    <p class="muted">Recent successful workflow actions and failed access/login attempts.</p>
+  </div>
+  <div class="card">
+    <table>
+      <thead>
+        <tr>
+          <th>When</th>
+          <th>Action</th>
+          <th>Outcome</th>
+          <th>Actor</th>
+          <th>Record</th>
+          <th>Source</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for entry in audit_logs %}
+          <tr>
+            <td>{{ entry.created_at }}</td>
+            <td>{{ entry.action }}</td>
+            <td>{{ entry.get_outcome_display }}</td>
+            <td>{{ entry.actor|default:"-" }}</td>
+            <td>{{ entry.record_type }} {{ entry.record_id }}</td>
+            <td>{{ entry.source }}</td>
+          </tr>
+          {% if entry.metadata %}
+            <tr>
+              <td colspan="6">
+                <details>
+                  <summary>Metadata</summary>
+                  <pre>{{ entry.metadata }}</pre>
+                </details>
+              </td>
+            </tr>
+          {% endif %}
+        {% empty %}
+          <tr>
+            <td colspan="6">No audit entries yet.</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+{% endblock %}
