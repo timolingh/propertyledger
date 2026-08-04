@@ -39,6 +39,7 @@ class LedgerOSConnectionSettings(SingletonModel):
 
     class Meta:
         verbose_name = "LedgerOS connection settings"
+        verbose_name_plural = "LedgerOS connection settings"
 
     def __str__(self) -> str:
         return "LedgerOS connection settings"
