@@ -17,3 +17,7 @@ pushd "$ledgeros_repo_root" >/dev/null
 make reset
 popd >/dev/null
 
+echo "Beta reset complete."
+echo "Next steps:"
+echo "  Start PropertyLedger with: make up"
+echo "  Start LedgerOS v2 with: cd ../ledgeros_v2 && WEB_PORT=8001 make up"

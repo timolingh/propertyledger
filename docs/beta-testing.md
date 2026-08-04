@@ -18,6 +18,20 @@ Then seed the demo environment:
 bash scripts/beta-seed.sh
 ```
 
+These scripts reset and seed the demo data, but they do not leave the web apps running.
+
+Start the two stacks separately:
+
+```bash
+make up
+cd ../ledgeros_v2 && WEB_PORT=8001 make up
+```
+
+Open these URLs before the session starts:
+
+- PropertyLedger: `http://localhost:8000/`
+- LedgerOS v2: `http://localhost:8001/`
+
 This prepares both local stacks and seeds a realistic demo property-management setup.
 
 ### Seeded demo data

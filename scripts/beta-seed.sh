@@ -46,3 +46,11 @@ docker compose -f docker-compose.yml run --rm propertyledger-web python manage.p
 docker compose -f docker-compose.yml run --rm propertyledger-web python manage.py bootstrap_ledgeros_account_mappings
 docker compose -f docker-compose.yml run --rm propertyledger-web python manage.py bootstrap_payment_workflow_settings
 docker compose -f docker-compose.yml run --rm propertyledger-web python manage.py seed_beta_demo_data
+
+echo "Beta seed complete."
+echo "If the web services are not already running, start them now:"
+echo "  PropertyLedger: make up"
+echo "  LedgerOS v2: cd ../ledgeros_v2 && WEB_PORT=8001 make up"
+echo "Open these URLs in your browser:"
+echo "  PropertyLedger: http://localhost:8000/"
+echo "  LedgerOS v2: http://localhost:8001/"
