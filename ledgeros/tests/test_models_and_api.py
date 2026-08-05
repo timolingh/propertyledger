@@ -28,7 +28,7 @@ from ledgeros.models import (
     Unit,
 )
 from ledgeros.roles import ROLE_ADMIN, assign_user_role
-from ledgeros.services import TenantChargeService
+from ledgeros.services import HealthCheckResult, TenantChargeService
 
 
 class _FakeResponse:
@@ -200,14 +200,16 @@ class LedgerOSSetupViewTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "PropertyLedger Setup")
-        self.assertContains(response, "What Must Be Configured")
+        self.assertContains(response, "Setup Checklist")
         self.assertContains(response, "LedgerOS connection saved")
         self.assertContains(response, "Required account mappings configured")
         self.assertContains(response, "Accounts Payable Mapping")
-        self.assertContains(response, "Setup Status")
+        self.assertContains(response, "Selected LedgerOS Books")
+        self.assertContains(response, "LedgerOS Connection")
         self.assertContains(response, "Recommended Order")
         self.assertContains(response, "Create owners")
         self.assertContains(response, "Create tenant invoices")
+        self.assertContains(response, "This page has two different jobs")
 
         post_response = self.client.post(
             reverse("ledgeros-setup"),
@@ -248,6 +250,41 @@ class LedgerOSSetupViewTests(TestCase):
         self.assertEqual(mapping.ledgeros_account_name, "Accounts Payable")
         self.assertEqual(mapping.ledgeros_account_type, "liability")
         self.assertTrue(mapping.is_enabled)
+
+    @patch("ledgeros.views.LocalHealthCheckService.check")
+    @patch("ledgeros.views.LedgerOSHealthCheckService.check")
+    @patch.object(PropertyLedgerSetup, "setup_completion_errors", return_value={})
+    def test_setup_view_runs_and_records_smoke_check(
+        self,
+        mock_setup_errors,
+        mock_ledgeros_health,
+        mock_local_health,
+    ):
+        mock_local_health.return_value = HealthCheckResult(
+            healthy=True,
+            source="local",
+            details={"database": "healthy"},
+        )
+        mock_ledgeros_health.return_value = HealthCheckResult(
+            healthy=True,
+            source="ledgeros",
+            details={"status": "healthy"},
+        )
+
+        response = self.client.post(
+            reverse("ledgeros-setup"),
+            {"action": "run-smoke"},
+        )
+
+        self.assertEqual(response.status_code, 302)
+        setup = PropertyLedgerSetup.load()
+        self.assertTrue(setup.last_setup_smoke_healthy)
+        self.assertEqual(setup.setup_status, PropertyLedgerSetup.Status.COMPLETE)
+        self.assertIsNotNone(setup.last_setup_smoke_at)
+        self.assertIsNotNone(setup.completed_at)
+        self.assertEqual(setup.last_setup_smoke_payload["local_health"]["healthy"], True)
+        self.assertEqual(setup.last_setup_smoke_payload["ledgeros_health"]["healthy"], True)
+        mock_setup_errors.assert_called()
 
     def test_setup_view_uses_friendly_validation_labels(self):
         response = self.client.get(reverse("ledgeros-setup"))

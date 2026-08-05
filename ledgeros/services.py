@@ -40,6 +40,56 @@ class HealthCheckResult:
     healthy: bool
     source: str
     details: dict[str, Any]
+
+
+class SetupSmokeService:
+    @staticmethod
+    def run_and_record() -> HealthCheckResult:
+        local_health = LocalHealthCheckService.check()
+        ledgeros_health = LedgerOSHealthCheckService.check()
+        setup_obj = PropertyLedgerSetup.load()
+        now = timezone.now()
+
+        setup_obj.last_ledgeros_health_check_at = now
+        setup_obj.last_ledgeros_health_check_healthy = ledgeros_health.healthy
+        setup_obj.last_ledgeros_health_check_payload = ledgeros_health.details
+
+        setup_errors = setup_obj.setup_completion_errors()
+        setup_errors.pop("setup_smoke", None)
+        healthy = local_health.healthy and ledgeros_health.healthy and not setup_errors
+
+        setup_obj.last_setup_smoke_at = now
+        setup_obj.last_setup_smoke_healthy = healthy
+        setup_obj.last_setup_smoke_payload = {
+            "local_health": {
+                "healthy": local_health.healthy,
+                "source": local_health.source,
+                "details": local_health.details,
+            },
+            "ledgeros_health": {
+                "healthy": ledgeros_health.healthy,
+                "source": ledgeros_health.source,
+                "details": ledgeros_health.details,
+            },
+            "setup_completion_errors": setup_errors,
+        }
+
+        if healthy:
+            setup_obj.setup_status = PropertyLedgerSetup.Status.COMPLETE
+            setup_obj.validated_at = now
+            setup_obj.completed_at = now
+        elif setup_obj.setup_status == PropertyLedgerSetup.Status.COMPLETE:
+            setup_obj.setup_status = PropertyLedgerSetup.Status.IN_PROGRESS
+            setup_obj.completed_at = None
+
+        setup_obj.save()
+        return HealthCheckResult(
+            healthy=healthy,
+            source="setup_smoke",
+            details=setup_obj.last_setup_smoke_payload,
+        )
+
+
 class LocalHealthCheckService:
     @staticmethod
     def check() -> HealthCheckResult:

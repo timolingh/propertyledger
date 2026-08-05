@@ -19,6 +19,7 @@ from ledgeros.models import (
     Unit,
 )
 from ledgeros.roles import get_user_role_label
+from ledgeros.services import HealthCheckResult
 from payments.models import MaintenanceCategory, SecurityDepositEvent, Vendor, VendorBill, VendorPayment
 
 
@@ -123,6 +124,40 @@ class BootstrapLedgerOSSetupSelectionCommandTests(TestCase):
         self.assertEqual(setup.ledgeros_entity_name, "Default Entity")
         self.assertEqual(setup.ledgeros_accounting_period_id, "period_1")
         self.assertEqual(setup.ledgeros_accounting_period_name, "Bootstrap FY2026")
+
+
+class RunSetupSmokeCommandTests(TestCase):
+    @patch("ledgeros.services.LocalHealthCheckService.check")
+    @patch("ledgeros.services.LedgerOSHealthCheckService.check")
+    @patch.object(PropertyLedgerSetup, "setup_completion_errors", return_value={})
+    def test_command_persists_successful_smoke_result(
+        self,
+        mock_setup_errors,
+        mock_ledgeros_health,
+        mock_local_health,
+    ):
+        mock_local_health.return_value = HealthCheckResult(
+            healthy=True,
+            source="local",
+            details={"database": "healthy"},
+        )
+        mock_ledgeros_health.return_value = HealthCheckResult(
+            healthy=True,
+            source="ledgeros",
+            details={"status": "healthy"},
+        )
+
+        call_command("run_setup_smoke")
+
+        setup = PropertyLedgerSetup.load()
+        self.assertTrue(setup.last_ledgeros_health_check_healthy)
+        self.assertTrue(setup.last_setup_smoke_healthy)
+        self.assertEqual(setup.setup_status, PropertyLedgerSetup.Status.COMPLETE)
+        self.assertIsNotNone(setup.last_setup_smoke_at)
+        self.assertIsNotNone(setup.completed_at)
+        self.assertEqual(setup.last_setup_smoke_payload["ledgeros_health"]["healthy"], True)
+        self.assertEqual(setup.last_setup_smoke_payload["local_health"]["healthy"], True)
+        mock_setup_errors.assert_called()
 
 
 class BetaDemoDataCommandTests(TestCase):

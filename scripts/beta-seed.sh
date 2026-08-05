@@ -16,7 +16,8 @@ docker compose -f docker-compose.yml build
 docker compose -f docker-compose.yml up -d db
 docker compose -f docker-compose.yml run --rm web python manage.py migrate
 docker compose -f docker-compose.yml run --rm web python manage.py import_coa config/sample_chart_of_accounts.yml
-docker compose -f docker-compose.yml run --rm -T web python manage.py shell <<'PY'
+ledgeros_selection_shell_command="$(cat <<'PY'
+import json
 from datetime import date
 
 from apps.accounting.models import AccountingPeriod
@@ -37,15 +38,37 @@ if period is None:
         name=f"Beta FY{year}",
     )
 
-print(period.id, period.name, period.start_date, period.end_date, period.status)
+print(
+    json.dumps(
+        {
+            "entity_id": str(entity.id),
+            "entity_name": entity.name,
+            "accounting_period_id": str(period.id),
+            "accounting_period_name": period.name
+            or f"{period.start_date.isoformat()} to {period.end_date.isoformat()}",
+        }
+    )
+)
 PY
+)"
+ledgeros_bootstrap_selection_json="$(
+  docker compose -f docker-compose.yml run --rm web python manage.py shell --no-imports -c "$ledgeros_selection_shell_command"
+)"
+if [[ -z "$ledgeros_bootstrap_selection_json" ]]; then
+  echo "Failed to capture LedgerOS entity and accounting period selection." >&2
+  exit 1
+fi
 popd >/dev/null
 
 docker compose -f docker-compose.yml run --rm propertyledger-web python manage.py migrate
+docker compose -f docker-compose.yml run --rm \
+  -e LEDGEROS_BOOTSTRAP_SELECTION_JSON="$ledgeros_bootstrap_selection_json" \
+  propertyledger-web python manage.py bootstrap_ledgeros_setup_selection
 docker compose -f docker-compose.yml run --rm propertyledger-web python manage.py bootstrap_ledgeros_connection_settings
 docker compose -f docker-compose.yml run --rm propertyledger-web python manage.py bootstrap_ledgeros_account_mappings
 docker compose -f docker-compose.yml run --rm propertyledger-web python manage.py bootstrap_payment_workflow_settings
 docker compose -f docker-compose.yml run --rm propertyledger-web python manage.py seed_beta_demo_data
+docker compose -f docker-compose.yml run --rm propertyledger-web python manage.py run_setup_smoke
 
 echo "Beta seed complete."
 echo "If the web services are not already running, start them now:"

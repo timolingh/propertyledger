@@ -8,6 +8,10 @@ You need:
 - a running LedgerOS endpoint;
 - the PropertyLedger repository.
 
+The setup path is a prerequisite for using the app meaningfully. If you only want to boot the containers, you can stop after `make up`; if you want a usable PropertyLedger environment, you must also complete the admin setup steps.
+
+For the detailed admin checklist, see [Admin Setup Guide](./admin-setup.md).
+
 ## 1. Configure the environment
 
 Copy `.env.example` to `.env` if you want a local file to edit.
@@ -62,7 +66,7 @@ After the app starts, confirm:
 2. the LedgerOS health check is healthy for your configured endpoint;
 3. the setup screen saves your connection settings;
 4. the required account mappings are present;
-5. the setup smoke test passes.
+5. the setup smoke test passes and is recorded on the setup screen.
 
 ## Typical development commands
 
@@ -77,7 +81,7 @@ If you are doing user beta testing, start with the beta guide:
 
 - [Beta Testing Guide](./beta-testing.md)
 
-Use the beta seed command first, then follow the manual role checklists in the guide.
+Use the beta seed command first, then complete the admin setup prerequisites before following the manual role checklists in the guide. The beta guide assumes the admin setup guide has already been completed.
 
 ## If something fails
 

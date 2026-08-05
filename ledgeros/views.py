@@ -51,6 +51,7 @@ from ledgeros.services import (
     LedgerOSCustomerSyncService,
     LedgerOSHealthCheckService,
     LocalHealthCheckService,
+    SetupSmokeService,
     TenantChargeService,
 )
 from payments.models import DebtServicePayment, SecurityDepositEvent, TenantPayment, VendorBill, VendorPayment
@@ -286,6 +287,13 @@ class LedgerOSSetupView(AdminRoleRequiredMixin, LedgerOSAppContextMixin, Templat
         settings_obj = LedgerOSConnectionSettings.load()
         setup_obj = PropertyLedgerSetup.load()
         action = request.POST.get("action", "save-settings")
+        if action == "run-smoke":
+            result = SetupSmokeService.run_and_record()
+            if result.healthy:
+                messages.success(request, "Setup smoke passed and was recorded.")
+            else:
+                messages.error(request, "Setup smoke failed. Review the setup page for details.")
+            return HttpResponseRedirect(reverse("ledgeros-setup"))
         if action == "save-mappings":
             ap_mapping_form = self._accounts_payable_mapping_form(setup_obj, data=request.POST)
             if ap_mapping_form.is_valid():

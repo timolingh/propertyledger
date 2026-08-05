@@ -4,6 +4,10 @@ Use this guide when you are running a one-hour beta session with real users.
 
 The goal is not to “test every feature.” The goal is to watch people try to understand the product, move through the core workflows, and explain where the experience feels clear or confusing.
 
+Admin setup is a prerequisite for beta testing. Complete the setup path first, then bring participants into the product.
+
+If you need the setup checklist, use [Admin Setup Guide](./admin-setup.md).
+
 ## Session setup
 
 Start from a clean slate before the group arrives:
@@ -19,6 +23,7 @@ bash scripts/beta-seed.sh
 ```
 
 These scripts reset and seed the demo data, but they do not leave the web apps running.
+The seed step also copies the selected LedgerOS entity and accounting period into PropertyLedger so the setup screen is already populated for the session.
 
 Start the two stacks separately:
 
@@ -31,6 +36,18 @@ Open these URLs before the session starts:
 
 - PropertyLedger: `http://localhost:8000/`
 - LedgerOS v2: `http://localhost:8001/`
+
+If you need to inspect LedgerOS directly during setup, create or confirm a LedgerOS admin user first:
+
+```bash
+cd ../ledgeros_v2
+docker compose run --rm web python manage.py createsuperuser
+```
+
+Then inspect LedgerOS with:
+
+- Admin: `http://localhost:8001/admin/`
+- API root: `http://localhost:8001/api/v1/`
 
 This prepares both local stacks and seeds a realistic demo property-management setup.
 
@@ -92,7 +109,7 @@ Then send them to the setup screen:
 Ask them to do these things in order:
 
 1. Look for the LedgerOS connection and setup status.
-2. Confirm the page already shows the LedgerOS entity and accounting period.
+2. Confirm the page already shows the LedgerOS entity and accounting period that were seeded.
 3. Find the setup information for `Cedar Grove Apartments`.
 4. Say out loud whether the page feels ready to use or still feels half-configured.
 

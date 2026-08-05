@@ -111,3 +111,6 @@ When PropertyLedger is the active context, keep LedgerOS setup and bootstrap flo
 
 7. **Keep command naming canonical unless there is a real workflow distinction.**  
    Use the shortest documented Make target names as the primary workflow in docs and examples. Only introduce a suffix like `-full` when it represents a distinct supported path and the docs explain why both names exist. If a new name is only an alias, label it explicitly as such.
+
+8. **Treat correct setup as a prerequisite to user testing.**  
+   User-facing feature testing should happen after the relevant setup path is correct, not while the setup path itself is still being discovered. If a screen or workflow depends on configuration, automate or document that configuration first so the test measures the feature instead of the missing setup.

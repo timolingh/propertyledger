@@ -179,6 +179,7 @@
       {% if setup_obj and not setup_is_complete %}
         <div class="banner banner-bad">
           <strong>Setup incomplete</strong>
+          <div class="muted">Connection settings, selected LedgerOS books, and account mappings are separate setup steps.</div>
           <div class="muted">Status: {{ setup_obj.get_setup_status_display }}</div>
           {% if setup_next_step %}
             <div class="muted">
