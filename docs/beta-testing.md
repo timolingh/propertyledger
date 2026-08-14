@@ -24,6 +24,7 @@ bash scripts/beta-seed.sh
 
 These scripts reset and seed the demo data, but they do not leave the web apps running.
 The seed step also copies the selected LedgerOS entity and accounting period into PropertyLedger so the setup screen is already populated for the session.
+If LedgerOS web is not running yet, the seed script will warn and continue instead of failing, then you can run `make smoke` after both web stacks are up.
 
 Start the two stacks separately:
 
@@ -50,6 +51,7 @@ Then inspect LedgerOS with:
 - API root: `http://localhost:8001/api/v1/`
 
 This prepares both local stacks and seeds a realistic demo property-management setup.
+If the smoke check did not complete during seeding, run `make smoke` after both stacks are up so the setup screen records the result.
 
 ### Seeded demo data
 

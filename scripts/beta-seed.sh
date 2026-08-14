@@ -68,7 +68,14 @@ docker compose -f docker-compose.yml run --rm propertyledger-web python manage.p
 docker compose -f docker-compose.yml run --rm propertyledger-web python manage.py bootstrap_ledgeros_account_mappings
 docker compose -f docker-compose.yml run --rm propertyledger-web python manage.py bootstrap_payment_workflow_settings
 docker compose -f docker-compose.yml run --rm propertyledger-web python manage.py seed_beta_demo_data
-docker compose -f docker-compose.yml run --rm propertyledger-web python manage.py run_setup_smoke
+
+if docker compose -f docker-compose.yml run --rm propertyledger-web python manage.py run_setup_smoke; then
+  echo "Setup smoke passed and was recorded."
+else
+  echo "Warning: setup smoke did not complete yet."
+  echo "Start the PropertyLedger and LedgerOS web stacks, then run:"
+  echo "  make smoke"
+fi
 
 echo "Beta seed complete."
 echo "If the web services are not already running, start them now:"

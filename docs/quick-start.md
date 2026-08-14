@@ -82,6 +82,7 @@ If you are doing user beta testing, start with the beta guide:
 - [Beta Testing Guide](./beta-testing.md)
 
 Use the beta seed command first, then complete the admin setup prerequisites before following the manual role checklists in the guide. The beta guide assumes the admin setup guide has already been completed.
+If LedgerOS web is not running yet, the beta seed command will warn and continue instead of failing, and you can run `make smoke` after both stacks are up.
 
 ## If something fails
 
