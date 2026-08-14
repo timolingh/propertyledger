@@ -1,5 +1,7 @@
 # Session Notes
 
+Last updated: August 14, 2026
+
 ## What We Covered
 
 - Reviewed the repo docs with a focus on beta onboarding and setup clarity.
@@ -81,3 +83,17 @@
 1. Review the `/home` landing page, which still feels too much like a todo list.
 2. If needed, refine the admin setup guide into a shorter operator checklist.
 3. Re-run the beta flow end-to-end and confirm the first setup page now reads as understandable to a new admin.
+
+## Follow-Up Session Summary
+
+- Investigated why `scripts/beta-seed.sh` was not finishing when LedgerOS web was not running.
+- Updated `scripts/beta-seed.sh` so the final smoke step is best-effort:
+  - it records smoke when LedgerOS web is reachable
+  - it warns and exits successfully when LedgerOS web is still down
+- Aligned the docs with that behavior:
+  - [`docs/admin-setup.md`](./docs/admin-setup.md)
+  - [`docs/beta-testing.md`](./docs/beta-testing.md)
+  - [`docs/quick-start.md`](./docs/quick-start.md)
+- Clarified the setup wording so the docs emphasize selected books and smoke timing rather than creating friction around beta startup.
+- Briefly removed the LedgerOS entity check from the setup UI and validation, then reverted the repo to `ac1be96a95f25c663bac1514fd9ddb830f92bc1a` at the user's request.
+- Re-applied only the beta-seed non-blocking smoke behavior and the matching docs updates after the revert.
