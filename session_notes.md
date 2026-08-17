@@ -97,3 +97,71 @@ Last updated: August 14, 2026
 - Clarified the setup wording so the docs emphasize selected books and smoke timing rather than creating friction around beta startup.
 - Briefly removed the LedgerOS entity check from the setup UI and validation, then reverted the repo to `ac1be96a95f25c663bac1514fd9ddb830f92bc1a` at the user's request.
 - Re-applied only the beta-seed non-blocking smoke behavior and the matching docs updates after the revert.
+
+## Invoice Lifecycle Session Notes
+
+This session clarified the tenant invoice lifecycle. In the current codebase, the UI calls these records "invoices," but the underlying model is `TenantCharge`.
+
+### State Diagram
+
+```text
+Draft
+  | create/save as a normal charge
+  v
+Approved
+  | approve_charge()
+  | create or reuse LedgerOSSyncRecord
+  v
+Sync Pending
+  | POST /api/v1/invoices/ to LedgerOS
+  | success
+  v
+Synced
+  | posted accounting state
+  | limited post-sync edits only
+  |
+  | sync error or transport/validation failure
+  v
+Sync Failed
+
+Any non-voided state
+  | archive single record or bulk archive
+  v
+Voided
+```
+
+### Detailed Transition Notes
+
+- `draft` is the initial state for a new tenant charge.
+- Draft charges may be edited normally.
+- Lease-scoped charges can be created from a lease and auto-fill property, unit, and tenant.
+- Base rent charges are generated as drafts from active leases and are unique per lease and billing period.
+- The `approved` state is the trigger for posting the charge to LedgerOS.
+- `approve_charge()` is the service boundary that owns the transition from draft into the sync flow.
+- When approval starts, the code creates a `LedgerOSSyncRecord` if one does not already exist.
+- The sync record is moved to `in_progress`, and the charge is moved to `sync_pending`.
+- The charge is then posted to LedgerOS through `POST /api/v1/invoices/`.
+- If LedgerOS accepts the request, the sync record becomes `succeeded` and the charge becomes `synced`.
+- If the posting fails, the sync record becomes `failed` and the charge becomes `sync_failed`.
+- `synced` charges are treated as posted accounting history.
+- After sync, the form disables every field except `due_date` and `description`.
+- `voided` is the archive state used by single-record archive and bulk archive actions.
+- Bulk approve skips already finalized records such as `synced` and `voided`.
+- Bulk archive sets charges to `voided` without attempting a LedgerOS posting action.
+
+### Identity and Posting Notes
+
+- The public-facing UI and docs often refer to this workflow as invoices.
+- The actual accounting handoff uses a stable external invoice number such as `tenant-charge:{pk}`.
+- The LedgerOS invoice payload uses the tenant-specific customer code `tenant-{tenant.pk}`.
+- The invoice posts a line to rental income using the configured rental income account mapping.
+- The sync record stores the LedgerOS resource id, journal entry id when available, request hash, and response payload.
+
+### Practical Meaning
+
+- `draft` means local only.
+- `approved` means ready to post and entering the sync pipeline.
+- `sync_pending` means the system is actively trying to post the invoice.
+- `synced` means LedgerOS accepted the invoice and PropertyLedger now treats it as posted history.
+- `sync_failed` means the posting did not complete and needs a retry or fix.
+- `voided` means the invoice is archived and should no longer be treated as active workflow state.
