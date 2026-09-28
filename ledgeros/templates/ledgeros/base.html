@@ -30,6 +30,18 @@
         text-decoration: none;
         margin-right: 1rem;
       }
+      header .logout-form {
+        display: inline;
+      }
+      header .logout-button {
+        margin: 0 1rem 0 0;
+        padding: 0;
+        border: 0;
+        border-radius: 0;
+        background: transparent;
+        color: #fff;
+        font: inherit;
+      }
       main {
         max-width: 1100px;
         margin: 0 auto;
@@ -170,7 +182,10 @@
       <a href="{% url 'maintenance-category-list' %}">Maintenance</a>
       <a href="/admin/">Admin</a>
       {% if user.is_authenticated %}
-        <a href="{% url 'logout' %}">Logout</a>
+        <form class="logout-form" method="post" action="{% url 'logout' %}">
+          {% csrf_token %}
+          <button class="logout-button" type="submit">Logout</button>
+        </form>
       {% else %}
         <a href="{% url 'login' %}">Login</a>
       {% endif %}
