@@ -43,6 +43,8 @@ Create records in this order:
 
 That order matters because later records depend on earlier ones.
 
+On the Properties, Units, Tenants, and Leases lists, choose **View** to review a record without opening an editing form. Choose **Edit** when you want to make changes. Detail pages also provide an Edit link and a Back to list link.
+
 ### 3. Add tenant charges
 
 Use tenant charges for recurring rent and manual charges.

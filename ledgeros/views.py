@@ -598,6 +598,67 @@ class OwnerArchiveView(LedgerOSCrudArchiveView):
         obj.save(update_fields=["is_active", "updated_at"])
 
 
+class PropertyRecordDetailView(PropertyManagementRoleRequiredMixin, LedgerOSAppContextMixin, DetailView):
+    template_name = "ledgeros/record_detail.html"
+    http_method_names = ["get", "head", "options"]
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context["page_title"] = self.page_title
+        context["details"] = self.get_details()
+        context["list_url"] = reverse(f"{self.record_name}-list")
+        context["edit_url"] = reverse(f"{self.record_name}-edit", args=[self.object.pk])
+        return context
+
+
+class PropertyDetailView(PropertyRecordDetailView):
+    model = Property
+    page_title = "Property details"
+    record_name = "property"
+
+    def get_details(self):
+        obj = self.object
+        return [("Name", obj.name), ("Primary owner", obj.primary_owner),
+                ("Status", obj.get_status_display()), ("Notes", obj.notes)]
+
+
+class UnitDetailView(PropertyRecordDetailView):
+    model = Unit
+    page_title = "Unit details"
+    record_name = "unit"
+
+    def get_details(self):
+        obj = self.object
+        return [("Property", obj.property), ("Unit", obj.name),
+                ("Status", obj.get_status_display()), ("Notes", obj.notes)]
+
+
+class TenantDetailView(PropertyRecordDetailView):
+    model = Tenant
+    page_title = "Tenant details"
+    record_name = "tenant"
+
+    def get_details(self):
+        obj = self.object
+        return [("Name", obj.name), ("Email", obj.email), ("Phone", obj.phone),
+                ("Status", "Active" if obj.is_active else "Inactive"), ("Notes", obj.notes)]
+
+
+class LeaseDetailView(PropertyRecordDetailView):
+    model = Lease
+    page_title = "Lease details"
+    record_name = "lease"
+
+    def get_details(self):
+        obj = self.object
+        return [("Property", obj.unit.property), ("Unit", obj.unit.name),
+                ("Tenant", obj.tenant), ("Lease start date", obj.lease_start_date),
+                ("Lease end date", obj.lease_end_date), ("Rent effective date", obj.rent_effective_date),
+                ("Base monthly rent", obj.base_monthly_rent_amount),
+                ("Deposit required", obj.deposit_required_amount),
+                ("Status", obj.get_status_display()), ("Notes", obj.notes)]
+
+
 class PropertyListView(LedgerOSCrudListView):
     model = Property
     page_title = "Properties"
@@ -622,6 +683,7 @@ class PropertyListView(LedgerOSCrudListView):
             {
                 "object": obj,
                 "summary": f"{obj.primary_owner.name} | {obj.get_status_display()}",
+                "detail_url": reverse("property-detail", kwargs={"pk": obj.pk}),
                 "edit_url": reverse("property-edit", kwargs={"pk": obj.pk}),
                 "archive_url": reverse("property-archive", kwargs={"pk": obj.pk}),
             }
@@ -720,6 +782,7 @@ class UnitListView(LedgerOSCrudListView):
             {
                 "object": obj,
                 "summary": f"{obj.property.name} | {obj.get_status_display()}",
+                "detail_url": reverse("unit-detail", kwargs={"pk": obj.pk}),
                 "edit_url": reverse("unit-edit", kwargs={"pk": obj.pk}),
                 "archive_url": reverse("unit-archive", kwargs={"pk": obj.pk}),
             }
@@ -779,6 +842,7 @@ class TenantListView(LedgerOSCrudListView):
             {
                 "object": obj,
                 "summary": f"{obj.email or 'No email'} | {'active' if obj.is_active else 'inactive'}",
+                "detail_url": reverse("tenant-detail", kwargs={"pk": obj.pk}),
                 "edit_url": reverse("tenant-edit", kwargs={"pk": obj.pk}),
                 "archive_url": reverse("tenant-archive", kwargs={"pk": obj.pk}),
             }
@@ -878,6 +942,7 @@ class LeaseListView(LedgerOSCrudListView):
                     f"| {obj.base_monthly_rent_amount} "
                     f"| {obj.get_status_display()}"
                 ),
+                "detail_url": reverse("lease-detail", kwargs={"pk": obj.pk}),
                 "edit_url": reverse("lease-edit", kwargs={"pk": obj.pk}),
                 "archive_url": reverse("lease-archive", kwargs={"pk": obj.pk}),
             }

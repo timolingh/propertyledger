@@ -1,0 +1,24 @@
+{% extends "ledgeros/base.html" %}
+
+{% block title %}{{ page_title }} | PropertyLedger{% endblock %}
+
+{% block content %}
+  <div class="card">
+    <h1>{{ page_title }}</h1>
+    <p>{{ object }}</p>
+    <a class="button" href="{{ list_url }}">Back to list</a>
+    <a class="button" href="{{ edit_url }}">Edit</a>
+  </div>
+  <div class="card">
+    <table>
+      <tbody>
+        {% for label, value in details %}
+          <tr>
+            <th scope="row">{{ label }}</th>
+            <td>{{ value|default_if_none:"—"|linebreaksbr }}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+{% endblock %}
