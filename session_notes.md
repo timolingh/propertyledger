@@ -1,6 +1,6 @@
 # Session Notes
 
-Last updated: August 14, 2026
+Last updated: September 28, 2026
 
 ## What We Covered
 
@@ -165,3 +165,45 @@ Voided
 - `synced` means LedgerOS accepted the invoice and PropertyLedger now treats it as posted history.
 - `sync_failed` means the posting did not complete and needs a retry or fix.
 - `voided` means the invoice is archived and should no longer be treated as active workflow state.
+
+
+## September 28, 2026 — Beta Demo Restart and Navigation Fixes
+
+### Session context
+
+- Reviewed the active documentation and located the separate session notes, beta feedback, and admin setup guide on `origin/beta-to-prod-01`.
+- Switched from `main` to local `beta-to-prod-01`, tracking the remote branch.
+- Compared the branches: at that point, the beta branch was seven commits ahead of local `main`, including persisted setup smoke results, setup-page improvements, beta seed selection bootstrap, and the admin plural-label correction.
+- Generated and opened a printable PDF of the beta-testing guide from `main` before switching branches. That temporary PDF predates the beta branch's guide updates.
+
+### Demo environment
+
+- Rebuilt and started PropertyLedger, ensured LedgerOS was running, and reran `scripts/beta-seed.sh` followed by `make smoke`.
+- Preserved existing databases; did not run the destructive beta reset script.
+- Refreshed the Cedar Grove demo data and populated the selected LedgerOS entity and accounting period.
+- Setup smoke passed and recorded its result. PropertyLedger responded with its login redirect, and the LedgerOS admin login page responded successfully.
+- Demo entry points: PropertyLedger at `http://localhost:8000/`; LedgerOS at `http://localhost:8001/`.
+
+### Logout fix
+
+- The navigation's GET logout link caused HTTP 405 because the configured logout view requires POST.
+- Replaced the link with a CSRF-protected POST button, styled to fit the navigation.
+- Added a regression test covering CSRF enforcement, session termination, and redirect to login.
+- Recorded in commit `191d6a9` (`Fix broken logout link`).
+
+### Read-only record pages
+
+- User feedback: opening editing forms just to inspect records feels risky.
+- Added separate **View** links and read-only detail pages for properties, units, tenants, and leases.
+- Detail pages display record fields as plain text and provide explicit **Edit** and **Back to list** links.
+- Preserved existing property-management access rules. Detail endpoints reject POST requests; viewing does not alter records or initiate accounting sync.
+- Updated the [User Manual](./docs/user-manual.md) with the View/Edit workflow.
+- Recorded in commit `98b2ddb` (`Add view only links.`).
+
+### Validation and remaining issue
+
+- Verified the new tests failed before their respective implementations and passed afterward.
+- Ran 12 relevant Docker tests covering record details, logout, and existing property CRUD flows; all passed.
+- Django system checks and `git diff --check` passed.
+- `makemigrations --check --dry-run` still reports the pre-existing missing migration for `LedgerOSConnectionSettings` display-name metadata (`verbose_name_plural`). No schema fields changed in these UI fixes, and no migration was generated in this session.
+- Next: continue beta testing from the refreshed demo, including logout and the new View links. Address the outstanding metadata migration before treating the full migration check as clean.
