@@ -110,6 +110,11 @@ LOGIN_URL = "/login/"
 LOGIN_REDIRECT_URL = "/home/"
 LOGOUT_REDIRECT_URL = "/login/"
 
+# Localhost apps on different ports share cookies. Keep PropertyLedger's login
+# and form tokens separate from LedgerOS and other Django apps on the same host.
+CSRF_COOKIE_NAME = "propertyledger_csrftoken"
+SESSION_COOKIE_NAME = "propertyledger_sessionid"
+
 REST_FRAMEWORK = {
     "DEFAULT_RENDERER_CLASSES": [
         "rest_framework.renderers.JSONRenderer",
