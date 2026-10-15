@@ -5,13 +5,19 @@
 {% block content %}
   <div class="card">
     <h1>PropertyLedger Setup</h1>
+    <p class="muted">
+      This page has two different jobs: the LedgerOS Connection section below stores how PropertyLedger reaches LedgerOS, while the setup status section records which LedgerOS entity and accounting period this PropertyLedger demo will use.
+    </p>
+    <p class="muted">
+      For the beta demo, those selected LedgerOS books should already be filled in after the beta seed script runs.
+    </p>
     <p class="{% if local_health.healthy %}status-ok{% else %}status-bad{% endif %}">
       Local health: {% if local_health.healthy %}Healthy{% else %}Unhealthy{% endif %}
     </p>
     <pre>{{ local_health.details|safe }}</pre>
   </div>
   <div class="card">
-    <h2>What Must Be Configured</h2>
+    <h2>Setup Checklist</h2>
     <ul>
       {% for item in setup_prerequisites %}
         <li>
@@ -53,12 +59,20 @@
     <pre>{{ ledgeros_health.details|safe }}</pre>
   </div>
   <div class="card">
-    <h2>Setup Status</h2>
+    <h2>Selected LedgerOS Books</h2>
+    <p class="muted">
+      These values are copied from LedgerOS and saved in PropertyLedger so the beta demo knows which books it is operating on.
+    </p>
     <p class="{% if setup_obj.setup_status == 'complete' %}status-ok{% else %}status-bad{% endif %}">
       {{ setup_obj.get_setup_status_display }}
     </p>
     <p>LedgerOS entity: <code>{{ setup_obj.ledgeros_entity_name|default:"not selected" }}</code></p>
     <p>Accounting period: <code>{{ setup_obj.ledgeros_accounting_period_name|default:"not selected" }}</code></p>
+    <form method="post">
+      {% csrf_token %}
+      <input type="hidden" name="action" value="run-smoke">
+      <button type="submit" class="button primary">Run setup smoke</button>
+    </form>
     {% if setup_completion_error_groups %}
       <h3>Blocking Issues</h3>
       <ul>
@@ -77,6 +91,9 @@
   </div>
   <div class="card">
     <h2>LedgerOS Connection</h2>
+    <p class="muted">
+      These settings tell PropertyLedger how to connect to LedgerOS. They are separate from the selected entity and accounting period above.
+    </p>
     <form method="post">
       {% csrf_token %}
       {{ settings_form.as_p }}
@@ -86,7 +103,7 @@
   </div>
   <div class="card">
     <h2>Accounts Payable Mapping</h2>
-    <p class="muted">LedgerOS needs a default AP account code before vendor records can be provisioned. Set it here during setup.</p>
+    <p class="muted">LedgerOS needs a default AP account code before vendor records can be provisioned. This mapping is part of the PropertyLedger setup, not the connection settings.</p>
     <form method="post">
       {% csrf_token %}
       <input type="hidden" name="action" value="save-mappings">
