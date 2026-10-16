@@ -74,6 +74,22 @@ Use vendor records for payees and vendor bills for expenses.
 
 You can also record vendor payments and debt-service payments when those workflows apply.
 
+The Vendor Bills list and bill detail page show **Payment status**, **Amount
+paid**, **Credits applied**, and **Balance due** from LedgerOS. These include
+payments and vendor credits applied to the bill directly in LedgerOS. Payment
+status is separate from the bill's posting status.
+
+Use the **Payment status** selector and **Filter** button to find unpaid,
+partially paid, or paid bills. Choose **All statuses** or **Clear filter** to
+return to the full list. The maintenance summary continues to cover all bills.
+
+**Not posted** means the bill has not posted. **Unavailable** means its current
+balance could not be read; it does not mean unpaid. **Needs review** indicates
+a reconciliation problem, such as an older credit-card payment whose journal
+has not yet been linked to the bill. Ask an administrator to reconcile that
+existing payment rather than creating another one. General journal adjustments
+without a bill allocation are not included in the bill's balance.
+
 ### 6. Track deposits
 
 Security deposit activity is recorded as events and the balance is derived from those events.

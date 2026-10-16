@@ -14,7 +14,12 @@
     <p><strong>Expense category:</strong> {{ bill.get_expense_category_display }}</p>
     <p><strong>Maintenance category:</strong> {{ bill.maintenance_category|default:"-" }}</p>
     <p><strong>Tenant chargeable:</strong> {{ bill.tenant_chargeable|yesno:"Yes,No" }}</p>
-    <p><strong>Status:</strong> {{ bill.get_status_display }}</p>
+    <p><strong>Bill posting status:</strong> {{ bill.get_status_display }}</p>
+    <p><strong>Payment status:</strong> {{ bill_payment_status.label }}</p>
+    <p><strong>Amount paid:</strong> {{ bill_payment_status.paid|default_if_none:"—" }}</p>
+    <p><strong>Credits applied:</strong> {{ bill_payment_status.credited|default_if_none:"—" }}</p>
+    <p><strong>Balance due:</strong> {{ bill_payment_status.balance|default_if_none:"—" }}</p>
+    {% if bill_payment_status.error %}<p class="muted">{{ bill_payment_status.error }}</p>{% endif %}
     <p><strong>Repair notes:</strong> {{ bill.repair_notes|default:"-" }}</p>
     <p><strong>Notes:</strong> {{ bill.notes|default:"-" }}</p>
     <div style="display:flex; gap:1rem; flex-wrap:wrap;">

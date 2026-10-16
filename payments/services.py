@@ -12,6 +12,7 @@ from decimal import Decimal
 from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
+from urllib.parse import urlencode
 
 from django.core.exceptions import ValidationError
 from django.db import models, transaction
@@ -218,7 +219,7 @@ class LedgerOSBankingReadService:
         nonce = uuid.uuid4().hex
         signed = sign_api_request(
             method="GET",
-            path=path,
+            path=path.split("?", 1)[0],
             body=body,
             timestamp=timestamp,
             nonce=nonce,
@@ -283,6 +284,78 @@ class LedgerOSBankingReadService:
             payload,
             path=LedgerOSBankingReadService.BANK_RECONCILIATIONS_PATH,
         )
+
+
+class BillPaymentStatusService:
+    LABELS = {
+        "unpaid": "Unpaid", "partially_paid": "Partially paid", "paid": "Paid",
+        "not_posted": "Not posted", "voided": "Voided", "needs_review": "Needs review",
+        "unavailable": "Unavailable",
+    }
+
+    @staticmethod
+    def statuses(bills):
+        bills = list(bills)
+        results = {}
+        synced = []
+        for bill in bills:
+            status = "voided" if bill.status == VendorBill.Status.VOIDED else "not_posted"
+            results[bill.pk] = {"status": status, "label": BillPaymentStatusService.LABELS[status],
+                                "paid": None, "credited": None, "balance": None, "error": ""}
+            if status != "voided" and bill.sync_record and bill.sync_record.status == LedgerOSSyncRecord.Status.SUCCEEDED:
+                synced.append(bill)
+                results[bill.pk].update(status="unavailable", label="Unavailable")
+        for start in range(0, len(synced), 100):
+            batch = synced[start:start + 100]
+            query = urlencode([("external_bill_number", f"vendor-bill:{bill.pk}") for bill in batch])
+            try:
+                payload = LedgerOSBankingReadService._request_json(path="/api/v1/bills/?" + query)
+                if not isinstance(payload, dict) or not isinstance(payload.get("results"), list):
+                    raise RuntimeError("LedgerOS returned an invalid bill-status response.")
+                rows = {}
+                for row in payload["results"]:
+                    if not isinstance(row, dict) or row.get("external_bill_number") in rows:
+                        raise RuntimeError("LedgerOS returned invalid or duplicate bill-status rows.")
+                    rows[row.get("external_bill_number")] = row
+                for bill in batch:
+                    row = rows.get(f"vendor-bill:{bill.pk}")
+                    if row is None:
+                        results[bill.pk]["error"] = "LedgerOS did not return this bill."
+                        continue
+                    state = row.get("payment_status")
+                    if state not in BillPaymentStatusService.LABELS:
+                        raise RuntimeError("LedgerOS returned an unknown bill payment status.")
+                    total, paid, credited, balance = [Decimal(str(row[key])) for key in (
+                        "total_amount", "amount_paid", "amount_credited", "outstanding_balance")]
+                    if not all(value.is_finite() for value in (total, paid, credited, balance)):
+                        raise RuntimeError("LedgerOS returned invalid bill amounts.")
+                    error = ""
+                    if total != bill.amount or total - paid - credited != balance or paid < 0 or credited < 0 or balance < 0:
+                        state, error = "needs_review", "Bill amounts need reconciliation with LedgerOS."
+                    results[bill.pk] = {"status": state, "label": BillPaymentStatusService.LABELS[state],
+                                        "paid": paid, "credited": credited, "balance": balance, "error": error}
+            except (ValidationError, RuntimeError, ValueError, KeyError, TypeError, ArithmeticError) as exc:
+                for bill in batch:
+                    results[bill.pk] = {"status": "unavailable", "label": "Unavailable", "paid": None,
+                                        "credited": None, "balance": None, "error": str(exc)}
+        # Legacy generic journals have no bill application until explicitly linked.
+        payments = VendorPayment.objects.filter(
+            vendor_bill_id__in=[bill.pk for bill in synced], payment_method=VendorPayment.PaymentMethod.CREDIT_CARD,
+            is_credit_card_payoff=False,
+        ).select_related("sync_record")
+        legacy_ids = set(LedgerOSSyncRecord.objects.filter(
+            local_object_type="vendor_payment", ledgeros_resource_type="sync_event",
+            source_event_type="vendor_payment.credit_card",
+        ).values_list("local_object_id", flat=True))
+        for payment in payments:
+            record = payment.sync_record
+            if record and record.ledgeros_resource_type == "payment" and record.status == LedgerOSSyncRecord.Status.SUCCEEDED:
+                continue
+            if (record and record.ledgeros_resource_type == "sync_event") or str(payment.pk) in legacy_ids:
+                results[payment.vendor_bill_id].update(status="needs_review", label="Needs review",
+                    paid=None, credited=None, balance=None,
+                    error="A legacy card payment needs its existing journal linked to this bill. Retry that payment to reconcile it.")
+        return results
 
 
 class LedgerOSPaymentService:
@@ -393,12 +466,25 @@ class LedgerOSVendorPaymentService:
                 {"vendor_bill": "The vendor bill must be synced before the payment can be posted."}
             )
 
-        return {
+        payload = {
             "source_type": "bill",
             "source_reference": bill_sync_record.external_id,
             "payment_date": payment.payment_date.isoformat(),
             "amount": str(payment.amount.quantize(Decimal("0.01"))),
         }
+        if payment.payment_method == VendorPayment.PaymentMethod.CREDIT_CARD:
+            payload["funding_account_code"] = Epic5AccountingService._account_code(
+                mapping_key=PropertyLedgerAccountMapping.MappingKey.CREDIT_CARD_LIABILITY,
+                field_name="credit_card_account_name",
+            )
+            legacy = VendorPaymentService.legacy_card_record(payment)
+            if legacy is not None:
+                event = (legacy.response_payload or {}).get("sync_event", {})
+                try:
+                    payload["existing_sync_event_id"] = int(event["id"])
+                except (ValueError, KeyError, TypeError) as exc:
+                    raise ValidationError({"payment": "The legacy card payment needs manual reconciliation before retrying; its journal must not be posted again."}) from exc
+        return payload
 
     @staticmethod
     def submit_payment(*, payment: VendorPayment, idempotency_key: str) -> SyncResult:
@@ -1147,6 +1233,15 @@ class VendorBillService(Epic5AccountingService):
 
 class VendorPaymentService(Epic5AccountingService):
     @staticmethod
+    def legacy_card_record(payment):
+        if payment.sync_record and payment.sync_record.ledgeros_resource_type == "sync_event":
+            return payment.sync_record
+        return LedgerOSSyncRecord.objects.filter(
+            local_object_type="vendor_payment", local_object_id=str(payment.pk),
+            source_event_type="vendor_payment.credit_card", ledgeros_resource_type="sync_event",
+        ).first()
+
+    @staticmethod
     def _normalize_payment_account(payment: VendorPayment) -> None:
         if payment.payment_method == VendorPayment.PaymentMethod.CREDIT_CARD and not payment.is_credit_card_payoff:
             payment.bank_account_name = ""
@@ -1310,7 +1405,8 @@ class VendorPaymentService(Epic5AccountingService):
         if payment.status == VendorPayment.Status.VOIDED:
             return payment
         if payment.sync_record and payment.sync_record.status == LedgerOSSyncRecord.Status.SUCCEEDED:
-            return payment
+            if payment.is_credit_card_payoff or payment.sync_record.ledgeros_resource_type == "payment":
+                return payment
         if VendorPaymentService._sync_blockers(payment):
             if payment.status != VendorPayment.Status.POSTED:
                 payment.status = VendorPayment.Status.DRAFT
@@ -1321,10 +1417,21 @@ class VendorPaymentService(Epic5AccountingService):
     @staticmethod
     @transaction.atomic
     def sync_payment(payment: VendorPayment) -> VendorPayment:
-        use_payment_endpoint = not payment.is_credit_card_payoff and payment.payment_method != VendorPayment.PaymentMethod.CREDIT_CARD
+        if payment.status == VendorPayment.Status.VOIDED:
+            raise ValidationError({"payment": "Voided payments cannot be posted."})
+        if payment.sync_record and payment.sync_record.status == LedgerOSSyncRecord.Status.SUCCEEDED and payment.sync_record.ledgeros_resource_type == "payment":
+            return payment
+        blockers = VendorPaymentService._sync_blockers(payment)
+        if blockers:
+            raise ValidationError(blockers)
+        use_payment_endpoint = not payment.is_credit_card_payoff
         if use_payment_endpoint:
             request_payload = LedgerOSVendorPaymentService._build_payment_payload(payment)
-            source_event_type = "vendor_payment.sent"
+            source_event_type = (
+                "vendor_payment.credit_card_settled"
+                if payment.payment_method == VendorPayment.PaymentMethod.CREDIT_CARD
+                else "vendor_payment.sent"
+            )
             ledgeros_resource_type = "payment"
             ledgeros_path = LedgerOSVendorPaymentService.PAYMENT_PATH
             response_id_key = "payment"
@@ -1335,6 +1442,11 @@ class VendorPaymentService(Epic5AccountingService):
             ledgeros_path = LedgerOSSyncEventService.SYNC_EVENT_PATH
             response_id_key = "sync_event"
             response_journal_key = ""
+        existing = LedgerOSSyncRecord.objects.filter(
+            local_object_type="vendor_payment", local_object_id=str(payment.pk), source_event_type=source_event_type,
+        ).first()
+        if existing and existing.attempt_count and existing.request_hash != TenantPaymentService._sync_record_payload(request_payload):
+            raise ValidationError({"payment": "An attempted vendor payment cannot be changed. Reconcile it before retrying."})
         sync_record = VendorPaymentService._build_sync_record(
             local_object_type="vendor_payment",
             local_object_id=str(payment.pk),
@@ -1360,6 +1472,8 @@ class VendorPaymentService(Epic5AccountingService):
                 payload=request_payload,
                 idempotency_key=sync_record.idempotency_key,
             )
+            if use_payment_endpoint and not LedgerOSPaymentService.is_posted_result(result.payload):
+                raise RuntimeError("LedgerOS did not confirm a payment with a posted journal entry.")
         except Exception as exc:
             logger.warning("Vendor payment sync failed", extra={"vendor_payment_id": payment.pk, "error": str(exc)})
             sync_record.status = LedgerOSSyncRecord.Status.FAILED

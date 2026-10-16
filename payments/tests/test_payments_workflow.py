@@ -810,7 +810,7 @@ class Epic5AccountingServiceTests(TestCase):
         mock_urlopen.side_effect = [
             _FakeResponse(status=201, payload=json.dumps({"vendor": {"id": "vendor_1"}}).encode("utf-8")),
             _FakeResponse(status=201, payload=json.dumps({"bill": {"id": "bill_1"}, "journal_entry": {"id": "je_bill_1"}}).encode("utf-8")),
-            _FakeResponse(status=201, payload=json.dumps({"sync_event": {"id": "sync_payment_1"}, "journal_entry": {"id": "je_payment_1"}}).encode("utf-8")),
+            _FakeResponse(status=201, payload=json.dumps({"payment": {"id": "card_payment_1"}, "journal_entry": {"id": "je_payment_1", "status": "posted"}}).encode("utf-8")),
             _FakeResponse(status=201, payload=json.dumps({"sync_event": {"id": "sync_payment_2"}, "journal_entry": {"id": "je_payment_2"}}).encode("utf-8")),
         ]
 
@@ -846,8 +846,8 @@ class Epic5AccountingServiceTests(TestCase):
         payoff.refresh_from_db()
 
         self.assertEqual(card_payment.status, VendorPayment.Status.POSTED)
-        self.assertEqual(card_payment.sync_record.source_event_type, "vendor_payment.credit_card")
-        self.assertEqual(card_payment.sync_record.response_payload["sync_event"]["id"], "sync_payment_1")
+        self.assertEqual(card_payment.sync_record.source_event_type, "vendor_payment.credit_card_settled")
+        self.assertEqual(card_payment.sync_record.response_payload["payment"]["id"], "card_payment_1")
         self.assertEqual(card_payment.sync_record.ledgeros_journal_entry_id, "je_payment_1")
         self.assertEqual(card_payment.bank_account_name, "")
         self.assertEqual(payoff.status, VendorPayment.Status.POSTED)
@@ -856,9 +856,9 @@ class Epic5AccountingServiceTests(TestCase):
         self.assertEqual(payoff.sync_record.ledgeros_journal_entry_id, "je_payment_2")
         third_request_path, third_payload = _decode_mock_request(mock_urlopen.call_args_list[2])
         fourth_request_path, fourth_payload = _decode_mock_request(mock_urlopen.call_args_list[3])
-        self.assertEqual(third_request_path, "http://ledgeros-web:8000/api/v1/sync-events/")
-        self.assertEqual(third_payload["domain_event_type"], "vendor_payment.credit_card")
-        self.assertEqual(third_payload["payload"]["bank_account_name"], "")
+        self.assertEqual(third_request_path, "http://ledgeros-web:8000/api/v1/payments/")
+        self.assertEqual(third_payload["source_type"], "bill")
+        self.assertEqual(third_payload["funding_account_code"], "2100")
         self.assertEqual(fourth_request_path, "http://ledgeros-web:8000/api/v1/sync-events/")
         self.assertEqual(fourth_payload["domain_event_type"], "credit_card.payoff")
 
@@ -868,7 +868,7 @@ class Epic5AccountingServiceTests(TestCase):
         mock_urlopen.side_effect = [
             _FakeResponse(status=201, payload=json.dumps({"vendor": {"id": "vendor_1"}}).encode("utf-8")),
             _FakeResponse(status=201, payload=json.dumps({"bill": {"id": "bill_1"}, "journal_entry": {"id": "je_bill_1"}}).encode("utf-8")),
-            _FakeResponse(status=201, payload=json.dumps({"payment": {"id": "payment_1"}, "journal_entry": {"id": "je_payment_1"}}).encode("utf-8")),
+            _FakeResponse(status=201, payload=json.dumps({"payment": {"id": "payment_1"}, "journal_entry": {"id": "je_payment_1", "status": "posted"}}).encode("utf-8")),
         ]
 
         VendorService.save_and_sync_vendor(self.vendor)

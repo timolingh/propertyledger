@@ -403,7 +403,10 @@ class VendorPayment(TimestampedModel):
 
     @builtins.property
     def is_editable_after_sync(self) -> bool:
-        return self.sync_record is None or self.sync_record.status != LedgerOSSyncRecord.Status.SUCCEEDED
+        return self.sync_record is None or (
+            self.sync_record.status != LedgerOSSyncRecord.Status.SUCCEEDED
+            and self.sync_record.attempt_count == 0
+        )
 
     @builtins.property
     def sync_status(self) -> str:
