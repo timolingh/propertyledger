@@ -900,24 +900,20 @@ For security deposits:
 
 ## LedgerOS sync contract
 
-LedgerOS must expose a generic sync-event endpoint for Epic 4.
+Tenant charge invoice creation uses `POST /api/v1/invoices/`. Tenant payment
+applications use `POST /api/v1/payments/` with `source_type = "invoice"`,
+`source_reference`, `payment_date`, and `amount`. Success requires a payment ID
+and a posted journal entry. LedgerOS settles the invoice and posts Cash / AR.
 
-Required LedgerOS resource and expected request shape:
+Receipt finalization is local and summarizes all confirmed allocations under
+`tenant_payment.finalized`; it does not send an additional generic event or
+payment. Failed allocations retry using their original records and idempotency
+keys. Fully allocated, fully posted receipts alone can finalize. Legacy parent
+`tenant_payment.received` sync-event records remain unchanged as history.
 
-- `POST /api/v1/sync-events/`
-  - persists one downstream accounting event;
-  - request includes `source_system`, `domain_event_type`, `external_id`, `source_object_type`, `source_object_id`, `occurred_at`, and `payload`.
-
-The `payload` body carries the property-specific details for tenant payments, payment allocations, and security deposit events. Keep PropertyLedger business logic local and send only generic sync events to LedgerOS. Do not route Epic 4 payment or deposit sync through a journal fallback in PropertyLedger.
-
-Required source event types:
-
-- `tenant_payment.received`
-- `security_deposit.received`
-- `security_deposit.deducted`
-- `security_deposit.refunded`
-
-Idempotency keys must include local object ID, event type, and version.
+Security deposit receipt/deduction/refund events retain the existing generic
+`POST /api/v1/sync-events/` contract. See the current
+[Technical Manual](../technical-manual.md) for details.
 
 ## Acceptance criteria
 

@@ -2,6 +2,10 @@
 
 This note captures the practical workflow and accounting boundaries that emerged while finishing Epic 4, so Epic 5 can start with the right decision log instead of relearning the same sync and status rules.
 
+Current contract update (Issue #6): tenant payment applications use the real
+LedgerOS payment endpoint. Receipt finalization is local; generic sync events
+remain for security deposits. See the [Technical Manual](../technical-manual.md).
+
 ## What Epic 4 Taught Us
 
 - Tenant payments and security deposits are accounting workflows, not just audit events.

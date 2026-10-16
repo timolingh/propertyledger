@@ -100,6 +100,47 @@ Key rules:
 - Apply payments to invoices.
 - Track security deposit events and balances.
 
+Tenant charges create invoices through `POST /api/v1/invoices/`. Allocating a
+tenant payment posts one payment per invoice allocation through LedgerOS
+`POST /api/v1/payments/`, with `source_type = "invoice"`, the invoice's stable
+external reference, payment date, and allocated amount. LedgerOS debits Cash,
+credits AR, and reduces the invoice balance. A receipt split across invoices
+therefore maps to several LedgerOS payment and journal IDs.
+
+An allocation succeeds only when LedgerOS returns a payment ID and a journal ID
+with journal status `posted`. Retrying preserves the allocation, request body,
+and idempotency key; confirmed allocations are skipped. Accounting fields are
+locked after an allocation has been attempted, including timeout cases where
+LedgerOS might already have committed the payment. Notes remain editable.
+
+Finalizing the receipt retries unconfirmed allocations and requires the entire
+receipt amount to be allocated and posted. It sends no parent receipt event to
+LedgerOS and never posts the money again. The parent's `LedgerOSSyncRecord` is
+a local `payment_collection` summary under `tenant_payment.finalized`; its
+response lists the allocation sync records, LedgerOS payment IDs, journal IDs,
+and amounts. Existing report queries continue to use the parent's succeeded
+sync status. Failed finalization remains outside official receipt totals.
+Unapplied amounts are local operational data, not posted tenant credit.
+
+Legacy `tenant_payment.received` sync-event rows are retained unchanged. When a
+receipt is finalized again, its parent link moves to the new local summary;
+the original row remains available by local object identity in sync history.
+Existing allocation records are reused. A changed retry payload is rejected
+for manual reconciliation rather than sent with a new idempotency key. No data
+migration or automatic reposting is performed.
+
+Security-deposit events retain their existing generic sync-event contract.
+
+For manual acceptance in a prepared Docker sandbox, create two posted invoices
+for the same tenant/property for `40.00` and `60.00`, then allocate a `100.00`
+receipt. Confirm two LedgerOS payments and posted Cash/AR journals, invoice
+balances of zero, and a total receipt of `100.00` on the tenant ledger after
+finalization. Finalize again and confirm no extra payment or journal. For a
+`60.00` receipt against a `100.00` invoice, expect a remaining invoice balance of
+`40.00`. Test a failed allocation by interrupting LedgerOS availability, then
+restore it and retry the same receipt; payment IDs for successful allocations
+must remain unchanged. No reset of an existing bookkeeping database is needed.
+
 ### Vendor and debt workflows
 
 - Record vendors, bills, vendor payments, and debt-service payments.

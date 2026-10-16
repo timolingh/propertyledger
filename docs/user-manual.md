@@ -60,6 +60,14 @@ Examples:
 
 Use tenant payments to record money received from tenants and apply it to open invoices.
 
+Allocating a payment posts its invoice allocations to LedgerOS. Choose **Retry
+and finalize payment** to retry failed allocations and confirm the complete
+receipt. Successfully posted allocations are reused. The full receipt must be
+allocated before it can be finalized; any excess remains unapplied locally.
+After posting has been attempted, accounting fields are locked and notes remain
+editable. If an attempt fails, retry the existing payment rather than creating
+a replacement receipt.
+
 ### 5. Record vendor bills and payments
 
 Use vendor records for payees and vendor bills for expenses.
