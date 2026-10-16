@@ -112,7 +112,9 @@ Epic 5 uses the LedgerOS endpoint that matches the accounting object being poste
 - `POST /api/v1/vendors/` for vendor provisioning
 - `POST /api/v1/bills/` for vendor bills
 - `POST /api/v1/payments/` for standard vendor bill payments
-- `POST /api/v1/sync-events/` for journal-entry-backed liability workflows such as credit-card vendor payments, credit-card payoff, and debt-service payments
+- `POST /api/v1/payments/` with liability funding for credit-card bill settlements (updated for Issue 20)
+- `POST /api/v1/sync-events/` for credit-card payoff and debt-service journals
+- `GET /api/v1/bills/` for current bill settlement balances; see the [Technical Manual](../technical-manual.md) for migration and legacy journal-linking behavior
 
 Source event types:
 

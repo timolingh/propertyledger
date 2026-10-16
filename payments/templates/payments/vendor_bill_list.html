@@ -13,7 +13,7 @@
     {% endif %}
   </div>
   <div class="card">
-    <h2>Maintenance Expense Summary</h2>
+    <h2>Maintenance Expense Summary — all bills</h2>
     <table>
       <thead>
         <tr>
@@ -38,11 +38,31 @@
     </table>
   </div>
   <div class="card">
+    <form method="get">
+      <label>Payment status
+        <select name="payment_status">
+          <option value="">All statuses</option>
+          {% for value, label in payment_status_choices %}
+            <option value="{{ value }}"{% if selected_payment_status == value %} selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <button type="submit">Filter</button>
+      <a href="{% url 'vendor-bill-list' %}">Clear filter</a>
+    </form>
+    {% if unavailable_bill_count %}
+      <p>{{ unavailable_bill_count }} bill payment status{{ unavailable_bill_count|pluralize:"es" }} could not be read from LedgerOS.
+        <a href="?payment_status=unavailable">Show unavailable bills</a>.</p>
+    {% endif %}
     <table>
       <thead>
         <tr>
           <th>Name</th>
           <th>Summary</th>
+          <th>Payment status</th>
+          <th>Paid</th>
+          <th>Credits</th>
+          <th>Balance due</th>
           <th>Actions</th>
         </tr>
       </thead>
@@ -51,6 +71,10 @@
           <tr>
             <td><strong>{{ row.object }}</strong></td>
             <td>{{ row.summary }}</td>
+            <td>{{ row.payment_status.label }}{% if row.payment_status.error %}<p class="muted">{{ row.payment_status.error }}</p>{% endif %}</td>
+            <td>{{ row.payment_status.paid|default_if_none:"—" }}</td>
+            <td>{{ row.payment_status.credited|default_if_none:"—" }}</td>
+            <td>{{ row.payment_status.balance|default_if_none:"—" }}</td>
             <td class="actions">
               {% if row.detail_url %}
                 <a href="{{ row.detail_url }}">View</a>
@@ -59,7 +83,7 @@
             </td>
           </tr>
         {% empty %}
-          <tr><td colspan="3" class="muted">No records yet.</td></tr>
+          <tr><td colspan="7" class="muted">No bills match this filter.</td></tr>
         {% endfor %}
       </tbody>
     </table>

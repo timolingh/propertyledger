@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from payments.services import BillPaymentStatusService
+
 import json
 from decimal import Decimal
 from typing import Any
@@ -861,23 +863,29 @@ class VendorBillListView(ReportingRoleRequiredMixin, PaymentsCrudListView):
             "create_gate_label": "Go to vendors",
         }
 
+    def get_queryset(self):
+        return VendorBill.objects.select_related("vendor", "property", "unit", "sync_record").order_by("-bill_date", "-id")
+
     def get_rows(self, objects):
+        objects = list(objects)
+        statuses = BillPaymentStatusService.statuses(objects)
+        self.bill_payment_statuses = statuses
+        selected = self.request.GET.get("payment_status", "")
         return [
-            {
-                "object": obj,
-                "summary": (
-                    f"{obj.property.name}"
-                    f"{' / ' + obj.unit.name if obj.unit_id else ''}"
-                    f" | {obj.vendor.name} | {obj.amount} | {obj.get_status_display()}"
-                ),
-                "detail_url": reverse("vendor-bill-detail", kwargs={"pk": obj.pk}),
-                "edit_url": reverse("vendor-bill-edit", kwargs={"pk": obj.pk}),
-            }
-            for obj in objects
+            {"object": obj, "summary": f"{obj.property.name} | {obj.vendor.name} | {obj.amount} | {obj.get_status_display()}",
+             "payment_status": statuses[obj.pk],
+             "detail_url": reverse("vendor-bill-detail", kwargs={"pk": obj.pk}),
+             "edit_url": reverse("vendor-bill-edit", kwargs={"pk": obj.pk})}
+            for obj in objects if not selected or selected not in BillPaymentStatusService.LABELS or statuses[obj.pk]["status"] == selected
         ]
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
+        context["payment_status_choices"] = BillPaymentStatusService.LABELS.items()
+        context["selected_payment_status"] = self.request.GET.get("payment_status", "")
+        context["unavailable_bill_count"] = sum(
+            row["status"] == "unavailable" for row in self.bill_payment_statuses.values()
+        )
         context["maintenance_summary_rows"] = MaintenanceExpenseSummaryService.summary_rows()
         return context
 
@@ -972,6 +980,7 @@ class VendorBillDetailView(ReportingRoleRequiredMixin, PaymentsAppContextMixin, 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         bill = self.object
+        context["bill_payment_status"] = BillPaymentStatusService.statuses([bill])[bill.pk]
         context["sync_log_entries"] = [
             {
                 "title": f"Bill {bill.pk} sync status",

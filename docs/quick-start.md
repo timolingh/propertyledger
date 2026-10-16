@@ -91,6 +91,11 @@ If LedgerOS web is not running yet, the beta seed command will warn and continue
 
 ## If something fails
 
+When upgrading for bill payment status, deploy the matching LedgerOS code and
+apply its migrations first. See the [Technical Manual](./technical-manual.md)
+for the upgrade and legacy credit-card reconciliation commands. The bill list
+shows Unavailable if the upstream bill-read API cannot be reached.
+
 - Check the `.env` values first.
 - Make sure LedgerOS is already running.
 - Verify the Docker containers are up.

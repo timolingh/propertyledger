@@ -146,6 +146,76 @@ must remain unchanged. No reset of an existing bookkeeping database is needed.
 - Record vendors, bills, vendor payments, and debt-service payments.
 - Keep credit-card and liability workflows behind the supported adapter paths.
 
+Bill payment status is read from LedgerOS using authenticated
+`GET /api/v1/bills/` batches of up to 100 repeated `external_bill_number`
+parameters. Only the integration client's own bill references are returned.
+The bill list and detail page share this read path. The list's GET
+`payment_status` filter selects unpaid, partially paid, paid, not posted,
+voided, needs review, or unavailable bills. The maintenance expense summary
+continues to cover all bills and is labeled accordingly.
+
+Balances are current subledger balances, not period report totals. Amount paid
+and credits applied are separate; balance due equals bill amount minus both.
+Payments and credits entered directly in LedgerOS are included when applied to
+the bill. Failed/local-only payments and credit-card payoffs do not settle a
+bill. Unallocated general journal adjustments remain outside individual bill
+balances. No bill posting, payment posting, or reconciliation runs during GET.
+Missing, unreachable, or invalid upstream data displays Unavailable. Inconsistent
+totals and linked reversed journals require review rather than showing Paid.
+Historical applications without a journal link retain their existing LedgerOS
+subledger meaning; reversal detection for those records remains limited.
+
+New credit-card bill payments use `POST /api/v1/payments/` with
+`source_type=bill`, the bill's external reference, and the configured
+`funding_account_code`. LedgerOS posts debit AP / credit card liability and
+creates a bill payment application. The local event is
+`vendor_payment.credit_card_settled`; standard vendor payment identity is
+unchanged. Credit-card payoff remains a separate generic journal event that
+reduces card liability and Cash, and does not settle the bill again.
+
+Legacy card payments used generic journal events without bill applications.
+They display Needs review until explicitly reconciled. Retrying an existing
+legacy card payment sends its `existing_sync_event_id` with the payment request.
+LedgerOS validates client ownership, the exact AP/funding accounts and amount,
+and the original posted, unreversed journal. It attaches that journal once
+without posting again or changing its date. The original local sync event is
+retained; a separate settlement record stores the resulting payment ID.
+Retries reuse that settlement's identity and payload, and attempted payments'
+accounting fields are locked. Missing or ambiguous historical journal evidence
+requires manual reconciliation; it never triggers a replacement posting.
+
+Deploy the updated LedgerOS code and migration 0011 before this client change.
+The client needs `bills` scope for reads and the existing `payments` scope and
+`payment.post_requested` permission for settlements. In a local sibling setup:
+
+```bash
+docker compose -f ../ledgeros_v2/docker-compose.yml run --rm web python manage.py migrate
+docker compose -f docker-compose.yml run --rm propertyledger-web python manage.py reconcile_bill_card_payments
+# After reviewing the preview, reconcile one existing payment:
+docker compose -f docker-compose.yml run --rm propertyledger-web python manage.py reconcile_bill_card_payments --apply --payment-id 123
+```
+
+The preview is read-only. Apply creates missing payment/application records
+against verified existing journals; journal count and account balances must
+stay unchanged. Never reset bookkeeping data to perform this upgrade.
+
+| Requirement | Source | Implementation | Verification |
+| --- | --- | --- | --- |
+| Bill status and filtering | Issue 20 | `BillPaymentStatusService`, bill views/templates | `test_bill_payment_status` list/detail/filter tests |
+| Payments and credits outside PropertyLedger | Issue 20 | LedgerOS scoped bill read API | LedgerOS API payment/credit balance tests |
+| Card settlement without double counting | Issue 20 | Payment adapter, LedgerOS application link | Card GL, payoff exclusion, and retry tests |
+| Historical card journals | Approved recommendation | Reconciliation command and existing-journal API | Preview/apply and duplicate/mismatch tests |
+| Unallocated journal attribution | Explicitly deferred | Requires an allocation workflow | No inferred bill adjustments |
+
+For manual acceptance in a Docker sandbox, post a 100.00 bill, apply a 40.00
+payment and 10.00 vendor credit in LedgerOS, and confirm Partially paid with
+50.00 due in PropertyLedger. Check each status filter and the matching detail
+page. Settle the remainder and confirm Paid. A card payment must debit AP and
+credit card liability; paying off the card must not reduce the bill again.
+For a legacy card journal, preview and apply the reconciliation command, then
+repeat it: journal count and GL balances must remain unchanged. Disconnecting
+LedgerOS should show Unavailable, and viewing a draft should make no API call.
+
 ### Reports and statements
 
 - Use synced records for operational and accounting reports.

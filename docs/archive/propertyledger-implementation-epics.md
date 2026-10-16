@@ -1133,7 +1133,7 @@ LedgerOS resources should match the authoritative LedgerOS contract for the work
 - vendor bills use `POST /api/v1/bills/`;
 - vendor provisioning uses `POST /api/v1/vendors/`;
 - standard vendor bill payments use `POST /api/v1/payments/`;
-- workflows without a dedicated LedgerOS endpoint, such as credit-card vendor liability handling or debt service, use a generic sync-event that LedgerOS converts into a posted journal entry.
+- credit-card bill settlements use the payment endpoint with liability funding (Issue 20); credit-card payoff and debt service retain the generic journal event bridge.
 
 Required source event types:
 
