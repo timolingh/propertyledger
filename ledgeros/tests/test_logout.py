@@ -1,3 +1,4 @@
+from django.conf import settings
 from django.contrib.auth import SESSION_KEY, get_user_model
 from django.test import Client, TestCase
 from django.urls import reverse
@@ -15,7 +16,7 @@ class LogoutTests(TestCase):
         response = client.get(reverse("property-list"))
         self.assertContains(response, 'method="post" action="/logout/"')
         self.assertNotContains(response, '<a href="/logout/">')
-        token = client.cookies["csrftoken"].value
+        token = client.cookies[settings.CSRF_COOKIE_NAME].value
 
         self.assertEqual(client.post(reverse("logout")).status_code, 403)
         self.assertIn(SESSION_KEY, client.session)

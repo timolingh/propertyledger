@@ -58,6 +58,11 @@ docker compose -f docker-compose.yml run --rm propertyledger-web python manage.p
 - Main setup page: `http://localhost:8000/`
 - Admin: `http://localhost:8000/admin/`
 
+PropertyLedger uses `propertyledger_sessionid` and `propertyledger_csrftoken`
+cookies so logging into LedgerOS on another localhost port does not overwrite
+its session or form tokens. After upgrading from the shared default cookie names,
+log into PropertyLedger again and reload any previously open forms before submitting.
+
 ## 7. First checks
 
 After the app starts, confirm:
