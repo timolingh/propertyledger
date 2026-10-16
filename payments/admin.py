@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from payments.forms import DebtServicePaymentForm, MaintenanceCategoryForm, VendorBillForm, VendorForm, VendorPaymentForm
+from payments.forms import DebtServicePaymentForm, MaintenanceCategoryForm, TenantPaymentForm, VendorBillForm, VendorForm, VendorPaymentForm
 from payments.models import (
     DebtServicePayment,
     MaintenanceCategory,
@@ -27,11 +27,16 @@ class TenantPaymentApplicationInline(admin.TabularInline):
     model = TenantPaymentApplication
     extra = 0
     fields = ["charge", "amount_applied", "sync_record"]
-    readonly_fields = ["sync_record"]
+    readonly_fields = ["charge", "amount_applied", "sync_record"]
+    can_delete = False
+
+    def has_add_permission(self, request, obj=None):
+        return False
 
 
 @admin.register(TenantPayment)
 class TenantPaymentAdmin(admin.ModelAdmin):
+    form = TenantPaymentForm
     list_display = ["tenant", "property", "payment_date", "amount", "status", "allocated_amount", "unapplied_amount"]
     list_filter = ["status", "payment_method", "property"]
     search_fields = ["tenant__name", "property__name", "reference"]
@@ -42,6 +47,13 @@ class TenantPaymentAdmin(admin.ModelAdmin):
 class TenantPaymentApplicationAdmin(admin.ModelAdmin):
     list_display = ["payment", "charge", "amount_applied", "sync_record", "created_at"]
     search_fields = ["payment__tenant__name", "charge__description"]
+    readonly_fields = ["payment", "charge", "amount_applied", "sync_record"]
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
 
 
 @admin.register(SecurityDepositEvent)

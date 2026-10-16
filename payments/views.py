@@ -312,8 +312,7 @@ class TenantInvoiceDetailView(ReportingRoleRequiredMixin, PaymentsAppContextMixi
                     source="ui",
                 )
                 errors = _payment_sync_errors(payment)
-                sync_status = payment.sync_record.status if payment.sync_record else ""
-                if sync_status == LedgerOSSyncRecord.Status.FAILED:
+                if errors:
                     messages.warning(
                         request,
                         "Payment was recorded, but one or more allocation posts failed."
@@ -322,10 +321,10 @@ class TenantInvoiceDetailView(ReportingRoleRequiredMixin, PaymentsAppContextMixi
                 elif payment.remaining_amount > Decimal("0.00"):
                     messages.success(
                         request,
-                        "Payment recorded locally. The excess amount is being held as tenant credit.",
+                        "Invoice allocations posted. The excess remains unapplied locally; allocate it before finalizing the receipt.",
                     )
                 else:
-                    messages.success(request, "Payment recorded locally against the invoice.")
+                    messages.success(request, "Invoice allocations posted. Finalize the receipt from payment history.")
                 return HttpResponseRedirect(reverse("invoice-detail", args=[self.object.pk]))
         context = self.get_context_data(form=form)
         return self.render_to_response(context)

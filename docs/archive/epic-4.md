@@ -81,7 +81,7 @@ make smoke
 - Invoice applications are added after save on the payment detail screen.
 - Application uses a global invoice-type priority order.
 - Within each invoice type, oldest open invoices are applied first.
-- Synced payments are immutable except for the non-accounting note field.
+- Payment accounting fields are immutable after an allocation has been attempted; notes remain editable.
 - Payment sync requires full application and successful invoice-application syncs.
 - Payment sync is only complete when LedgerOS has posted the accounting effect of the receipt.
 
@@ -94,23 +94,23 @@ make smoke
 
 ## LedgerOS Contract
 
-Epic 4 expects the sibling LedgerOS repo to expose a generic sync-event API:
+Tenant invoice creation uses `POST /api/v1/invoices/`. Tenant payment
+applications use `POST /api/v1/payments/` with the invoice reference, payment
+date, and allocated amount. LedgerOS posts debit Cash / credit AR and reduces
+the invoice balance. A payment spanning several invoices creates one LedgerOS
+payment per allocation.
 
-- `POST /api/v1/sync-events/`
+Receipt finalization is local: it retries failed allocations with their existing
+idempotency keys, skips confirmed posted allocations, and succeeds only when the
+full receipt is allocated and posted. A generic `tenant_payment.received` event
+is no longer required. Legacy receipt events remain as history; a separate local
+`tenant_payment.finalized` summary references the posted payment/journal IDs.
 
-That endpoint is treated as the contract boundary for delivery, but not as proof of posting by itself. The LedgerOS implementation must convert the payment sync event into the correct posted accounting change.
+Security deposit events continue to use `POST /api/v1/sync-events/`. The generic
+event endpoint alone is not proof of posted accounting.
 
-PropertyLedger sends one generic event envelope per downstream accounting event:
-
-- `source_system = "propertyledger"`
-- `domain_event_type` for the business event name, such as `tenant_payment.received` or `security_deposit.received`
-- `external_id` as a stable unique ID for the local object, event, or version
-- `source_object_type` as the local model name
-- `source_object_id` as the local primary key
-- `occurred_at` as the original event timestamp
-- `payload` as the full property-specific event details
-
-If that endpoint is missing in LedgerOS, update the sibling LedgerOS repo first. PropertyLedger should not fall back to a journal-only implementation for Epic 4 sync.
+See the [Technical Manual](../technical-manual.md) for current retry,
+immutability, and compatibility rules.
 
 ## Testing
 

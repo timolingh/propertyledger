@@ -5,7 +5,7 @@
 {% block content %}
   <div class="card">
     <h1>Payments</h1>
-    <p class="muted">Use the bills workflow for vendor expenses and the invoices workflow for tenant receipts. Saving records the local transaction first; syncing posts the accounting effect to LedgerOS. Payment history, vendor bills, and security deposits remain available underneath.</p>
+    <p class="muted">Use the bills workflow for vendor expenses and the invoices workflow for tenant receipts. Applying a tenant payment posts its invoice allocations to LedgerOS; finalize the receipt from payment history once the full amount has posted. Vendor bills and security deposits remain available underneath.</p>
     <div style="display:flex; gap:1rem; flex-wrap:wrap;">
       <a class="button primary" href="{% url 'banking-dashboard' %}">Banking visibility</a>
       <a class="button primary" href="{% url 'reports-home' %}">Reports</a>

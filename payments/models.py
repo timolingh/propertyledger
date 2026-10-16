@@ -112,7 +112,13 @@ class TenantPayment(models.Model):
 
     @builtins.property
     def is_editable_after_sync(self) -> bool:
-        return self.sync_record is None or self.sync_record.status != LedgerOSSyncRecord.Status.SUCCEEDED
+        if self.status == self.Status.POSTED or (
+            self.sync_record and self.sync_record.status == LedgerOSSyncRecord.Status.SUCCEEDED
+        ):
+            return False
+        # An unsuccessful response can still follow a committed upstream write.
+        # Keep retry payloads stable once any allocation has been attempted.
+        return not self.applications.filter(sync_record__attempt_count__gt=0).exists()
 
     @builtins.property
     def sync_status(self) -> str:

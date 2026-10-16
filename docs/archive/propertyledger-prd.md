@@ -714,7 +714,7 @@ Resolved during review:
 7. Debt servicing and credit-card accounts are included in MVP setup/onboarding.
 8. Vendor payments by credit card are supported through credit-card liability accounting.
 9. Check writing is deferred from MVP but must have a reserved drop-in path and is expected before practical deployment.
-10. Epic 4 uses a generic LedgerOS sync-event endpoint; if it is missing, the sibling LedgerOS repo must be updated rather than using a journal fallback in PropertyLedger.
+10. Tenant payment applications use the LedgerOS payment endpoint to settle invoices; security deposits retain the generic sync-event contract. Receipt finalization summarizes posted allocations locally.
 
 Remaining open questions for implementation planning:
 

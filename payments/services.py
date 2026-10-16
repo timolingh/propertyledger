@@ -291,7 +291,11 @@ class LedgerOSPaymentService:
     @staticmethod
     def _build_payment_payload(application: TenantPaymentApplication) -> dict[str, Any]:
         charge_sync_record = application.charge.sync_record
-        if charge_sync_record is None or not charge_sync_record.external_id:
+        if (
+            charge_sync_record is None
+            or charge_sync_record.status != LedgerOSSyncRecord.Status.SUCCEEDED
+            or not charge_sync_record.external_id
+        ):
             raise ValidationError(
                 {"charge": "The invoice must be synced to LedgerOS before the payment can be posted."}
             )
@@ -302,6 +306,18 @@ class LedgerOSPaymentService:
             "payment_date": application.payment.payment_date.isoformat(),
             "amount": str(application.amount_applied.quantize(Decimal("0.01"))),
         }
+
+    @staticmethod
+    def is_posted_result(payload: Any) -> bool:
+        if not isinstance(payload, dict):
+            return False
+        payment = payload.get("payment")
+        journal = payload.get("journal_entry")
+        return bool(
+            isinstance(payment, dict) and payment.get("id")
+            and isinstance(journal, dict) and journal.get("id")
+            and journal.get("status") == "posted"
+        )
 
     @staticmethod
     def submit_payment_application(*, application: TenantPaymentApplication, idempotency_key: str) -> SyncResult:
@@ -670,112 +686,117 @@ class TenantPaymentService:
 
     @staticmethod
     def allocate_payment(payment: TenantPayment, preferred_charge_ids: list[int] | None = None) -> TenantPayment:
-        if payment.sync_record and payment.sync_record.status == LedgerOSSyncRecord.Status.SUCCEEDED:
-            raise ValidationError({"payment": "Posted payments cannot be reallocated."})
-        if payment.status == TenantPayment.Status.VOIDED:
-            raise ValidationError({"payment": "Voided payments cannot be reallocated."})
+        # Commit allocation identities before posting so a later failure cannot
+        # roll them back after LedgerOS has already accepted an earlier payment.
+        with transaction.atomic():
+            payment = TenantPayment.objects.select_for_update().get(pk=payment.pk)
+            if payment.status == TenantPayment.Status.POSTED or (
+                payment.sync_record and payment.sync_record.status == LedgerOSSyncRecord.Status.SUCCEEDED
+            ):
+                raise ValidationError({"payment": "Posted payments cannot be reallocated."})
+            if payment.status == TenantPayment.Status.VOIDED:
+                raise ValidationError({"payment": "Voided payments cannot be reallocated."})
 
-        settings = PaymentWorkflowSettings.load()
-        priority = list(settings.charge_type_priority or [
-            TenantCharge.ChargeType.BASE_RENT,
-            TenantCharge.ChargeType.UTILITY_REIMBURSEMENT,
-            TenantCharge.ChargeType.LATE_FEE_MANUAL,
-            TenantCharge.ChargeType.OTHER_MANUAL,
-        ])
-        priority_index = {charge_type: index for index, charge_type in enumerate(priority)}
+            settings = PaymentWorkflowSettings.load()
+            priority = list(settings.charge_type_priority or [
+                TenantCharge.ChargeType.BASE_RENT,
+                TenantCharge.ChargeType.UTILITY_REIMBURSEMENT,
+                TenantCharge.ChargeType.LATE_FEE_MANUAL,
+                TenantCharge.ChargeType.OTHER_MANUAL,
+            ])
+            priority_index = {charge_type: index for index, charge_type in enumerate(priority)}
 
-        open_charges = list(
-            TenantCharge.objects.filter(
-                property=payment.property,
-                tenant=payment.tenant,
-            ).exclude(status=TenantCharge.Status.VOIDED)
-        )
-        preferred_charge_index = {
-            charge_id: index for index, charge_id in enumerate(preferred_charge_ids or [])
-        }
-        open_charges.sort(
-            key=lambda charge: TenantPaymentService._preferred_charge_sort_key(
-                charge,
-                priority_index,
-                preferred_charge_index,
+            open_charges = list(
+                TenantCharge.objects.filter(
+                    property=payment.property,
+                    tenant=payment.tenant,
+                ).exclude(status=TenantCharge.Status.VOIDED)
             )
-        )
-
-        existing_allocations = list(payment.applications.select_related("sync_record", "charge"))
-        if any(
-            allocation.sync_record
-            and allocation.sync_record.status == LedgerOSSyncRecord.Status.SUCCEEDED
-            for allocation in existing_allocations
-        ):
-            raise ValidationError({"payment": "Synced allocations cannot be reallocated."})
-        for allocation in existing_allocations:
-            allocation.delete()
-
-        remaining = payment.amount.quantize(Decimal("0.01"))
-        new_allocations: list[TenantPaymentApplication] = []
-        any_failed = False
-        for charge in open_charges:
-            if remaining <= Decimal("0.00"):
-                break
-            already_applied = (
-                charge.payment_applications.aggregate(total=models.Sum("amount_applied"))["total"]
-                or Decimal("0.00")
+            preferred_charge_index = {
+                charge_id: index for index, charge_id in enumerate(preferred_charge_ids or [])
+            }
+            open_charges.sort(
+                key=lambda charge: TenantPaymentService._preferred_charge_sort_key(
+                    charge,
+                    priority_index,
+                    preferred_charge_index,
+                )
             )
-            charge_remaining = (charge.amount - already_applied).quantize(Decimal("0.01"))
-            if charge_remaining <= Decimal("0.00"):
-                continue
-            amount_applied = min(remaining, charge_remaining)
-            allocation = TenantPaymentApplication.objects.create(
-                payment=payment,
-                charge=charge,
-                amount_applied=amount_applied,
-            )
-            new_allocations.append(allocation)
+
+            existing_allocations = list(payment.applications.select_related("sync_record", "charge"))
+            remaining = payment.remaining_amount
+            allocated_charge_ids = {allocation.charge_id for allocation in existing_allocations}
+            for charge in open_charges:
+                if charge.pk in allocated_charge_ids:
+                    continue
+                if remaining <= Decimal("0.00"):
+                    break
+                already_applied = (
+                    charge.payment_applications.aggregate(total=models.Sum("amount_applied"))["total"]
+                    or Decimal("0.00")
+                )
+                charge_remaining = (charge.amount - already_applied).quantize(Decimal("0.01"))
+                if charge_remaining <= Decimal("0.00"):
+                    continue
+                amount_applied = min(remaining, charge_remaining)
+                TenantPaymentApplication.objects.create(
+                    payment=payment,
+                    charge=charge,
+                    amount_applied=amount_applied,
+                )
+                remaining = (remaining - amount_applied).quantize(Decimal("0.01"))
+
+        for allocation in payment.applications.order_by("id"):
             TenantPaymentService.sync_payment_application(allocation)
-            allocation.refresh_from_db()
-            if not allocation.sync_record or allocation.sync_record.status != LedgerOSSyncRecord.Status.SUCCEEDED:
-                any_failed = True
-            remaining = (remaining - amount_applied).quantize(Decimal("0.01"))
 
-        payment.refresh_from_db()
-        all_allocations_synced = all(
-            allocation.sync_record
-            and allocation.sync_record.status == LedgerOSSyncRecord.Status.SUCCEEDED
-            for allocation in payment.applications.all()
-        )
-        if not new_allocations:
-            payment.status = TenantPayment.Status.DRAFT
-        elif any_failed:
-            payment.status = TenantPayment.Status.ALLOCATED
-        elif all_allocations_synced:
-            payment.status = TenantPayment.Status.READY_TO_SYNC
-        else:
-            payment.status = TenantPayment.Status.ALLOCATED
-        payment.save(update_fields=["status", "updated_at"])
-        return payment
+        with transaction.atomic():
+            payment = TenantPayment.objects.select_for_update().get(pk=payment.pk)
+            if payment.status == TenantPayment.Status.POSTED:
+                return payment
+            all_allocations_synced = all(
+                allocation.sync_record
+                and allocation.sync_record.status == LedgerOSSyncRecord.Status.SUCCEEDED
+                for allocation in payment.applications.all()
+            )
+            if not payment.applications.exists():
+                payment.status = TenantPayment.Status.DRAFT
+            elif all_allocations_synced and payment.remaining_amount == Decimal("0.00"):
+                payment.status = TenantPayment.Status.READY_TO_SYNC
+            else:
+                payment.status = TenantPayment.Status.ALLOCATED
+            payment.save(update_fields=["status", "updated_at"])
+            return payment
 
     @staticmethod
     @transaction.atomic
     def sync_payment_application(application: TenantPaymentApplication) -> TenantPaymentApplication:
+        application = TenantPaymentApplication.objects.select_for_update(of=("self",)).select_related(
+            "payment", "charge__sync_record", "sync_record"
+        ).get(pk=application.pk)
+        if application.payment.status == TenantPayment.Status.VOIDED:
+            raise ValidationError({"payment": "Voided payments cannot be posted."})
         request_payload = LedgerOSPaymentService._build_payment_payload(application)
-        sync_record = TenantPaymentService._build_sync_record(
-            local_object_type="tenant_payment_application",
-            local_object_id=str(application.pk),
-            source_event_type="tenant_payment.application_applied",
-            external_id=f"tenant-payment-application:{application.pk}",
-            request_payload=request_payload,
-            ledgeros_resource_type="payment",
-        )
-        application.sync_record = sync_record
-        application.save(update_fields=["sync_record", "updated_at"])
-
-        if (
-            sync_record.status == LedgerOSSyncRecord.Status.SUCCEEDED
-            and sync_record.ledgeros_resource_type == "payment"
-            and isinstance(sync_record.response_payload, dict)
-            and isinstance(sync_record.response_payload.get("journal_entry"), dict)
-        ):
-            return application
+        sync_record = application.sync_record
+        if sync_record is not None:
+            if sync_record.request_hash != TenantPaymentService._sync_record_payload(request_payload):
+                raise ValidationError({"payment": "An attempted payment allocation cannot be changed. Reconcile it before retrying."})
+            if (
+                sync_record.status == LedgerOSSyncRecord.Status.SUCCEEDED
+                and sync_record.ledgeros_resource_type == "payment"
+                and LedgerOSPaymentService.is_posted_result(sync_record.response_payload)
+            ):
+                return application
+        else:
+            sync_record = TenantPaymentService._build_sync_record(
+                local_object_type="tenant_payment_application",
+                local_object_id=str(application.pk),
+                source_event_type="tenant_payment.application_applied",
+                external_id=f"tenant-payment-application:{application.pk}",
+                request_payload=request_payload,
+                ledgeros_resource_type="payment",
+            )
+            application.sync_record = sync_record
+            application.save(update_fields=["sync_record", "updated_at"])
 
         sync_record.status = LedgerOSSyncRecord.Status.IN_PROGRESS
         sync_record.attempt_count += 1
@@ -784,6 +805,8 @@ class TenantPaymentService:
 
         try:
             result = LedgerOSPaymentService.submit_payment_application(application=application, idempotency_key=sync_record.idempotency_key)
+            if not LedgerOSPaymentService.is_posted_result(result.payload):
+                raise RuntimeError("LedgerOS did not return a payment with a posted journal entry. Retry with the same idempotency key or reconcile the result.")
         except Exception as exc:
             logger.warning("Tenant payment application sync failed", extra={"payment_application_id": application.pk, "error": str(exc)})
             sync_record.status = LedgerOSSyncRecord.Status.FAILED
@@ -793,85 +816,67 @@ class TenantPaymentService:
             return application
 
         sync_record.status = LedgerOSSyncRecord.Status.SUCCEEDED
-        sync_record.ledgeros_resource_id = str(
-            result.payload.get("payment", {}).get("id")
-            or result.payload.get("id")
-            or sync_record.external_id
-        )
-        sync_record.ledgeros_journal_entry_id = str(
-            result.payload.get("journal_entry", {}).get("id")
-            or result.payload.get("journal_entry_id")
-            or ""
-        ) or None
+        sync_record.ledgeros_resource_type = "payment"
+        sync_record.ledgeros_resource_id = str(result.payload["payment"]["id"])
+        sync_record.ledgeros_journal_entry_id = str(result.payload["journal_entry"]["id"])
         sync_record.response_payload = result.payload
         sync_record.last_synced_at = timezone.now()
-        sync_record.save(update_fields=["status", "ledgeros_resource_id", "ledgeros_journal_entry_id", "response_payload", "last_synced_at", "updated_at"])
+        sync_record.save(update_fields=["status", "ledgeros_resource_type", "ledgeros_resource_id", "ledgeros_journal_entry_id", "response_payload", "last_synced_at", "updated_at"])
         return application
 
     @staticmethod
     @transaction.atomic
     def sync_payment(payment: TenantPayment) -> TenantPayment:
+        payment = TenantPayment.objects.select_for_update().get(pk=payment.pk)
+        if payment.status == TenantPayment.Status.VOIDED:
+            raise ValidationError({"payment": "Voided payments cannot be finalized."})
         if not payment.applications.exists():
             raise ValidationError({"payment": "Payment must be applied to at least one invoice before sync."})
-        pending_applications = payment.applications.filter(
-            models.Q(sync_record__isnull=True) | ~models.Q(sync_record__status=LedgerOSSyncRecord.Status.SUCCEEDED)
-        )
-        if pending_applications.exists():
-            raise ValidationError({"payment": "All payment allocations must sync successfully before the payment can sync."})
+        if payment.remaining_amount != Decimal("0.00"):
+            raise ValidationError({"payment": "Payment must be fully allocated before finalization. Unapplied credit posting is not supported."})
 
-        request_payload = TenantPaymentService._build_sync_event_payload(
-            source_system="propertyledger",
-            domain_event_type="tenant_payment.received",
-            external_id=f"tenant-payment:{payment.pk}",
-            source_object_type="tenant_payment",
-            source_object_id=str(payment.pk),
-            occurred_at=payment.created_at.isoformat(),
-            payload=TenantPaymentService._payment_event_details(payment),
-        )
-        sync_record = TenantPaymentService._build_sync_record(
-            local_object_type="tenant_payment",
-            local_object_id=str(payment.pk),
-            source_event_type="tenant_payment.received",
-            external_id=f"tenant-payment:{payment.pk}",
-            request_payload=request_payload,
-        )
-        payment.sync_record = sync_record
-        payment.save(update_fields=["sync_record", "updated_at"])
+        applications = []
+        errors = []
+        for application in payment.applications.select_related("charge", "sync_record").order_by("id"):
+            application = TenantPaymentService.sync_payment_application(application)
+            record = application.sync_record
+            if record.status != LedgerOSSyncRecord.Status.SUCCEEDED:
+                errors.append(record.last_error or "Payment allocation did not post.")
+            else:
+                applications.append({
+                    "application_id": application.pk,
+                    "sync_record_id": record.pk,
+                    "payment_id": record.ledgeros_resource_id,
+                    "journal_entry_id": record.ledgeros_journal_entry_id,
+                    "amount": str(application.amount_applied),
+                })
 
-        sync_record.status = LedgerOSSyncRecord.Status.IN_PROGRESS
-        sync_record.attempt_count += 1
-        sync_record.last_error = None
-        sync_record.save(update_fields=["status", "attempt_count", "last_error", "updated_at"])
-        payment.status = TenantPayment.Status.READY_TO_SYNC
-        payment.save(update_fields=["status", "updated_at"])
-
-        try:
-            result = LedgerOSSyncEventService._submit(
-                method="POST",
-                path=LedgerOSSyncEventService.SYNC_EVENT_PATH,
-                payload=request_payload,
-                idempotency_key=sync_record.idempotency_key,
-            )
-        except Exception as exc:
-            logger.warning("Tenant payment sync failed", extra={"payment_id": payment.pk, "error": str(exc)})
-            sync_record.status = LedgerOSSyncRecord.Status.FAILED
-            sync_record.last_error = str(exc)
-            sync_record.response_payload = {"status": "failed", "error": str(exc)}
-            sync_record.save(update_fields=["status", "last_error", "response_payload", "updated_at"])
+        # This local summary is not sent to LedgerOS. Keep legacy receipt events
+        # under tenant_payment.received intact for audit history.
+        summary = {"payment_id": payment.pk, "amount": str(payment.amount), "applications": applications}
+        if (
+            not errors
+            and payment.status == TenantPayment.Status.POSTED
+            and payment.sync_record
+            and payment.sync_record.source_event_type == "tenant_payment.finalized"
+            and payment.sync_record.status == LedgerOSSyncRecord.Status.SUCCEEDED
+            and payment.sync_record.response_payload == summary
+        ):
             return payment
-
-        sync_record.status = LedgerOSSyncRecord.Status.SUCCEEDED
-        sync_record.ledgeros_resource_id = str(
-            result.payload.get("sync_event", {}).get("id")
-            or result.payload.get("id")
-            or sync_record.external_id
+        record = TenantPaymentService._build_sync_record(
+            local_object_type="tenant_payment", local_object_id=str(payment.pk),
+            source_event_type="tenant_payment.finalized",
+            external_id=f"tenant-payment:{payment.pk}:finalized",
+            request_payload=summary, ledgeros_resource_type="payment_collection",
         )
-        sync_record.ledgeros_journal_entry_id = _response_journal_entry_id(result.payload)
-        sync_record.response_payload = result.payload
-        sync_record.last_synced_at = timezone.now()
-        sync_record.save(update_fields=["status", "ledgeros_resource_id", "ledgeros_journal_entry_id", "response_payload", "last_synced_at", "updated_at"])
-        payment.status = TenantPayment.Status.POSTED
-        payment.save(update_fields=["status", "updated_at"])
+        record.status = LedgerOSSyncRecord.Status.FAILED if errors else LedgerOSSyncRecord.Status.SUCCEEDED
+        record.last_error = "; ".join(errors) or None
+        record.response_payload = summary
+        record.last_synced_at = None if errors else timezone.now()
+        record.save(update_fields=["status", "last_error", "response_payload", "last_synced_at", "updated_at"])
+        payment.sync_record = record
+        payment.status = TenantPayment.Status.READY_TO_SYNC if errors else TenantPayment.Status.POSTED
+        payment.save(update_fields=["sync_record", "status", "updated_at"])
         return payment
 
     @staticmethod
@@ -938,7 +943,6 @@ class TenantPaymentService:
         return payment
 
     @staticmethod
-    @transaction.atomic
     def record_payment_for_charge(
         *,
         charge: TenantCharge,

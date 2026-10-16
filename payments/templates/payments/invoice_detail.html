@@ -25,14 +25,14 @@
   <div class="card">
     <h2>Record Payment</h2>
     <p class="muted">
-      Saving creates the local payment record. Syncing that payment posts the cash receipt and AR reduction in LedgerOS.
+      Saving records the payment and posts its invoice allocations to LedgerOS, increasing Cash and reducing AR.
       The payment is applied to this invoice first, then to the oldest open invoices for the same tenant and property.
       Any excess can remain as tenant credit.
     </p>
     <form method="post">
       {% csrf_token %}
       {{ payment_form.as_p }}
-      <button type="submit" class="button primary">Save local payment</button>
+      <button type="submit" class="button primary">Save and apply payment</button>
     </form>
   </div>
   <div class="card">

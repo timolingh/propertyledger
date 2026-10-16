@@ -238,13 +238,7 @@ class TenantPaymentViewTests(TestCase):
             amount=Decimal("100.00"),
             description="Base rent",
         )
-        mock_urlopen.side_effect = [
-            _FakeResponse(
-                status=201,
-                payload=json.dumps({"payment": {"id": "pay_app"}, "journal_entry": {"id": "je_app"}}).encode("utf-8"),
-            ),
-            URLError("LedgerOS is unavailable"),
-        ]
+        mock_urlopen.side_effect = URLError("LedgerOS is unavailable")
 
         payment = TenantPayment.objects.create(
             property=self.property,
@@ -272,63 +266,47 @@ class TenantPaymentViewTests(TestCase):
         self.assertEqual(payment.sync_record.status, LedgerOSSyncRecord.Status.FAILED)
 
 
+    @patch.dict(os.environ, {"LEDGEROS_HMAC_SECRET": "secret"})
+    @patch("payments.services.urlopen")
+    def test_invoice_receipt_failure_is_visible_and_finalization_retries_payment(self, transport):
+        charge = _create_synced_charge(
+            property=self.property, tenant=self.tenant,
+            charge_type=TenantCharge.ChargeType.BASE_RENT,
+            charge_date=date(2026, 1, 1), due_date=date(2026, 1, 10),
+            amount=Decimal("100.00"), description="Rent",
+        )
+        transport.side_effect = [
+            URLError("LedgerOS is unavailable"),
+            _FakeResponse(status=200, payload=json.dumps({
+                "payment": {"id": "pay_1"},
+                "journal_entry": {"id": "je_1", "status": "posted"},
+            }).encode()),
+        ]
+        response = self.client.post(reverse("invoice-detail", args=[charge.pk]), {
+            "payment_date": "2026-01-15", "amount": "100.00", "payment_method": "cash",
+        }, follow=True)
+        self.assertContains(response, "one or more allocation posts failed")
+        payment = TenantPayment.objects.get()
+        application_id = payment.applications.get().pk
+        response = self.client.post(reverse("tenant-payment-detail", args=[payment.pk]), {
+            "action": "sync",
+        }, follow=True)
+        self.assertContains(response, "Payment posted to LedgerOS.")
+        payment.refresh_from_db()
+        self.assertEqual(payment.status, TenantPayment.Status.POSTED)
+        self.assertEqual(payment.applications.get().pk, application_id)
+        self.assertEqual(transport.call_count, 2)
+        requests = [call.args[0] for call in transport.call_args_list]
+        self.assertTrue(all(request.full_url.endswith("/api/v1/payments/") for request in requests))
+        self.assertEqual(requests[0].get_header("Idempotency-key"), requests[1].get_header("Idempotency-key"))
+
+
 class TenantPaymentServiceTests(TestCase):
     def setUp(self):
         _configure_ledgeros_settings()
         self.owner = Owner.objects.create(name="Owner One")
         self.property = Property.objects.create(name="Property One", primary_owner=self.owner)
         self.tenant = Tenant.objects.create(name="Tenant One")
-
-    @patch.dict(os.environ, {"LEDGEROS_HMAC_SECRET": "secret"}, clear=False)
-    @patch("payments.services.urlopen")
-    def test_payment_sync_403_reports_permission_hint(self, mock_urlopen):
-        charge = _create_synced_charge(
-            property=self.property,
-            tenant=self.tenant,
-            charge_type=TenantCharge.ChargeType.BASE_RENT,
-            charge_date=date(2026, 1, 1),
-            due_date=date(2026, 1, 10),
-            amount=Decimal("100.00"),
-            description="Base rent",
-        )
-        mock_urlopen.side_effect = [
-            _FakeResponse(
-                status=201,
-                payload=json.dumps({"payment": {"id": "pay_app"}, "journal_entry": {"id": "je_app"}}).encode("utf-8"),
-            ),
-            HTTPError(
-                url="http://ledgeros-web:8000/api/v1/sync-events/",
-                code=403,
-                msg="Forbidden",
-                hdrs=None,
-                fp=BytesIO(b'{"detail":"API client is not allowed to perform this action."}'),
-            ),
-        ]
-
-        payment = TenantPayment.objects.create(
-            property=self.property,
-            tenant=self.tenant,
-            payment_date=date(2026, 1, 15),
-            amount=Decimal("100.00"),
-            payment_method=TenantPayment.PaymentMethod.CASH,
-            reference="cash",
-            status=TenantPayment.Status.DRAFT,
-        )
-        TenantPaymentService.allocate_payment(payment)
-        payment.refresh_from_db()
-
-        TenantPaymentService.sync_payment(payment)
-        payment.refresh_from_db()
-
-        self.assertEqual(payment.status, TenantPayment.Status.READY_TO_SYNC)
-        self.assertEqual(payment.sync_record.status, LedgerOSSyncRecord.Status.FAILED)
-        self.assertIn("API client is not allowed to perform this action.", payment.sync_record.last_error)
-        self.assertIn("POST /api/v1/sync-events/", payment.sync_record.last_error)
-        self.assertIn("Check the LedgerOS API client permissions for sync-event writes.", payment.sync_record.last_error)
-        self.assertEqual(
-            payment.sync_record.response_payload["error"],
-            payment.sync_record.last_error,
-        )
 
     @patch.dict(os.environ, {"LEDGEROS_HMAC_SECRET": "secret"}, clear=False)
     @patch("payments.services.urlopen")
@@ -362,9 +340,9 @@ class TenantPaymentServiceTests(TestCase):
         )
 
         mock_urlopen.side_effect = [
-            _FakeResponse(status=201, payload=json.dumps({"payment": {"id": "pay_1"}, "journal_entry": {"id": "je_1"}}).encode("utf-8")),
-            _FakeResponse(status=201, payload=json.dumps({"payment": {"id": "pay_2"}, "journal_entry": {"id": "je_2"}}).encode("utf-8")),
-            _FakeResponse(status=201, payload=json.dumps({"payment": {"id": "pay_3"}, "journal_entry": {"id": "je_3"}}).encode("utf-8")),
+            _FakeResponse(status=201, payload=json.dumps({"payment": {"id": "pay_1"}, "journal_entry": {"id": "je_1", "status": "posted"}}).encode("utf-8")),
+            _FakeResponse(status=201, payload=json.dumps({"payment": {"id": "pay_2"}, "journal_entry": {"id": "je_2", "status": "posted"}}).encode("utf-8")),
+            _FakeResponse(status=201, payload=json.dumps({"payment": {"id": "pay_3"}, "journal_entry": {"id": "je_3", "status": "posted"}}).encode("utf-8")),
         ]
 
         payment = TenantPayment.objects.create(
@@ -393,143 +371,223 @@ class TenantPaymentServiceTests(TestCase):
         self.assertEqual(first_payload["amount"], "30.00")
         self.assertEqual(payment.applications.first().sync_record.ledgeros_resource_type, "payment")
 
-    @patch.dict(os.environ, {"LEDGEROS_HMAC_SECRET": "secret"}, clear=False)
+    def charge(self, amount="100.00"):
+        return _create_synced_charge(
+            property=self.property, tenant=self.tenant,
+            charge_type=TenantCharge.ChargeType.BASE_RENT,
+            charge_date=date(2026, 1, 1), due_date=date(2026, 1, 10),
+            amount=Decimal(amount), description="Rent",
+        )
+
+    def payment(self, amount="100.00"):
+        return TenantPayment.objects.create(
+            property=self.property, tenant=self.tenant, payment_date=date(2026, 1, 15),
+            amount=Decimal(amount), payment_method=TenantPayment.PaymentMethod.CASH,
+        )
+
+    def posted_response(self, payment_id="pay_1"):
+        return _FakeResponse(status=201, payload=json.dumps({
+            "payment": {"id": payment_id},
+            "journal_entry": {"id": f"je_{payment_id}", "status": "posted"},
+        }).encode())
+
+    @patch.dict(os.environ, {"LEDGEROS_HMAC_SECRET": "secret"})
     @patch("payments.services.urlopen")
-    def test_payment_cannot_sync_until_fully_allocated(self, mock_urlopen):
-        _create_synced_charge(
-            property=self.property,
-            tenant=self.tenant,
-            charge_type=TenantCharge.ChargeType.UTILITY_REIMBURSEMENT,
-            charge_date=date(2026, 1, 1),
-            due_date=date(2026, 1, 10),
-            amount=Decimal("60.00"),
-            description="Utility",
+    def test_payment_endpoint_permission_error_is_retained(self, transport):
+        self.charge()
+        payment = self.payment()
+        transport.side_effect = HTTPError(
+            url="http://ledgeros-web:8000/api/v1/payments/", code=403,
+            msg="Forbidden", hdrs=None,
+            fp=BytesIO(b'{"detail":"API client is not allowed to perform this action."}'),
         )
+        TenantPaymentService.allocate_payment(payment)
+        application = payment.applications.get()
+        self.assertEqual(application.sync_record.status, LedgerOSSyncRecord.Status.FAILED)
+        self.assertIn("POST /api/v1/payments/", application.sync_record.last_error)
+        self.assertIn("Check the LedgerOS API client permissions", application.sync_record.last_error)
 
-        payment = TenantPayment.objects.create(
-            property=self.property,
-            tenant=self.tenant,
-            payment_date=date(2026, 1, 15),
-            amount=Decimal("100.00"),
-            payment_method=TenantPayment.PaymentMethod.CASH,
-            reference="cash",
-            status=TenantPayment.Status.DRAFT,
+    @patch.dict(os.environ, {"LEDGEROS_HMAC_SECRET": "secret"})
+    @patch("payments.services.urlopen")
+    def test_finalization_uses_posted_allocations_without_another_request(self, transport):
+        charge = self.charge()
+        payment = self.payment("60.00")
+        transport.return_value = self.posted_response()
+        TenantPaymentService.allocate_payment(payment)
+        TenantPaymentService.sync_payment(payment)
+        payment.refresh_from_db()
+        self.assertEqual(payment.status, TenantPayment.Status.POSTED)
+        self.assertEqual(transport.call_count, 1)
+        path, payload = _decode_mock_request(transport.call_args)
+        self.assertTrue(path.endswith("/api/v1/payments/"))
+        self.assertEqual(payload, {"source_type": "invoice", "source_reference": charge.sync_record.external_id,
+                                   "payment_date": "2026-01-15", "amount": "60.00"})
+        application = payment.applications.get()
+        self.assertEqual(application.sync_record.ledgeros_resource_id, "pay_1")
+        self.assertEqual(application.sync_record.ledgeros_journal_entry_id, "je_pay_1")
+        self.assertEqual(payment.sync_record.response_payload["applications"][0]["payment_id"], "pay_1")
+        from reports.services import PropertyReportService
+        report = PropertyReportService.tenant_ledger(
+            tenant=self.tenant, period_start=date(2026, 1, 1), period_end=date(2026, 1, 31),
         )
+        self.assertEqual(dict(report["summary_items"])["Closing balance"], Decimal("40.00"))
+        record_id = payment.sync_record_id
+        TenantPaymentService.sync_payment(payment)
+        self.assertEqual(payment.sync_record_id, record_id)
+        self.assertEqual(transport.call_count, 1)
 
+    @patch.dict(os.environ, {"LEDGEROS_HMAC_SECRET": "secret"})
+    @patch("payments.services.urlopen")
+    def test_failed_allocation_retries_same_record_and_key_without_reposting_success(self, transport):
+        self.charge("40.00")
+        self.charge("60.00")
+        payment = self.payment()
+        replay = self.posted_response("pay_2")
+        replay.status = 200  # LedgerOS replays the original committed result.
+        transport.side_effect = [self.posted_response(), URLError("timeout"), replay]
+        TenantPaymentService.allocate_payment(payment)
+        records = list(payment.applications.order_by("id").values_list("id", "sync_record_id"))
+        failed_request = transport.call_args_list[-1].args[0]
+        TenantPaymentService.sync_payment(payment)
+        payment.refresh_from_db()
+        self.assertEqual(payment.status, TenantPayment.Status.POSTED)
+        self.assertEqual(list(payment.applications.order_by("id").values_list("id", "sync_record_id")), records)
+        self.assertEqual(transport.call_count, 3)
+        retry = transport.call_args.args[0]
+        self.assertEqual(retry.get_header("Idempotency-key"), failed_request.get_header("Idempotency-key"))
+        self.assertEqual(retry.data, failed_request.data)
+        self.assertEqual(len(payment.sync_record.response_payload["applications"]), 2)
+
+    @patch.dict(os.environ, {"LEDGEROS_HMAC_SECRET": "secret"})
+    @patch("payments.services.urlopen")
+    def test_repeated_allocate_preserves_posted_applications(self, transport):
+        self.charge()
+        payment = self.payment()
+        transport.return_value = self.posted_response()
+        TenantPaymentService.allocate_payment(payment)
+        application_id = payment.applications.get().pk
+        TenantPaymentService.allocate_payment(payment)
+        self.assertEqual(payment.applications.get().pk, application_id)
+        self.assertEqual(transport.call_count, 1)
+
+    @patch.dict(os.environ, {"LEDGEROS_HMAC_SECRET": "secret"})
+    @patch("payments.services.urlopen")
+    def test_unapplied_amount_and_voided_payment_cannot_finalize(self, transport):
+        self.charge("60.00")
+        payment = self.payment()
+        transport.return_value = self.posted_response()
+        TenantPaymentService.allocate_payment(payment)
+        with self.assertRaisesMessage(ValidationError, "fully allocated"):
+            TenantPaymentService.sync_payment(payment)
+        payment.status = TenantPayment.Status.VOIDED
+        payment.save()
         with self.assertRaises(ValidationError):
             TenantPaymentService.sync_payment(payment)
+        self.assertEqual(transport.call_count, 1)
 
-        mock_urlopen.return_value = _FakeResponse(
-            status=201,
-            payload=json.dumps({"payment": {"id": "pay_1"}, "journal_entry": {"id": "je_1"}}).encode("utf-8"),
-        )
-
-        payment = TenantPaymentService.allocate_payment(payment)
-        payment.refresh_from_db()
-        self.assertEqual(payment.status, TenantPayment.Status.READY_TO_SYNC)
-        self.assertEqual(payment.remaining_amount, Decimal("40.00"))
-
-        TenantPaymentService.sync_payment(payment)
-        payment.refresh_from_db()
-        self.assertEqual(payment.status, TenantPayment.Status.POSTED)
-
-    @patch.dict(os.environ, {"LEDGEROS_HMAC_SECRET": "secret"}, clear=False)
+    @patch.dict(os.environ, {"LEDGEROS_HMAC_SECRET": "secret"})
     @patch("payments.services.urlopen")
-    def test_full_payment_sync_creates_payment_and_application_sync_records(self, mock_urlopen):
-        charge = _create_synced_charge(
-            property=self.property,
-            tenant=self.tenant,
-            charge_type=TenantCharge.ChargeType.UTILITY_REIMBURSEMENT,
-            charge_date=date(2026, 1, 1),
-            due_date=date(2026, 1, 10),
-            amount=Decimal("75.00"),
-            description="Utility",
-        )
-        mock_urlopen.side_effect = [
-            _FakeResponse(status=201, payload=json.dumps({"payment": {"id": "pay_1"}, "journal_entry": {"id": "je_1"}}).encode("utf-8")),
-            _FakeResponse(status=201, payload=json.dumps({"sync_event": {"id": "sync_2"}}).encode("utf-8")),
-        ]
+    def test_audit_only_or_unposted_response_is_not_success(self, transport):
+        self.charge()
+        for payload in ({"sync_event": {"id": "audit"}},
+                        {"payment": {"id": "pay"}, "journal_entry": {"id": "je", "status": "draft"}},
+                        {"payment": {"id": "pay"}, "journal_entry": {"status": "posted"}}):
+            with self.subTest(payload=payload):
+                payment = self.payment()
+                transport.return_value = _FakeResponse(status=201, payload=json.dumps(payload).encode())
+                TenantPaymentService.allocate_payment(payment)
+                application = payment.applications.get()
+                self.assertEqual(application.sync_record.status, LedgerOSSyncRecord.Status.FAILED)
+                TenantPaymentService.sync_payment(payment)
+                payment.refresh_from_db()
+                self.assertNotEqual(payment.status, TenantPayment.Status.POSTED)
+                self.assertEqual(payment.sync_record.status, LedgerOSSyncRecord.Status.FAILED)
+                # Free this invoice for the next independent example.
+                payment.applications.all().delete()
 
-        payment = TenantPayment.objects.create(
-            property=self.property,
-            tenant=self.tenant,
-            payment_date=date(2026, 1, 15),
-            amount=Decimal("75.00"),
-            payment_method=TenantPayment.PaymentMethod.CHECK,
-            reference="1234",
-            status=TenantPayment.Status.DRAFT,
-        )
-
-        TenantPaymentService.allocate_payment(payment)
-        payment.refresh_from_db()
-        self.assertEqual(payment.status, TenantPayment.Status.READY_TO_SYNC)
-        TenantPaymentService.sync_payment(payment)
-        payment.refresh_from_db()
-
-        self.assertEqual(payment.status, TenantPayment.Status.POSTED)
-        self.assertIsNotNone(payment.sync_record_id)
-        self.assertEqual(payment.sync_record.status, LedgerOSSyncRecord.Status.SUCCEEDED)
-        self.assertEqual(payment.sync_record.ledgeros_resource_id, "sync_2")
-        self.assertEqual(payment.applications.count(), 1)
-        self.assertEqual(payment.applications.first().sync_record.status, LedgerOSSyncRecord.Status.SUCCEEDED)
-        self.assertEqual(mock_urlopen.call_count, 2)
-        first_path, first_payload = _decode_mock_request(mock_urlopen.call_args_list[0])
-        second_path, second_payload = _decode_mock_request(mock_urlopen.call_args_list[1])
-        self.assertEqual(first_path, "http://ledgeros-web:8000/api/v1/payments/")
-        self.assertEqual(second_path, "http://ledgeros-web:8000/api/v1/sync-events/")
-        self.assertEqual(first_payload["source_type"], "invoice")
-        self.assertEqual(first_payload["source_reference"], charge.sync_record.external_id)
-        self.assertEqual(second_payload["domain_event_type"], "tenant_payment.received")
-        self.assertEqual(second_payload["payload"]["payment_method"], TenantPayment.PaymentMethod.CHECK)
-        self.assertEqual(second_payload["payload"]["applications"][0]["charge_id"], charge.pk)
-        self.assertEqual(payment.applications.first().sync_record.ledgeros_resource_type, "payment")
-
-    @patch.dict(os.environ, {"LEDGEROS_HMAC_SECRET": "secret"}, clear=False)
+    @patch.dict(os.environ, {"LEDGEROS_HMAC_SECRET": "secret"})
     @patch("payments.services.urlopen")
-    def test_payment_sync_replays_with_same_idempotency_key_and_no_duplicate_sync_record(self, mock_urlopen):
-        charge = _create_synced_charge(
-            property=self.property,
-            tenant=self.tenant,
-            charge_type=TenantCharge.ChargeType.UTILITY_REIMBURSEMENT,
-            charge_date=date(2026, 1, 1),
-            due_date=date(2026, 1, 10),
-            amount=Decimal("50.00"),
-            description="Utility",
-        )
-        mock_urlopen.side_effect = [
-            _FakeResponse(status=201, payload=json.dumps({"payment": {"id": "pay_1"}, "journal_entry": {"id": "je_1"}}).encode("utf-8")),
-            _FakeResponse(status=201, payload=json.dumps({"sync_event": {"id": "sync_2"}}).encode("utf-8")),
-            _FakeResponse(status=201, payload=json.dumps({"sync_event": {"id": "sync_2"}}).encode("utf-8")),
-        ]
-
-        payment = TenantPayment.objects.create(
-            property=self.property,
-            tenant=self.tenant,
-            payment_date=date(2026, 1, 15),
-            amount=Decimal("50.00"),
-            payment_method=TenantPayment.PaymentMethod.CASH,
-            reference="cash",
-            status=TenantPayment.Status.DRAFT,
-        )
-
+    def test_legacy_parent_audit_record_is_preserved(self, transport):
+        self.charge()
+        payment = self.payment()
+        transport.return_value = self.posted_response()
         TenantPaymentService.allocate_payment(payment)
+        legacy = LedgerOSSyncRecord.objects.create(
+            local_object_type="tenant_payment", local_object_id=str(payment.pk),
+            source_event_type="tenant_payment.received", external_id=f"tenant-payment:{payment.pk}",
+            idempotency_key="legacy", request_hash="legacy", ledgeros_resource_type="sync_event",
+            ledgeros_resource_id="audit_1", status=LedgerOSSyncRecord.Status.FAILED,
+            response_payload={"sync_event": {"id": "audit_1"}}, last_error="old failure",
+        )
+        payment.sync_record = legacy
+        payment.save()
         TenantPaymentService.sync_payment(payment)
         payment.refresh_from_db()
-        first_sync_record_id = payment.sync_record_id
-        first_idempotency_key = payment.sync_record.idempotency_key
-        first_request_count = mock_urlopen.call_count
+        legacy.refresh_from_db()
+        self.assertNotEqual(payment.sync_record_id, legacy.pk)
+        self.assertEqual(legacy.response_payload, {"sync_event": {"id": "audit_1"}})
+        self.assertEqual(legacy.last_error, "old failure")
+        self.assertEqual(transport.call_count, 1)
 
-        TenantPaymentService.sync_payment(payment)
+    @patch.dict(os.environ, {"LEDGEROS_HMAC_SECRET": "secret"})
+    @patch("payments.services.urlopen")
+    def test_posted_allocation_locks_payment_fields_before_finalization(self, transport):
+        from payments.forms import TenantPaymentForm
+        self.charge()
+        payment = self.payment()
+        transport.return_value = self.posted_response()
+        TenantPaymentService.allocate_payment(payment)
+        form = TenantPaymentForm(instance=payment)
+        self.assertTrue(form.fields["amount"].disabled)
+        self.assertTrue(form.fields["status"].disabled)
+        self.assertFalse(form.fields["notes"].disabled)
+        form = TenantPaymentForm(
+            data={"amount": "1.00", "status": "draft", "notes": "Receipt reference checked"},
+            instance=payment,
+        )
+        self.assertTrue(form.is_valid(), form.errors)
+        form.save()
         payment.refresh_from_db()
+        self.assertEqual(payment.amount, Decimal("100.00"))
+        self.assertEqual(payment.notes, "Receipt reference checked")
 
-        self.assertEqual(payment.status, TenantPayment.Status.POSTED)
-        self.assertEqual(payment.sync_record_id, first_sync_record_id)
-        self.assertEqual(payment.sync_record.idempotency_key, first_idempotency_key)
-        self.assertEqual(LedgerOSSyncRecord.objects.filter(local_object_type="tenant_payment").count(), 1)
-        self.assertEqual(mock_urlopen.call_count, first_request_count + 1)
-        replay_payload = _decode_mock_request(mock_urlopen.call_args_list[-1])[1]
-        self.assertEqual(replay_payload["external_id"], f"tenant-payment:{payment.pk}")
-        self.assertEqual(replay_payload["source_system"], "propertyledger")
+    @patch.dict(os.environ, {"LEDGEROS_HMAC_SECRET": "secret"})
+    @patch("payments.services.urlopen")
+    def test_retry_rejects_changed_payload_without_changing_key(self, transport):
+        self.charge()
+        payment = self.payment()
+        transport.side_effect = URLError("timeout")
+        TenantPaymentService.allocate_payment(payment)
+        application = payment.applications.get()
+        original_key = application.sync_record.idempotency_key
+        payment.payment_date = date(2026, 1, 16)
+        payment.save()
+        with self.assertRaisesMessage(ValidationError, "cannot be changed"):
+            TenantPaymentService.sync_payment(payment)
+        application.sync_record.refresh_from_db()
+        self.assertEqual(application.sync_record.idempotency_key, original_key)
+        self.assertEqual(transport.call_count, 1)
+
+    @patch.dict(os.environ, {"LEDGEROS_HMAC_SECRET": "secret"})
+    @patch("payments.services.urlopen")
+    def test_admin_cannot_edit_posted_allocation_or_payment_amount(self, transport):
+        self.charge()
+        payment = self.payment()
+        transport.return_value = self.posted_response()
+        TenantPaymentService.allocate_payment(payment)
+        admin = get_user_model().objects.create_superuser("payment-admin", password="password")
+        self.client.force_login(admin)
+        response = self.client.get(reverse("admin:payments_tenantpayment_change", args=[payment.pk]))
+        form = response.context["adminform"].form
+        self.assertTrue(form.fields["amount"].disabled)
+        application = payment.applications.get()
+        response = self.client.post(
+            reverse("admin:payments_tenantpaymentapplication_change", args=[application.pk]),
+            {"amount_applied": "1.00", "charge": application.charge_id, "payment": payment.pk, "_save": "Save"},
+        )
+        self.assertEqual(response.status_code, 302)
+        application.refresh_from_db()
+        self.assertEqual(application.amount_applied, Decimal("100.00"))
 
     @patch.dict(os.environ, {"LEDGEROS_HMAC_SECRET": "secret"}, clear=False)
     @patch("payments.services.urlopen")

@@ -84,7 +84,7 @@ class InvoicePaymentForm(forms.ModelForm):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.fields["amount"].help_text = (
-            "Enter the amount received. Any excess can remain as tenant credit."
+            "Enter the amount received. Any excess remains unapplied locally and must be allocated before finalizing the payment."
         )
 
 
