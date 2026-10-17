@@ -1,9 +1,13 @@
 from __future__ import annotations
 
+from uuid import UUID
+from decimal import Decimal
+
 from django import forms
+from django.core import signing
 from django.core.exceptions import ValidationError
 
-from ledgeros.models import Lease, Property, Tenant, TenantCharge, Unit
+from ledgeros.models import Lease, Property, PropertyLedgerAccountMapping, PropertyLedgerSetup, Tenant, TenantCharge, Unit
 from payments.models import (
     DebtServicePayment,
     MaintenanceCategory,
@@ -176,8 +180,10 @@ class VendorPaymentForm(_SyncEditableModelForm):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.fields["vendor"].queryset = Vendor.objects.filter(is_active=True)
-        self.fields["vendor_bill"].queryset = VendorBill.objects.select_related("vendor", "property").all()
+        if "vendor" in self.fields:
+            self.fields["vendor"].queryset = Vendor.objects.filter(is_active=True)
+        if "vendor_bill" in self.fields:
+            self.fields["vendor_bill"].queryset = VendorBill.objects.select_related("vendor", "property").all()
         self.fields["bank_account_name"].help_text = (
             "Used for non-credit-card vendor payments and credit-card payoffs; "
             "credit-card vendor payments leave this blank."
@@ -200,6 +206,51 @@ class VendorPaymentForm(_SyncEditableModelForm):
         ):
             cleaned_data["bank_account_name"] = ""
         return cleaned_data
+
+
+BILL_PAYMENT_TOKEN_SALT = "payments.bill-payment"
+
+
+class BillPaymentForm(VendorPaymentForm):
+    submission_token = forms.CharField(widget=forms.HiddenInput)
+
+    class Meta(VendorPaymentForm.Meta):
+        fields = ["payment_date", "amount", "payment_method", "bank_account_name",
+                  "credit_card_account_name", "memo", "check_number", "notes", "submission_token"]
+
+    def __init__(self, *args, bill, user, **kwargs):
+        self.bill = bill
+        self.user = user
+        kwargs["instance"] = VendorPayment(vendor=bill.vendor, vendor_bill=bill)
+        super().__init__(*args, **kwargs)
+        self.fields["amount"].min_value = Decimal("0.01")
+        mapping = PropertyLedgerSetup.load().account_mappings.filter(
+            mapping_key=PropertyLedgerAccountMapping.MappingKey.CREDIT_CARD_LIABILITY, is_enabled=True,
+        ).first()
+        if mapping:
+            self.fields["credit_card_account_name"].initial = mapping.ledgeros_account_name
+        self.fields["credit_card_account_name"].help_text = "Used only for credit-card payments, against the configured card liability account."
+
+    def clean(self):
+        cleaned_data = super().clean()
+        if cleaned_data.get("payment_method") != VendorPayment.PaymentMethod.CREDIT_CARD:
+            cleaned_data["credit_card_account_name"] = ""
+        return cleaned_data
+
+    def clean_submission_token(self):
+        try:
+            value = signing.loads(self.cleaned_data["submission_token"], salt=BILL_PAYMENT_TOKEN_SALT, max_age=86400)
+            if value["bill"] != self.bill.pk or value["user"] != self.user.pk:
+                raise ValueError
+            return UUID(value["submission"])
+        except (signing.BadSignature, ValueError, KeyError, TypeError) as exc:
+            raise forms.ValidationError("This payment form is invalid or expired. Open Pay bill again.") from exc
+
+    def clean_amount(self):
+        amount = self.cleaned_data["amount"]
+        if amount <= 0:
+            raise forms.ValidationError("Payment amount must be positive.")
+        return amount
 
 
 class DebtServicePaymentForm(_SyncEditableModelForm):

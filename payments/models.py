@@ -362,6 +362,9 @@ class VendorPayment(TimestampedModel):
         POSTED = "posted", "Posted"
         VOIDED = "voided", "Voided"
 
+    submission_id = models.UUIDField(null=True, blank=True, unique=True, editable=False)
+    submission_hash = models.CharField(max_length=64, blank=True, default="", editable=False)
+
     vendor = models.ForeignKey(
         Vendor,
         on_delete=models.PROTECT,

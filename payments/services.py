@@ -1232,6 +1232,65 @@ class VendorBillService(Epic5AccountingService):
 
 
 class VendorPaymentService(Epic5AccountingService):
+    BILL_PAYMENT_FIELDS = (
+        "payment_date", "amount", "payment_method", "bank_account_name",
+        "credit_card_account_name", "memo", "check_number", "notes",
+    )
+
+    @staticmethod
+    def bill_payment_blocker(bill, status):
+        if bill.status == VendorBill.Status.VOIDED:
+            return "Voided bills cannot be paid."
+        if bill.status != VendorBill.Status.POSTED or not bill.sync_record or bill.sync_record.status != LedgerOSSyncRecord.Status.SUCCEEDED:
+            return "The bill must sync successfully to LedgerOS before payment."
+        if status["status"] == "paid":
+            return "This bill is fully settled."
+        if status["status"] not in {"unpaid", "partially_paid"} or status["balance"] is None:
+            return "A confirmed outstanding balance is required. Resolve the bill payment status before paying."
+        if status["balance"] <= 0:
+            return "This bill has no outstanding balance."
+        return ""
+
+    @staticmethod
+    def pay_bill(*, bill, submission_id, details):
+        try:
+            submission_id = uuid.UUID(str(submission_id))
+        except (TypeError, ValueError) as exc:
+            raise ValidationError("A valid payment submission ID is required.") from exc
+        if set(details) - set(VendorPaymentService.BILL_PAYMENT_FIELDS):
+            raise ValidationError("Only the reviewed bill payment fields may be submitted.")
+        # Persist the local payment identity before an outbound write. A timeout
+        # must never cause a replacement payment with another idempotency key.
+        with transaction.atomic():
+            bill = VendorBill.objects.select_for_update().get(pk=bill.pk)
+            candidate = VendorPayment(vendor=bill.vendor, vendor_bill=bill, **details)
+            VendorPaymentService._normalize_payment_account(candidate)
+            candidate.full_clean()
+            if candidate.amount <= 0:
+                raise ValidationError("Payment amount must be positive.")
+            reviewed = {field: str(getattr(candidate, field) or "") for field in VendorPaymentService.BILL_PAYMENT_FIELDS}
+            reviewed["amount"] = str(candidate.amount.quantize(Decimal("0.01")))
+            fingerprint = TenantPaymentService._sync_record_payload(reviewed)
+            payment = VendorPayment.objects.filter(submission_id=submission_id).first()
+            if payment is not None:
+                if payment.vendor_bill_id != bill.pk or payment.submission_hash != fingerprint:
+                    raise ValidationError("This submission was already used with different payment details.")
+            else:
+                status = BillPaymentStatusService.statuses([bill])[bill.pk]
+                blocker = VendorPaymentService.bill_payment_blocker(bill, status)
+                if blocker:
+                    raise ValidationError(blocker)
+                if candidate.amount > status["balance"]:
+                    raise ValidationError("Payment amount cannot exceed the current outstanding balance.")
+                blockers = VendorPaymentService._sync_blockers(candidate)
+                if blockers:
+                    raise ValidationError(blockers)
+                candidate.submission_id = submission_id
+                candidate.submission_hash = fingerprint
+                candidate.save()
+                payment = candidate
+        return VendorPaymentService.sync_payment(payment)
+
     @staticmethod
     def legacy_card_record(payment):
         if payment.sync_record and payment.sync_record.ledgeros_resource_type == "sync_event":
@@ -1417,6 +1476,9 @@ class VendorPaymentService(Epic5AccountingService):
     @staticmethod
     @transaction.atomic
     def sync_payment(payment: VendorPayment) -> VendorPayment:
+        # Read related sync state after acquiring the lock. A joined SELECT can
+        # retain pre-wait sync state while another submission finishes posting.
+        payment = VendorPayment.objects.select_for_update().get(pk=payment.pk)
         if payment.status == VendorPayment.Status.VOIDED:
             raise ValidationError({"payment": "Voided payments cannot be posted."})
         if payment.sync_record and payment.sync_record.status == LedgerOSSyncRecord.Status.SUCCEEDED and payment.sync_record.ledgeros_resource_type == "payment":

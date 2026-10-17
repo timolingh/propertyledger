@@ -90,6 +90,22 @@ has not yet been linked to the bill. Ask an administrator to reconcile that
 existing payment rather than creating another one. General journal adjustments
 without a bill allocation are not included in the bill's balance.
 
+To record a payment, open a synced bill and choose **Pay bill**. The vendor and
+bill are fixed, the amount defaults to the current balance, and the date defaults
+to today. Review the payment method, funding account, amount, and any check or
+memo details, then choose **Post payment**. You may enter a smaller amount for a
+partial payment. Opening the form does not post anything.
+
+After submission you return to the bill with its refreshed balance and payment
+status. If posting fails, the saved payment appears under **Payments awaiting
+confirmation**. Choose **Retry payment** to reuse that payment. Repeating the
+same form submission also reuses the original payment; do not create a new one
+to recover from a timeout. Bookkeepers and admins can submit payments; read-only
+users can review bills and payment records.
+
+Bills that are unsynced, voided, fully settled, unavailable, or awaiting
+reconciliation cannot start a new payment. The page explains the reason.
+
 ### 6. Track deposits
 
 Security deposit activity is recorded as events and the balance is derived from those events.
