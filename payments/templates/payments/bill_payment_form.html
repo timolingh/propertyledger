@@ -1,0 +1,20 @@
+{% extends "ledgeros/base.html" %}
+
+{% block title %}Pay bill {{ bill.pk }} | PropertyLedger{% endblock %}
+
+{% block content %}
+  <div class="card">
+    <h1>Pay bill {{ bill.pk }}</h1>
+    <p><strong>Vendor:</strong> {{ bill.vendor }}</p>
+    <p><strong>Bill amount:</strong> {{ bill.amount }}</p>
+    <p><strong>Balance due:</strong> {{ bill_payment_status.balance|default_if_none:"Unavailable" }}</p>
+    <p>Review the payment details before posting. You can pay part or all of the outstanding balance.</p>
+    {% if payment_blocker %}<p>{{ payment_blocker }}</p>{% endif %}
+    <form method="post">
+      {% csrf_token %}
+      {{ form.as_p }}
+      {% if not payment_blocker %}<button type="submit" class="button primary">Post payment</button>{% endif %}
+      <a class="button" href="{% url 'vendor-bill-detail' bill.pk %}">Back to bill</a>
+    </form>
+  </div>
+{% endblock %}

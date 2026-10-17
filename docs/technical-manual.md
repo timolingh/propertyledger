@@ -216,6 +216,62 @@ For a legacy card journal, preview and apply the reconciliation command, then
 repeat it: journal count and GL balances must remain unchanged. Disconnecting
 LedgerOS should show Unavailable, and viewing a draft should make no API call.
 
+### Paying a bill from its detail page (Issue 23)
+
+The internal UI route `/payments/vendor-bills/<id>/pay/` uses the existing vendor
+payment form and service path, scoped to the bill and its vendor on the server.
+GET reads the current LedgerOS balance and prepares a review form; it creates
+no payment or posting. New POST submissions require a locally posted,
+successfully synced bill and a confirmed unpaid/partially-paid balance. Payment
+amount must be positive and no greater than that balance. LedgerOS's locked
+bill-balance validation remains authoritative if another payment races with the
+form submission. Credit-card payoff is excluded from this workflow.
+
+Each form has a signed token binding a random submission UUID to its bill and
+user, valid for 24 hours. `VendorPayment.submission_id` is nullable and unique;
+`submission_hash` records a fingerprint of the normalized reviewed fields.
+Migration `payments.0005_vendorpayment_submission` adds these fields without
+altering existing payments. Apply it with the normal Docker migration command.
+The local payment identity is persisted before the external write. Duplicate
+submissions reuse it; changed details under the same UUID are rejected. Sync
+locks the payment row and reads related state after acquiring the lock, so
+concurrent submissions reuse one LedgerOS result and idempotency key.
+
+Retries of an existing submission do not require a positive fresh balance:
+LedgerOS may already have posted it before a timeout. The original payload and
+idempotency key are reused. The bill shows pending payments, recorded errors,
+and an explicit retry action. Bookkeeper/admin authorization is enforced on
+both the new payment route and the existing payment-detail retry POST. Signed
+tokens do not replace CSRF or role checks. An expired form can be recovered by
+retrying the saved payment from the bill rather than creating another payment.
+
+For a 100.00 bill and a 40.00 bank payment, expect
+`POST /api/v1/payments/` with `source_type=bill`, the bill's stable external
+reference, date, and amount 40.00. LedgerOS posts debit AP / credit Cash and
+leaves 60.00 due. Card payments instead credit the configured card liability.
+Repeating the form creates neither another local payment nor another journal.
+Accrual expense and owner-statement bill totals remain 100.00; tenant ledgers
+and unrelated property/owner attribution do not change. No LedgerOS API changes
+are required by Issue 23.
+
+| Requirement | Implementation | Automated check |
+| --- | --- | --- |
+| Pay from a synced bill, partial/full payments and card funding | `VendorBillPayView`, `BillPaymentForm`, `VendorPaymentService.pay_bill` | `test_bill_payment_flow` |
+| Duplicate, concurrent and timeout recovery | Submission UUID/fingerprint and payment-row lock | Duplicate, timeout and concurrency tests |
+| Eligibility, fixed bill/vendor, role and token checks | Bill-scoped form/view and service validation | Blocked-state, stale balance, tampering and read-only tests |
+
+For Docker manual acceptance, migrate first, open a posted 100.00 sandbox bill,
+and select Pay bill. Confirm that opening the form creates no payment. Post
+40.00 and verify 60.00 due and one LedgerOS journal. Resubmit the same form and
+confirm the payment/journal count is unchanged. Use the remaining 60.00 to
+settle the bill, then confirm no new Pay bill action. Test a failed post and
+retry the saved payment from the bill. A read-only user must be denied both
+payment submission and retry. Automated verification is:
+
+```bash
+docker compose -f docker-compose.yml run --rm propertyledger-web python manage.py test payments.tests.test_bill_payment_flow
+```
+
 ### Reports and statements
 
 - Use synced records for operational and accounting reports.

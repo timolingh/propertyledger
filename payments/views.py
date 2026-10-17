@@ -3,21 +3,28 @@ from __future__ import annotations
 from payments.services import BillPaymentStatusService
 
 import json
+import uuid
 from decimal import Decimal
 from typing import Any
 
 from django.contrib import messages
-from django.core.exceptions import ValidationError
+from django.core.exceptions import PermissionDenied, ValidationError
+from django.core import signing
+from django.shortcuts import get_object_or_404
+from django.utils.functional import cached_property
 from django.http import HttpResponseRedirect
 from django.urls import reverse, reverse_lazy
 from django.utils import timezone
-from django.views.generic import CreateView, DetailView, ListView, TemplateView, UpdateView
+from django.views.generic import CreateView, DetailView, FormView, ListView, TemplateView, UpdateView
 
 from ledgeros.audit import audit_success
+from ledgeros.roles import user_has_any_role
 from ledgeros.permissions import BookkeepingRoleRequiredMixin, ReportingRoleRequiredMixin
 from ledgeros.models import LedgerOSSyncRecord, Property, TenantCharge
 from ledgeros.views import LedgerOSAppContextMixin, LedgerOSCrudArchiveView
 from payments.forms import (
+    BILL_PAYMENT_TOKEN_SALT,
+    BillPaymentForm,
     DebtServicePaymentForm,
     InvoicePaymentForm,
     MaintenanceCategoryForm,
@@ -980,7 +987,13 @@ class VendorBillDetailView(ReportingRoleRequiredMixin, PaymentsAppContextMixin, 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         bill = self.object
-        context["bill_payment_status"] = BillPaymentStatusService.statuses([bill])[bill.pk]
+        status = BillPaymentStatusService.statuses([bill])[bill.pk]
+        context["bill_payment_status"] = status
+        context["can_pay_bills"] = user_has_any_role(self.request.user, BookkeepingRoleRequiredMixin.allowed_roles)
+        context["payment_blocker"] = VendorPaymentService.bill_payment_blocker(bill, status)
+        context["pending_bill_payments"] = bill.vendor_payments.filter(
+            submission_id__isnull=False,
+        ).exclude(status__in=[VendorPayment.Status.POSTED, VendorPayment.Status.VOIDED]).select_related("sync_record")
         context["sync_log_entries"] = [
             {
                 "title": f"Bill {bill.pk} sync status",
@@ -1027,6 +1040,54 @@ class VendorPaymentListView(ReportingRoleRequiredMixin, PaymentsCrudListView):
             }
             for obj in objects
         ]
+
+
+class VendorBillPayView(BookkeepingRoleRequiredMixin, PaymentsAppContextMixin, FormView):
+    form_class = BillPaymentForm
+    template_name = "payments/bill_payment_form.html"
+    allowed_roles = BookkeepingRoleRequiredMixin.allowed_roles
+
+    @cached_property
+    def bill(self):
+        return get_object_or_404(VendorBill.objects.select_related("vendor", "sync_record"), pk=self.kwargs["pk"])
+
+    @cached_property
+    def bill_status(self):
+        return BillPaymentStatusService.statuses([self.bill])[self.bill.pk]
+
+    def get_initial(self):
+        initial = super().get_initial()
+        initial.update(payment_date=timezone.localdate(), amount=self.bill_status["balance"],
+            submission_token=signing.dumps({"bill": self.bill.pk, "user": self.request.user.pk,
+                "submission": str(uuid.uuid4())}, salt=BILL_PAYMENT_TOKEN_SALT))
+        return initial
+
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        kwargs.update(bill=self.bill, user=self.request.user)
+        return kwargs
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context.update(bill=self.bill, bill_payment_status=self.bill_status,
+            payment_blocker=VendorPaymentService.bill_payment_blocker(self.bill, self.bill_status))
+        return context
+
+    def form_valid(self, form):
+        try:
+            payment = VendorPaymentService.pay_bill(bill=self.bill,
+                submission_id=form.cleaned_data["submission_token"],
+                details={field: form.cleaned_data[field] for field in VendorPaymentService.BILL_PAYMENT_FIELDS})
+        except ValidationError as exc:
+            form.add_error(None, "; ".join(exc.messages))
+            return self.form_invalid(form)
+        if payment.sync_record and payment.sync_record.status == LedgerOSSyncRecord.Status.SUCCEEDED:
+            messages.success(self.request, "Payment posted to LedgerOS.")
+        else:
+            messages.error(self.request, "Payment was saved, but posting failed. Retry the saved payment below. "
+                + (payment.sync_record.last_error if payment.sync_record else ""))
+        audit_success(action="bill_payment_submitted", record=payment, user=self.request.user, source="ui")
+        return HttpResponseRedirect(reverse("vendor-bill-detail", args=[self.bill.pk]))
 
 
 class VendorPaymentCreateView(PaymentsCrudFormView, CreateView):
@@ -1090,6 +1151,8 @@ class VendorPaymentDetailView(ReportingRoleRequiredMixin, PaymentsAppContextMixi
         return VendorPayment.objects.select_related("vendor", "vendor_bill", "vendor_bill__sync_record", "sync_record")
 
     def post(self, request, *args, **kwargs):
+        if not user_has_any_role(request.user, BookkeepingRoleRequiredMixin.allowed_roles):
+            raise PermissionDenied("Only bookkeepers and admins can post vendor payments.")
         self.object = self.get_object()
         action = request.POST.get("action", "").strip()
         if action == "sync":
@@ -1114,11 +1177,14 @@ class VendorPaymentDetailView(ReportingRoleRequiredMixin, PaymentsAppContextMixi
                     )
                 else:
                     messages.success(request, "Vendor payment posted to LedgerOS.")
+        if self.object.submission_id:
+            return HttpResponseRedirect(reverse("vendor-bill-detail", args=[self.object.vendor_bill_id]))
         return HttpResponseRedirect(reverse("vendor-payment-detail", args=[self.object.pk]))
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         payment = self.object
+        context["can_pay_bills"] = user_has_any_role(self.request.user, BookkeepingRoleRequiredMixin.allowed_roles)
         context["sync_log_entries"] = [
             {
                 "title": f"Payment {payment.pk} sync status",

@@ -25,11 +25,11 @@
   </div>
   <div class="card">
     <h2>LedgerOS Sync</h2>
-    <form method="post">
+    {% if can_pay_bills %}<form method="post">
       {% csrf_token %}
       <input type="hidden" name="action" value="sync">
       <button type="submit" class="button primary">Sync payment</button>
-    </form>
+    </form>{% endif %}
     {% for entry in sync_log_entries %}
       <div class="card">
         <strong>{{ entry.title }}</strong>
