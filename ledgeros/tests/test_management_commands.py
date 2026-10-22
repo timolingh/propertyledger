@@ -20,7 +20,7 @@ from ledgeros.models import (
 )
 from ledgeros.roles import get_user_role_label
 from ledgeros.services import HealthCheckResult
-from payments.models import MaintenanceCategory, SecurityDepositEvent, Vendor, VendorBill, VendorPayment
+from payments.models import MaintenanceCategory, MaintenanceRequest, SecurityDepositEvent, TenantPayment, Vendor, VendorBill, VendorPayment
 
 
 class BootstrapLedgerOSConnectionSettingsCommandTests(TestCase):
@@ -163,6 +163,7 @@ class RunSetupSmokeCommandTests(TestCase):
 class BetaDemoDataCommandTests(TestCase):
     def test_command_seeds_beta_demo_data_and_demo_users(self):
         call_command("seed_beta_demo_data", password="BetaTest123!")
+        call_command("seed_beta_demo_data", password="BetaTest123!")
 
         self.assertEqual(Owner.objects.filter(name="Cedar Grove Holdings LLC").count(), 1)
         property_obj = Property.objects.get(name="Cedar Grove Apartments")
@@ -176,14 +177,37 @@ class BetaDemoDataCommandTests(TestCase):
         self.assertEqual(VendorBill.objects.count(), 3)
         self.assertEqual(VendorPayment.objects.count(), 1)
         self.assertEqual(SecurityDepositEvent.objects.count(), 3)
+        self.assertEqual(MaintenanceRequest.objects.filter(source_reference__startswith="BETA-MAINT-").count(), 3)
+        self.assertEqual(
+            MaintenanceRequest.objects.get(source_reference="BETA-MAINT-OPEN").status,
+            MaintenanceRequest.Status.OPEN,
+        )
+        self.assertEqual(
+            MaintenanceRequest.objects.get(source_reference="BETA-MAINT-HOLD").status,
+            MaintenanceRequest.Status.ON_HOLD,
+        )
+        self.assertEqual(
+            MaintenanceRequest.objects.get(source_reference="BETA-MAINT-INVOICE-PENDING").closure_financial_status,
+            MaintenanceRequest.ClosureFinancialStatus.INVOICE_PENDING,
+        )
+        receipt = TenantPayment.objects.get(reference="BETA-MIXED-RECEIPT")
+        self.assertEqual(receipt.amount, 1950)
+        self.assertEqual(receipt.deposit_allocation.amount, 500)
+        self.assertEqual(receipt.applications.count(), 0)
 
         User = get_user_model()
         admin_user = User.objects.get(username="beta-admin")
         manager_user = User.objects.get(username="beta-manager")
         bookkeeper_user = User.objects.get(username="beta-bookkeeper")
+        owner_viewer = User.objects.get(username="beta-owner-viewer")
+        read_only = User.objects.get(username="beta-read-only")
 
         self.assertTrue(admin_user.is_staff)
         self.assertTrue(admin_user.is_superuser)
         self.assertEqual(get_user_role_label(admin_user), "Admin")
         self.assertEqual(get_user_role_label(manager_user), "Property manager")
         self.assertEqual(get_user_role_label(bookkeeper_user), "Bookkeeper")
+        self.assertEqual(get_user_role_label(owner_viewer), "Owner viewer")
+        self.assertEqual(get_user_role_label(read_only), "Read-only viewer")
+
+        call_command("check_workflow_test_data")

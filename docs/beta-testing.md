@@ -65,6 +65,7 @@ The session should use these specific records:
 - vendors: `Ace Plumbing`, `Bright Electric`, `GreenLine Landscaping`
 - maintenance categories: `Plumbing`, `Electrical`, `Landscaping`
 - demo users: `beta-admin`, `beta-manager`, `beta-bookkeeper`
+- review users: `beta-owner-viewer`, `beta-read-only`
 
 The seed assigns independent workflow capabilities for the demo: `beta-manager` can approve vendor bills, `beta-bookkeeper` can record approved vendor payments, and `beta-admin` receives both grants for administrative testing. The Ace Plumbing bill is approved, the Bright Electric bill awaits approval, and the GreenLine Landscaping bill remains a draft.
 
@@ -80,10 +81,14 @@ Representative records participants should encounter:
   - `GreenLine Landscaping` for `315.00`
 - a draft vendor payment for `Ace Plumbing` with check number `BETA-1001`
 - three draft security deposit events tied to the three leases
+- `BETA-MIXED-RECEIPT`, a draft `1950.00` receipt with `1450.00` rent and a `500.00` deposit component
+- maintenance scenarios `BETA-MAINT-OPEN`, `BETA-MAINT-HOLD`, and `BETA-MAINT-INVOICE-PENDING`
 
 Default demo password:
 
 - `PropertyLedgerBeta123!`
+
+For the complete step-by-step acceptance sequence and expected accounting results, use the [Guided Workflow Test](./workflow-testing.md).
 
 ## How to run the hour
 

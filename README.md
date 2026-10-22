@@ -92,6 +92,7 @@ Where to get the LedgerOS values:
 - `docs/admin-setup.md` — admin setup checklist for connection settings, selected books, and account mappings.
 - `docs/quick-start.md` — minimal startup and smoke-check guide.
 - `docs/beta-testing.md` — manual beta-testing checklist for admin, manager, and bookkeeper roles.
+- `docs/workflow-testing.md` — repeatable WP1–WP6 workflow acceptance guide with seeded records, expected accounting results, outage recovery, and evidence capture.
 - `docs/archive/` — archived epic docs and historical decision records.
 - `CLAUDE.md` — guidance for AI agents working on the PropertyLedger repo.
 

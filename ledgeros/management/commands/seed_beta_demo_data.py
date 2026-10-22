@@ -20,12 +20,16 @@ from ledgeros.models import (
 from ledgeros.roles import (
     ROLE_ADMIN,
     ROLE_BOOKKEEPER,
+    ROLE_OWNER_VIEWER,
     ROLE_PROPERTY_MANAGER,
+    ROLE_READ_ONLY_VIEWER,
     assign_user_role,
     ensure_role_groups,
 )
-from payments.models import MaintenanceCategory, Vendor, VendorBill, VendorPayment, SecurityDepositEvent
+from payments.models import MaintenanceCategory, MaintenanceRequest, SecurityDepositEvent, TenantPayment, Vendor, VendorBill, VendorPayment
 from payments.approval_services import VendorBillApprovalService, WorkflowAuthorizationService
+from payments.maintenance_services import MaintenanceRequestService
+from payments.services import TenantPaymentService
 
 
 @dataclass(frozen=True)
@@ -45,6 +49,8 @@ class Command(BaseCommand):
         ("beta-admin", ROLE_ADMIN, True),
         ("beta-manager", ROLE_PROPERTY_MANAGER, False),
         ("beta-bookkeeper", ROLE_BOOKKEEPER, False),
+        ("beta-owner-viewer", ROLE_OWNER_VIEWER, False),
+        ("beta-read-only", ROLE_READ_ONLY_VIEWER, False),
     )
 
     def add_arguments(self, parser):
@@ -87,6 +93,7 @@ class Command(BaseCommand):
         leases = self._upsert_leases(property_obj=property_obj, units=units, tenants=tenants)
         vendors = self._upsert_vendors()
         categories = self._upsert_maintenance_categories()
+        self._upsert_demo_users(password=password)
 
         self._upsert_base_rent_charges(
             leases=leases,
@@ -106,7 +113,14 @@ class Command(BaseCommand):
             property_obj=property_obj,
             leases=leases,
         )
-        self._upsert_demo_users(password=password)
+        self._upsert_mixed_receipt(property_obj=property_obj, lease=leases[0], today=today)
+        self._upsert_maintenance_requests(
+            property_obj=property_obj,
+            leases=leases,
+            vendors=vendors,
+            categories=categories,
+            today=today,
+        )
         self._configure_demo_workflow_authorizations()
 
         return BetaSeedSummary(
@@ -364,6 +378,109 @@ class Command(BaseCommand):
                     "status": SecurityDepositEvent.Status.DRAFT,
                 },
             )
+
+    def _upsert_mixed_receipt(self, *, property_obj: Property, lease: Lease, today: date) -> None:
+        payment = TenantPayment.objects.filter(
+            property=property_obj,
+            tenant=lease.tenant,
+            reference="BETA-MIXED-RECEIPT",
+        ).first()
+        if payment is None:
+            payment = TenantPayment.objects.create(
+                property=property_obj,
+                tenant=lease.tenant,
+                payment_date=today,
+                amount=lease.base_monthly_rent_amount + Decimal("500.00"),
+                payment_method=TenantPayment.PaymentMethod.CHECK,
+                reference="BETA-MIXED-RECEIPT",
+                notes="Guided test receipt: allocate rent, then finalize the $500 deposit component.",
+                status=TenantPayment.Status.DRAFT,
+            )
+            TenantPaymentService.set_deposit_allocation(
+                payment=payment,
+                lease=lease,
+                amount=Decimal("500.00"),
+            )
+
+    def _upsert_maintenance_requests(
+        self,
+        *,
+        property_obj: Property,
+        leases: tuple[Lease, Lease, Lease],
+        vendors: tuple[Vendor, Vendor, Vendor],
+        categories: tuple[MaintenanceCategory, MaintenanceCategory, MaintenanceCategory],
+        today: date,
+    ) -> None:
+        from django.contrib.auth import get_user_model
+
+        manager = get_user_model().objects.get(username="beta-manager")
+        scenarios = (
+            {
+                "source_reference": "BETA-MAINT-OPEN",
+                "lease": leases[0],
+                "category": categories[0],
+                "vendor": vendors[0],
+                "priority": MaintenanceRequest.Priority.URGENT,
+                "description": "Kitchen sink is leaking into the cabinet.",
+                "estimated_cost": Decimal("240.00"),
+                "transitions": (),
+            },
+            {
+                "source_reference": "BETA-MAINT-HOLD",
+                "lease": leases[1],
+                "category": categories[1],
+                "vendor": vendors[1],
+                "priority": MaintenanceRequest.Priority.NORMAL,
+                "description": "Hallway light flickers intermittently.",
+                "estimated_cost": Decimal("180.00"),
+                "transitions": (("triage", {}), ("hold", {"reason": "Waiting for resident access"})),
+            },
+            {
+                "source_reference": "BETA-MAINT-INVOICE-PENDING",
+                "lease": leases[2],
+                "category": categories[2],
+                "vendor": vendors[2],
+                "priority": MaintenanceRequest.Priority.NORMAL,
+                "description": "Remove fallen branches and restore the rear walkway.",
+                "estimated_cost": Decimal("315.00"),
+                "transitions": (
+                    ("triage", {}),
+                    ("assign", {}),
+                    ("start", {}),
+                    ("verify", {"reason": "Walkway inspected and clear"}),
+                    ("close", {"reason": "Vendor invoice expected", "closure_financial_status": MaintenanceRequest.ClosureFinancialStatus.INVOICE_PENDING}),
+                ),
+            },
+        )
+        for scenario in scenarios:
+            if MaintenanceRequest.objects.filter(
+                source=MaintenanceRequest.Source.INTERNAL,
+                source_reference=scenario["source_reference"],
+            ).exists():
+                continue
+            lease = scenario["lease"]
+            request = MaintenanceRequestService.create(
+                actor=manager,
+                property=property_obj,
+                unit=lease.unit,
+                tenant=lease.tenant,
+                category=scenario["category"],
+                priority=scenario["priority"],
+                description=scenario["description"],
+                assigned_vendor=scenario["vendor"],
+                target_completion_date=today,
+                estimated_cost=scenario["estimated_cost"],
+                source=MaintenanceRequest.Source.INTERNAL,
+                source_reference=scenario["source_reference"],
+            )
+            for action, kwargs in scenario["transitions"]:
+                request = MaintenanceRequestService.transition(
+                    request=request,
+                    action=action,
+                    actor=manager,
+                    expected_version=request.version,
+                    **kwargs,
+                )
 
     def _upsert_demo_users(self, *, password: str) -> None:
         from django.contrib.auth import get_user_model
