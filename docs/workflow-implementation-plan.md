@@ -1,6 +1,6 @@
 # Workflow revamp: discovery and implementation plan
 
-Date: October 21, 2026. Status: discovery complete; implementation proposed.
+Date: October 21, 2026. Status: discovery complete; WP0 complete; WP1–WP6 proposed.
 
 Scope authority: [Workflow Home PRD v1.0](PropertyLedger_Workflow_Home_PRD_v1.0.md), especially approved Q1–Q16 and the implementation gates in §14. This plan preserves those product choices. Historical epics are context, not the current scope.
 
@@ -129,6 +129,8 @@ Paths below are proposed targets; migration filenames are assigned against the a
 | File | Change |
 | --- | --- |
 | `ledgeros/migrations/0009_alter_ledgerosconnectionsettings_options.py` (new) | Capture existing display-name metadata only; no accounting data migration. |
+
+WP0 completed October 21, 2026. Added the generated `AlterModelOptions` migration for the existing singular/plural connection-settings labels. Docker `sqlmigrate ledgeros 0009` confirms the operation is a SQL no-op. `make check` passes: no Django system issues and no missing migrations. Docker `python manage.py test ledgeros.tests.test_management_commands --noinput` passes all five tests after applying migrations to a disposable test database. The normal application database was not migrated during this work. No accounting behavior changed.
 
 ### WP1 — Home and navigation (HOME-01–08)
 
