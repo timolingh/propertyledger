@@ -6,7 +6,7 @@
   <div class="card">
     <h1>Owner Activity</h1>
     <p class="muted">Record owner contributions and distributions. Official statement totals only include synced records.</p>
-    <a class="button primary" href="{% url 'owner-activity-create' %}">Add owner activity</a>
+    {% if can_bookkeep %}<a class="button primary" href="{% url 'owner-activity-create' %}">Add owner activity</a>{% endif %}
   </div>
   <div class="card">
     <table>
@@ -34,8 +34,8 @@
             <td>{{ activity.sync_status|default:"-" }}</td>
             <td class="actions">
               <a href="{% url 'owner-activity-detail' activity.pk %}">View</a>
-              <a href="{% url 'owner-activity-edit' activity.pk %}">Edit</a>
-              <a href="{% url 'owner-activity-archive' activity.pk %}">Archive</a>
+              {% if can_bookkeep %}<a href="{% url 'owner-activity-edit' activity.pk %}">Edit</a>
+              <a href="{% url 'owner-activity-archive' activity.pk %}">Archive</a>{% endif %}
             </td>
           </tr>
         {% empty %}

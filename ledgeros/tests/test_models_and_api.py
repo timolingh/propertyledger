@@ -521,6 +521,7 @@ class PropertyLedgerCrudViewTests(TestCase):
             username="admin",
             password="password123",
         )
+        assign_user_role(self.user, ROLE_ADMIN)
         self.client.force_login(self.user)
 
     def _create_rental_income_mapping(self):

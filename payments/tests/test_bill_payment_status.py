@@ -12,7 +12,8 @@ from django.test import TestCase
 from django.urls import reverse
 
 from ledgeros.models import LedgerOSSyncRecord, Owner, Property
-from ledgeros.roles import ROLE_BOOKKEEPER, ROLE_READ_ONLY_VIEWER, assign_user_role
+from ledgeros.roles import ROLE_ADMIN, ROLE_BOOKKEEPER, ROLE_READ_ONLY_VIEWER, assign_user_role
+from payments.approval_services import VendorBillApprovalService, WorkflowAuthorizationService
 from payments.models import Vendor, VendorBill, VendorPayment
 from payments.services import VendorPaymentService
 from payments.tests.test_payments_workflow import _FakeResponse, _configure_ledgeros_settings, _configure_epic5_mappings
@@ -24,7 +25,13 @@ class BillPaymentStatusTests(TestCase):
         self.property = Property.objects.create(name="Building", primary_owner=Owner.objects.create(name="Owner"))
         self.vendor = Vendor.objects.create(name="Vendor")
         self.user = get_user_model().objects.create_user("bookkeeper")
+        self.grant_admin = get_user_model().objects.create_user("grant-admin")
         assign_user_role(self.user, ROLE_BOOKKEEPER)
+        assign_user_role(self.grant_admin, ROLE_ADMIN)
+        WorkflowAuthorizationService.set_grants(
+            target=self.user, actor=self.grant_admin,
+            can_approve_vendor_bills=False, can_pay_vendor_bills=True,
+        )
         self.client.force_login(self.user)
 
     def synced_record(self, kind, pk, response=None, resource_type=None):
@@ -42,6 +49,8 @@ class BillPaymentStatusTests(TestCase):
             status=VendorBill.Status.POSTED if posted else VendorBill.Status.DRAFT)
         if posted:
             bill.sync_record = self.synced_record("vendor-bill", bill.pk)
+            bill.approval_status = VendorBill.ApprovalStatus.APPROVED
+            bill.approved_fingerprint = VendorBillApprovalService.financial_fingerprint(bill)
             bill.save()
         return bill
 
@@ -94,10 +103,12 @@ class BillPaymentStatusTests(TestCase):
         transport.assert_not_called()
         transport.return_value = _FakeResponse(status=201, payload=json.dumps({
             "payment": {"id": 55}, "journal_entry": {"id": 77, "status": "posted"}}).encode())
-        call_command("reconcile_bill_card_payments", payment_id=payment.pk, apply=True, stdout=StringIO())
+        call_command("reconcile_bill_card_payments", payment_id=payment.pk, apply=True,
+                     actor=self.user.username, stdout=StringIO())
         self.assertEqual(json.loads(transport.call_args.args[0].data)["existing_sync_event_id"], 12)
         output = StringIO()
-        call_command("reconcile_bill_card_payments", payment_id=payment.pk, apply=True, stdout=output)
+        call_command("reconcile_bill_card_payments", payment_id=payment.pk, apply=True,
+                     actor=self.user.username, stdout=output)
         self.assertIn("Processed 0", output.getvalue())
         self.assertEqual(transport.call_count, 1)
         legacy.refresh_from_db()
@@ -169,7 +180,7 @@ class BillPaymentStatusTests(TestCase):
         payment.sync_record = legacy
         payment.save()
         payment.refresh_from_db()
-        VendorPaymentService.sync_payment(payment)
+        VendorPaymentService.sync_payment(payment, actor=self.user)
         payment.refresh_from_db()
         request = transport.call_args.args[0]
         self.assertTrue(request.full_url.endswith("/api/v1/payments/"))
@@ -178,7 +189,7 @@ class BillPaymentStatusTests(TestCase):
         self.assertEqual(payload["existing_sync_event_id"], 12)
         self.assertEqual(payment.sync_record.ledgeros_resource_type, "payment")
         self.assertNotEqual(payment.sync_record_id, legacy.pk)
-        VendorPaymentService.sync_payment(payment)
+        VendorPaymentService.sync_payment(payment, actor=self.user)
         self.assertEqual(transport.call_count, 1)
 
     @patch.dict(os.environ, {"LEDGEROS_HMAC_SECRET": "secret"})
@@ -199,10 +210,10 @@ class BillPaymentStatusTests(TestCase):
         payment.save()
         transport.side_effect = [URLError("timeout"), _FakeResponse(status=200, payload=json.dumps({
             "payment": {"id": 55}, "journal_entry": {"id": 77, "status": "posted"}}).encode())]
-        VendorPaymentService.sync_payment(payment)
+        VendorPaymentService.sync_payment(payment, actor=self.user)
         payment.refresh_from_db()
         self.assertEqual(payment.sync_record.status, LedgerOSSyncRecord.Status.FAILED)
-        VendorPaymentService.sync_payment(payment)
+        VendorPaymentService.sync_payment(payment, actor=self.user)
         payment.refresh_from_db()
         self.assertEqual(payment.sync_record.status, LedgerOSSyncRecord.Status.SUCCEEDED)
         first, second = [call.args[0] for call in transport.call_args_list]

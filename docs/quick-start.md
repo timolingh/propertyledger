@@ -55,7 +55,8 @@ docker compose -f docker-compose.yml run --rm propertyledger-web python manage.p
 
 ## 6. Open the app
 
-- Main setup page: `http://localhost:8000/`
+- Workflow home after login: `http://localhost:8000/home/`
+- Admin setup page: `http://localhost:8000/`
 - Admin: `http://localhost:8000/admin/`
 
 PropertyLedger uses `propertyledger_sessionid` and `propertyledger_csrftoken`
@@ -72,6 +73,10 @@ After the app starts, confirm:
 3. the setup screen saves your connection settings;
 4. the required account mappings are present;
 5. the setup smoke test passes and is recorded on the setup screen.
+6. sign in with an explicitly assigned PropertyLedger role and confirm the shared home and sidebar appear. Unassigned accounts receive access guidance; Django staff status alone does not assign a workflow role.
+7. as an administrator, open `/payments/workflow-authorizations/` and explicitly assign the intended bill approvers and vendor-payment users. Migration creates no automatic financial grants.
+8. open `/payments/maintenance/` as an administrator, property manager, or bookkeeper; create a request and confirm it can move from Open to Triaged without LedgerOS connectivity.
+9. open a maintenance request and either create a linked vendor bill as an administrator/bookkeeper or link a compatible existing bill as a property manager. Confirm the maintenance state remains unchanged.
 
 ## Typical development commands
 
@@ -105,3 +110,6 @@ shows Unavailable if the upstream bill-read API cannot be reached.
 
 - [Technical Manual](./technical-manual.md)
 - [User Manual](./user-manual.md)
+## Release validation
+
+Run `make release-check` for Django checks, migration drift, all tests, and the read-only compatibility inventory. A LedgerOS outage still permits local maintenance and draft entry, but accounting posting is blocked. Restore the service and retry the same record; never create a replacement merely because a request timed out.

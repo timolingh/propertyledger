@@ -19,8 +19,9 @@ from django.views.generic import CreateView, DetailView, FormView, ListView, Tem
 
 from ledgeros.audit import audit_success
 from ledgeros.roles import user_has_any_role
-from ledgeros.permissions import BookkeepingRoleRequiredMixin, ReportingRoleRequiredMixin
+from ledgeros.permissions import AdminRoleRequiredMixin, BookkeepingRoleRequiredMixin, ReportingRoleRequiredMixin
 from ledgeros.models import LedgerOSSyncRecord, Property, TenantCharge
+from ledgeros.services import LedgerOSWriteReadinessService
 from ledgeros.views import LedgerOSAppContextMixin, LedgerOSCrudArchiveView
 from payments.forms import (
     BILL_PAYMENT_TOKEN_SALT,
@@ -31,17 +32,29 @@ from payments.forms import (
     SecurityDepositEventForm,
     TenantPaymentForm,
     VendorBillForm,
+    VendorBillDecisionForm,
     VendorForm,
     VendorPaymentForm,
+    WorkflowAuthorizationForm,
 )
 from payments.models import (
     DebtServicePayment,
     MaintenanceCategory,
     SecurityDepositEvent,
     TenantPayment,
+    TenantPaymentDepositAllocation,
     Vendor,
     VendorBill,
     VendorPayment,
+    WorkflowAuthorization,
+)
+from payments.approval_services import VendorBillApprovalService, WorkflowAuthorizationService
+from payments.authorization import (
+    WORKFLOW_FINANCIAL_ROLES,
+    can_approve_vendor_bills,
+    can_pay_vendor_bills,
+    require_bill_editor,
+    require_vendor_payer,
 )
 from payments.services import (
     DebtServicePaymentService,
@@ -112,6 +125,13 @@ def _payment_sync_errors(payment: TenantPayment) -> list[str]:
         sync_record = application.sync_record
         if sync_record and sync_record.status == sync_record.Status.FAILED and sync_record.last_error:
             errors.append(f"{application.charge}: {sync_record.last_error}")
+    try:
+        deposit = payment.deposit_allocation
+    except TenantPaymentDepositAllocation.DoesNotExist:
+        deposit = None
+    if deposit and deposit.sync_record and deposit.sync_record.status == LedgerOSSyncRecord.Status.FAILED:
+        if deposit.sync_record.last_error:
+            errors.append(f"Security deposit: {deposit.sync_record.last_error}")
     return errors
 
 
@@ -301,6 +321,7 @@ class TenantInvoiceDetailView(ReportingRoleRequiredMixin, PaymentsAppContextMixi
         form = InvoicePaymentForm(request.POST)
         if form.is_valid():
             try:
+                LedgerOSWriteReadinessService.require()
                 payment = TenantPaymentService.record_payment_for_charge(
                     charge=self.object,
                     payment_date=form.cleaned_data["payment_date"],
@@ -378,7 +399,9 @@ class TenantPaymentListView(ReportingRoleRequiredMixin, PaymentsAppContextMixin,
     allowed_roles = ReportingRoleRequiredMixin.allowed_roles
 
     def get_queryset(self):
-        return TenantPayment.objects.select_related("tenant", "property", "sync_record").prefetch_related("applications__charge").order_by("-payment_date", "-id")
+        return TenantPayment.objects.select_related(
+            "tenant", "property", "sync_record", "deposit_allocation__sync_record"
+        ).prefetch_related("applications__charge").order_by("-payment_date", "-id")
 
     def post(self, request, *args, **kwargs):
         payment_id = request.POST.get("payment_id", "").strip()
@@ -389,6 +412,7 @@ class TenantPaymentListView(ReportingRoleRequiredMixin, PaymentsAppContextMixin,
             return HttpResponseRedirect(reverse("tenant-payment-list"))
         if action == "allocate":
             try:
+                LedgerOSWriteReadinessService.require()
                 TenantPaymentService.allocate_payment_and_sync_applications(payment)
             except ValidationError as exc:
                 messages.error(request, "; ".join(exc.messages))
@@ -412,6 +436,7 @@ class TenantPaymentListView(ReportingRoleRequiredMixin, PaymentsAppContextMixin,
             return HttpResponseRedirect(reverse("tenant-payment-detail", args=[payment.pk]))
         if action == "sync":
             try:
+                LedgerOSWriteReadinessService.require()
                 TenantPaymentService.sync_payment(payment)
             except ValidationError as exc:
                 messages.error(request, "; ".join(exc.messages))
@@ -447,6 +472,11 @@ class TenantPaymentCreateView(BookkeepingRoleRequiredMixin, PaymentsAppContextMi
 
     def form_valid(self, form):
         self.object = form.save()
+        TenantPaymentService.set_deposit_allocation(
+            payment=self.object,
+            lease=form.cleaned_data.get("deposit_lease"),
+            amount=form.cleaned_data.get("deposit_amount") or Decimal("0.00"),
+        )
         audit_success(
             action="tenant_payment_created",
             record=self.object,
@@ -469,6 +499,11 @@ class TenantPaymentUpdateView(BookkeepingRoleRequiredMixin, PaymentsAppContextMi
 
     def form_valid(self, form):
         self.object = form.save()
+        TenantPaymentService.set_deposit_allocation(
+            payment=self.object,
+            lease=form.cleaned_data.get("deposit_lease"),
+            amount=form.cleaned_data.get("deposit_amount") or Decimal("0.00"),
+        )
         audit_success(
             action="tenant_payment_updated",
             record=self.object,
@@ -486,13 +521,16 @@ class TenantPaymentDetailView(ReportingRoleRequiredMixin, PaymentsAppContextMixi
     allowed_roles = ReportingRoleRequiredMixin.allowed_roles
 
     def get_queryset(self):
-        return TenantPayment.objects.select_related("tenant", "property", "sync_record").prefetch_related("applications__charge", "applications__sync_record")
+        return TenantPayment.objects.select_related(
+            "tenant", "property", "sync_record", "deposit_allocation__lease__unit", "deposit_allocation__sync_record"
+        ).prefetch_related("applications__charge", "applications__sync_record")
 
     def post(self, request, *args, **kwargs):
         self.object = self.get_object()
         action = request.POST.get("action", "").strip()
         if action == "allocate":
             try:
+                LedgerOSWriteReadinessService.require()
                 TenantPaymentService.allocate_payment_and_sync_applications(self.object)
             except ValidationError as exc:
                 messages.error(request, "; ".join(exc.messages))
@@ -515,6 +553,7 @@ class TenantPaymentDetailView(ReportingRoleRequiredMixin, PaymentsAppContextMixi
                     messages.success(request, "Payment allocations posted to LedgerOS.")
         elif action == "sync":
             try:
+                LedgerOSWriteReadinessService.require()
                 TenantPaymentService.sync_payment(self.object)
             except ValidationError as exc:
                 messages.error(request, "; ".join(exc.messages))
@@ -574,6 +613,26 @@ class TenantPaymentDetailView(ReportingRoleRequiredMixin, PaymentsAppContextMixi
             for application in payment.applications.select_related("charge", "sync_record").all()
             if application.sync_record
         ]
+        try:
+            deposit = payment.deposit_allocation
+        except TenantPaymentDepositAllocation.DoesNotExist:
+            deposit = None
+        context["deposit_allocation"] = deposit
+        context["deposit_sync_log_entry"] = (
+            {
+                "title": "Security deposit component",
+                "status": deposit.sync_record.status,
+                "error": deposit.sync_record.last_error,
+                "response_text": (
+                    json.dumps(deposit.sync_record.response_payload, indent=2, sort_keys=True)
+                    if deposit.sync_record.response_payload is not None
+                    else ""
+                ),
+                "updated_at": deposit.sync_record.updated_at,
+            }
+            if deposit and deposit.sync_record
+            else None
+        )
         return context
 
 
@@ -607,6 +666,7 @@ class SecurityDepositEventListView(ReportingRoleRequiredMixin, PaymentsAppContex
             return HttpResponseRedirect(reverse("security-deposit-list"))
         if action == "sync":
             try:
+                LedgerOSWriteReadinessService.require()
                 TenantPaymentService.sync_security_deposit_event(event)
             except ValidationError as exc:
                 messages.error(request, "; ".join(exc.messages))
@@ -681,6 +741,7 @@ class SecurityDepositEventDetailView(ReportingRoleRequiredMixin, PaymentsAppCont
         action = request.POST.get("action", "").strip()
         if action == "sync":
             try:
+                LedgerOSWriteReadinessService.require()
                 TenantPaymentService.sync_security_deposit_event(self.object)
             except ValidationError as exc:
                 messages.error(request, "; ".join(exc.messages))
@@ -894,6 +955,10 @@ class VendorBillListView(ReportingRoleRequiredMixin, PaymentsCrudListView):
             row["status"] == "unavailable" for row in self.bill_payment_statuses.values()
         )
         context["maintenance_summary_rows"] = MaintenanceExpenseSummaryService.summary_rows()
+        context["can_approve_vendor_bills"] = can_approve_vendor_bills(self.request.user)
+        context["can_manage_workflow_authorizations"] = user_has_any_role(
+            self.request.user, AdminRoleRequiredMixin.allowed_roles
+        )
         return context
 
 
@@ -903,6 +968,7 @@ class VendorBillCreateView(PaymentsCrudFormView, CreateView):
     page_title = "Add vendor bill"
     page_action = "Save bill"
     list_url_name = "vendor-bill-list"
+    template_name = "payments/vendor_bill_form.html"
     allowed_roles = BookkeepingRoleRequiredMixin.allowed_roles
 
     def get_create_gate_context(self) -> dict[str, Any]:
@@ -917,13 +983,12 @@ class VendorBillCreateView(PaymentsCrudFormView, CreateView):
 
     def form_valid(self, form):
         self.object = form.save(commit=False)
-        VendorBillService.save_and_sync_bill(self.object)
-        audit_success(
-            action="vendor_bill_created",
-            record=self.object,
-            user=self.request.user,
-            source="ui",
-        )
+        self.object = VendorBillApprovalService.save_draft(self.object, actor=self.request.user)
+        if self.request.POST.get("action") == "submit":
+            self.object = VendorBillApprovalService.submit(self.object, actor=self.request.user)
+            messages.success(self.request, "Vendor bill submitted for independent approval.")
+        else:
+            messages.success(self.request, "Vendor bill saved as a draft.")
         return HttpResponseRedirect(reverse("vendor-bill-detail", args=[self.object.pk]))
 
 
@@ -933,17 +998,21 @@ class VendorBillUpdateView(PaymentsCrudFormView, UpdateView):
     page_title = "Edit vendor bill"
     page_action = "Save bill"
     list_url_name = "vendor-bill-list"
+    template_name = "payments/vendor_bill_form.html"
     allowed_roles = BookkeepingRoleRequiredMixin.allowed_roles
 
     def form_valid(self, form):
         self.object = form.save(commit=False)
-        VendorBillService.save_and_sync_bill(self.object)
-        audit_success(
-            action="vendor_bill_updated",
-            record=self.object,
-            user=self.request.user,
-            source="ui",
-        )
+        try:
+            self.object = VendorBillApprovalService.save_draft(self.object, actor=self.request.user)
+            if self.request.POST.get("action") == "submit":
+                self.object = VendorBillApprovalService.submit(self.object, actor=self.request.user)
+                messages.success(self.request, "Vendor bill submitted for independent approval.")
+            else:
+                messages.success(self.request, "Vendor bill saved.")
+        except ValidationError as exc:
+            form.add_error(None, "; ".join(exc.messages))
+            return self.form_invalid(form)
         return HttpResponseRedirect(reverse("vendor-bill-detail", args=[self.object.pk]))
 
 
@@ -953,26 +1022,47 @@ class VendorBillDetailView(ReportingRoleRequiredMixin, PaymentsAppContextMixin, 
     context_object_name = "bill"
     login_url = reverse_lazy("login")
     allowed_roles = ReportingRoleRequiredMixin.allowed_roles
+    write_allowed_roles = WORKFLOW_FINANCIAL_ROLES
+
+    def dispatch(self, request, *args, **kwargs):
+        if request.user.is_authenticated and request.method == "POST":
+            action = request.POST.get("action", "").strip()
+            if action in {"approve", "reject"}:
+                if not can_approve_vendor_bills(request.user):
+                    raise PermissionDenied("You are not authorized to approve vendor bills.")
+            else:
+                require_bill_editor(request.user)
+        return super().dispatch(request, *args, **kwargs)
 
     def get_queryset(self):
-        return VendorBill.objects.select_related("vendor", "property", "unit", "maintenance_category", "sync_record")
+        return VendorBill.objects.select_related("vendor", "property", "unit", "maintenance_category", "maintenance_request", "sync_record")
 
     def post(self, request, *args, **kwargs):
         self.object = self.get_object()
         action = request.POST.get("action", "").strip()
-        if action == "sync":
-            try:
-                VendorBillService.sync_bill(self.object)
-            except ValidationError as exc:
-                messages.error(request, "; ".join(exc.messages))
-            else:
-                self.object.refresh_from_db()
-                audit_success(
-                    action="vendor_bill_synced",
-                    record=self.object,
-                    user=request.user,
-                    source="ui",
+        try:
+            if action == "submit":
+                VendorBillApprovalService.submit(self.object, actor=request.user)
+                messages.success(request, "Vendor bill submitted for independent approval.")
+            elif action == "withdraw":
+                VendorBillApprovalService.withdraw(
+                    self.object, actor=request.user, reason=request.POST.get("reason", "")
                 )
+                messages.success(request, "Vendor bill withdrawn from approval.")
+            elif action == "approve":
+                VendorBillApprovalService.approve(
+                    self.object, actor=request.user, reason=request.POST.get("reason", "")
+                )
+                messages.success(request, "Vendor bill approved.")
+            elif action == "reject":
+                VendorBillApprovalService.reject(
+                    self.object, actor=request.user, reason=request.POST.get("reason", "")
+                )
+                messages.success(request, "Vendor bill rejected.")
+            elif action == "sync":
+                LedgerOSWriteReadinessService.require()
+                VendorBillService.sync_bill(self.object, actor=request.user)
+                self.object.refresh_from_db()
                 sync_status = self.object.sync_record.status if self.object.sync_record else ""
                 if sync_status == LedgerOSSyncRecord.Status.FAILED:
                     messages.error(
@@ -982,6 +1072,8 @@ class VendorBillDetailView(ReportingRoleRequiredMixin, PaymentsAppContextMixin, 
                     )
                 else:
                     messages.success(request, "Vendor bill posted to LedgerOS.")
+        except ValidationError as exc:
+            messages.error(request, "; ".join(exc.messages))
         return HttpResponseRedirect(reverse("vendor-bill-detail", args=[self.object.pk]))
 
     def get_context_data(self, **kwargs):
@@ -989,7 +1081,39 @@ class VendorBillDetailView(ReportingRoleRequiredMixin, PaymentsAppContextMixin, 
         bill = self.object
         status = BillPaymentStatusService.statuses([bill])[bill.pk]
         context["bill_payment_status"] = status
-        context["can_pay_bills"] = user_has_any_role(self.request.user, BookkeepingRoleRequiredMixin.allowed_roles)
+        context["can_pay_bills"] = can_pay_vendor_bills(self.request.user)
+        context["can_approve_bill"] = (
+            can_approve_vendor_bills(self.request.user)
+            and bill.approval_status == VendorBill.ApprovalStatus.SUBMITTED
+            and bill.submitted_by_id != self.request.user.pk
+        )
+        context["can_submit_bill"] = (
+            user_has_any_role(self.request.user, BookkeepingRoleRequiredMixin.allowed_roles)
+            and bill.approval_status in {
+                VendorBill.ApprovalStatus.DRAFT,
+                VendorBill.ApprovalStatus.REJECTED,
+                VendorBill.ApprovalStatus.WITHDRAWN,
+                VendorBill.ApprovalStatus.LEGACY_UNRECORDED,
+            }
+        )
+        context["can_edit_bill"] = (
+            user_has_any_role(self.request.user, BookkeepingRoleRequiredMixin.allowed_roles)
+            and bill.approval_status != VendorBill.ApprovalStatus.SUBMITTED
+        )
+        context["can_withdraw_bill"] = (
+            bill.approval_status == VendorBill.ApprovalStatus.SUBMITTED
+            and (
+                bill.submitted_by_id == self.request.user.pk
+                or user_has_any_role(self.request.user, AdminRoleRequiredMixin.allowed_roles)
+            )
+        )
+        context["can_post_bill"] = (
+            user_has_any_role(self.request.user, BookkeepingRoleRequiredMixin.allowed_roles)
+            and bill.approval_status == VendorBill.ApprovalStatus.APPROVED
+            and bill.status != VendorBill.Status.POSTED
+        )
+        context["approval_events"] = bill.approval_events.select_related("actor")
+        context["decision_form"] = VendorBillDecisionForm()
         context["payment_blocker"] = VendorPaymentService.bill_payment_blocker(bill, status)
         context["pending_bill_payments"] = bill.vendor_payments.filter(
             submission_id__isnull=False,
@@ -1010,6 +1134,51 @@ class VendorBillDetailView(ReportingRoleRequiredMixin, PaymentsAppContextMixin, 
         return context
 
 
+class VendorBillApprovalQueueView(ReportingRoleRequiredMixin, PaymentsAppContextMixin, ListView):
+    model = VendorBill
+    template_name = "payments/vendor_bill_approval_queue.html"
+    context_object_name = "bills"
+    allowed_roles = WORKFLOW_FINANCIAL_ROLES
+
+    def dispatch(self, request, *args, **kwargs):
+        if request.user.is_authenticated and not can_approve_vendor_bills(request.user):
+            raise PermissionDenied("You are not authorized to review vendor bills.")
+        return super().dispatch(request, *args, **kwargs)
+
+    def get_queryset(self):
+        return VendorBill.objects.filter(
+            approval_status=VendorBill.ApprovalStatus.SUBMITTED
+        ).exclude(submitted_by=self.request.user).select_related(
+            "vendor", "property", "submitted_by"
+        )
+
+
+class WorkflowAuthorizationView(AdminRoleRequiredMixin, PaymentsAppContextMixin, TemplateView):
+    template_name = "payments/workflow_authorizations.html"
+    allowed_roles = AdminRoleRequiredMixin.allowed_roles
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context["form"] = kwargs.get("form") or WorkflowAuthorizationForm()
+        context["authorization_rows"] = WorkflowAuthorization.objects.select_related(
+            "user", "updated_by"
+        )
+        return context
+
+    def post(self, request, *args, **kwargs):
+        form = WorkflowAuthorizationForm(request.POST)
+        if form.is_valid():
+            WorkflowAuthorizationService.set_grants(
+                target=form.cleaned_data["user"],
+                actor=request.user,
+                can_approve_vendor_bills=form.cleaned_data["can_approve_vendor_bills"],
+                can_pay_vendor_bills=form.cleaned_data["can_pay_vendor_bills"],
+            )
+            messages.success(request, "Workflow authorizations updated.")
+            return HttpResponseRedirect(reverse("workflow-authorizations"))
+        return self.render_to_response(self.get_context_data(form=form))
+
+
 class VendorPaymentListView(ReportingRoleRequiredMixin, PaymentsCrudListView):
     model = VendorPayment
     page_title = "Vendor payments"
@@ -1018,13 +1187,11 @@ class VendorPaymentListView(ReportingRoleRequiredMixin, PaymentsCrudListView):
     allowed_roles = ReportingRoleRequiredMixin.allowed_roles
 
     def get_create_gate_context(self) -> dict[str, Any]:
-        if VendorBill.objects.exists():
-            return super().get_create_gate_context()
         return {
             "create_available": False,
-            "create_gate_message": "Create a vendor bill before recording a vendor payment.",
+            "create_gate_message": "Start new vendor settlements from an approved bill. Existing card-payoff records remain available for compatibility.",
             "create_gate_url": reverse("vendor-bill-list"),
-            "create_gate_label": "Go to bills",
+            "create_gate_label": "Go to vendor bills",
         }
 
     def get_rows(self, objects):
@@ -1042,10 +1209,16 @@ class VendorPaymentListView(ReportingRoleRequiredMixin, PaymentsCrudListView):
         ]
 
 
-class VendorBillPayView(BookkeepingRoleRequiredMixin, PaymentsAppContextMixin, FormView):
+class VendorBillPayView(ReportingRoleRequiredMixin, PaymentsAppContextMixin, FormView):
     form_class = BillPaymentForm
     template_name = "payments/bill_payment_form.html"
-    allowed_roles = BookkeepingRoleRequiredMixin.allowed_roles
+    allowed_roles = WORKFLOW_FINANCIAL_ROLES
+    write_allowed_roles = WORKFLOW_FINANCIAL_ROLES
+
+    def dispatch(self, request, *args, **kwargs):
+        if request.user.is_authenticated:
+            require_vendor_payer(request.user)
+        return super().dispatch(request, *args, **kwargs)
 
     @cached_property
     def bill(self):
@@ -1075,9 +1248,11 @@ class VendorBillPayView(BookkeepingRoleRequiredMixin, PaymentsAppContextMixin, F
 
     def form_valid(self, form):
         try:
+            LedgerOSWriteReadinessService.require()
             payment = VendorPaymentService.pay_bill(bill=self.bill,
                 submission_id=form.cleaned_data["submission_token"],
-                details={field: form.cleaned_data[field] for field in VendorPaymentService.BILL_PAYMENT_FIELDS})
+                details={field: form.cleaned_data[field] for field in VendorPaymentService.BILL_PAYMENT_FIELDS},
+                actor=self.request.user)
         except ValidationError as exc:
             form.add_error(None, "; ".join(exc.messages))
             return self.form_invalid(form)
@@ -1110,7 +1285,12 @@ class VendorPaymentCreateView(PaymentsCrudFormView, CreateView):
 
     def form_valid(self, form):
         self.object = form.save(commit=False)
-        VendorPaymentService.save_and_sync_payment(self.object)
+        try:
+            LedgerOSWriteReadinessService.require()
+            VendorPaymentService.save_and_sync_payment(self.object, actor=self.request.user)
+        except ValidationError as exc:
+            form.add_error(None, "; ".join(exc.messages))
+            return self.form_invalid(form)
         audit_success(
             action="vendor_payment_created",
             record=self.object,
@@ -1130,7 +1310,12 @@ class VendorPaymentUpdateView(PaymentsCrudFormView, UpdateView):
 
     def form_valid(self, form):
         self.object = form.save(commit=False)
-        VendorPaymentService.save_and_sync_payment(self.object)
+        try:
+            LedgerOSWriteReadinessService.require()
+            VendorPaymentService.save_and_sync_payment(self.object, actor=self.request.user)
+        except ValidationError as exc:
+            form.add_error(None, "; ".join(exc.messages))
+            return self.form_invalid(form)
         audit_success(
             action="vendor_payment_updated",
             record=self.object,
@@ -1146,18 +1331,23 @@ class VendorPaymentDetailView(ReportingRoleRequiredMixin, PaymentsAppContextMixi
     context_object_name = "payment"
     login_url = reverse_lazy("login")
     allowed_roles = ReportingRoleRequiredMixin.allowed_roles
+    write_allowed_roles = WORKFLOW_FINANCIAL_ROLES
 
     def get_queryset(self):
         return VendorPayment.objects.select_related("vendor", "vendor_bill", "vendor_bill__sync_record", "sync_record")
 
     def post(self, request, *args, **kwargs):
-        if not user_has_any_role(request.user, BookkeepingRoleRequiredMixin.allowed_roles):
-            raise PermissionDenied("Only bookkeepers and admins can post vendor payments.")
         self.object = self.get_object()
+        if self.object.is_credit_card_payoff:
+            if not user_has_any_role(request.user, BookkeepingRoleRequiredMixin.allowed_roles):
+                raise PermissionDenied("Only bookkeepers and admins can post card payoffs.")
+        else:
+            require_vendor_payer(request.user)
         action = request.POST.get("action", "").strip()
         if action == "sync":
             try:
-                VendorPaymentService.sync_payment(self.object)
+                LedgerOSWriteReadinessService.require()
+                VendorPaymentService.sync_payment(self.object, actor=request.user)
             except ValidationError as exc:
                 messages.error(request, "; ".join(exc.messages))
             else:
@@ -1184,7 +1374,11 @@ class VendorPaymentDetailView(ReportingRoleRequiredMixin, PaymentsAppContextMixi
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         payment = self.object
-        context["can_pay_bills"] = user_has_any_role(self.request.user, BookkeepingRoleRequiredMixin.allowed_roles)
+        context["can_pay_bills"] = (
+            user_has_any_role(self.request.user, BookkeepingRoleRequiredMixin.allowed_roles)
+            if self.object.is_credit_card_payoff
+            else can_pay_vendor_bills(self.request.user)
+        )
         context["sync_log_entries"] = [
             {
                 "title": f"Payment {payment.pk} sync status",
@@ -1250,7 +1444,12 @@ class DebtServicePaymentCreateView(PaymentsCrudFormView, CreateView):
 
     def form_valid(self, form):
         self.object = form.save(commit=False)
-        DebtServicePaymentService.save_and_sync_payment(self.object)
+        try:
+            LedgerOSWriteReadinessService.require()
+            DebtServicePaymentService.save_and_sync_payment(self.object)
+        except ValidationError as exc:
+            form.add_error(None, "; ".join(exc.messages))
+            return self.form_invalid(form)
         audit_success(
             action="debt_service_payment_created",
             record=self.object,
@@ -1270,7 +1469,12 @@ class DebtServicePaymentUpdateView(PaymentsCrudFormView, UpdateView):
 
     def form_valid(self, form):
         self.object = form.save(commit=False)
-        DebtServicePaymentService.save_and_sync_payment(self.object)
+        try:
+            LedgerOSWriteReadinessService.require()
+            DebtServicePaymentService.save_and_sync_payment(self.object)
+        except ValidationError as exc:
+            form.add_error(None, "; ".join(exc.messages))
+            return self.form_invalid(form)
         audit_success(
             action="debt_service_payment_updated",
             record=self.object,
@@ -1295,6 +1499,7 @@ class DebtServicePaymentDetailView(ReportingRoleRequiredMixin, PaymentsAppContex
         action = request.POST.get("action", "").strip()
         if action == "sync":
             try:
+                LedgerOSWriteReadinessService.require()
                 DebtServicePaymentService.sync_payment(self.object)
             except ValidationError as exc:
                 messages.error(request, "; ".join(exc.messages))

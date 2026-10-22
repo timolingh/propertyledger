@@ -72,6 +72,17 @@ class LedgerOSHealthCheckTests(TestCase):
 
     @patch.dict(os.environ, {"TEST_LEDGEROS_HMAC_SECRET": "secret"}, clear=False)
     @patch("ledgeros.services.urlopen")
+    def test_health_probe_caps_configured_timeout(self, mock_urlopen):
+        self.settings_obj.timeout_seconds = 60
+        self.settings_obj.save(update_fields=["timeout_seconds"])
+        mock_urlopen.return_value = _FakeResponse(status=200, payload=b'{"status":"ok"}')
+
+        LedgerOSHealthCheckService.check()
+
+        self.assertEqual(mock_urlopen.call_args.kwargs["timeout"], 5.0)
+
+    @patch.dict(os.environ, {"TEST_LEDGEROS_HMAC_SECRET": "secret"}, clear=False)
+    @patch("ledgeros.services.urlopen")
     def test_host_gateway_base_url_uses_localhost_host_header(self, mock_urlopen):
         self.settings_obj.base_url = "http://host.docker.internal:8001"
         self.settings_obj.host_header = "localhost:8001"

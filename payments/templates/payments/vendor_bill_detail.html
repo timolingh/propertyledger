@@ -13,8 +13,13 @@
     <p><strong>Amount:</strong> {{ bill.amount }}</p>
     <p><strong>Expense category:</strong> {{ bill.get_expense_category_display }}</p>
     <p><strong>Maintenance category:</strong> {{ bill.maintenance_category|default:"-" }}</p>
+    <p><strong>Maintenance request:</strong> {% if bill.maintenance_request %}<a href="{% url 'maintenance-request-detail' bill.maintenance_request.pk %}">Request {{ bill.maintenance_request.pk }}</a>{% else %}—{% endif %}</p>
     <p><strong>Tenant chargeable:</strong> {{ bill.tenant_chargeable|yesno:"Yes,No" }}</p>
     <p><strong>Bill posting status:</strong> {{ bill.get_status_display }}</p>
+    <p><strong>Approval status:</strong> {{ bill.get_approval_status_display }}</p>
+    {% if bill.submitted_by %}<p><strong>Submitted by:</strong> {{ bill.submitted_by }} at {{ bill.submitted_at }}</p>{% endif %}
+    {% if bill.decision_by %}<p><strong>Decision by:</strong> {{ bill.decision_by }} at {{ bill.decision_at }}</p>{% endif %}
+    {% if bill.decision_reason %}<p><strong>Decision reason:</strong> {{ bill.decision_reason }}</p>{% endif %}
     <p><strong>Payment status:</strong> {{ bill_payment_status.label }}</p>
     <p><strong>Amount paid:</strong> {{ bill_payment_status.paid|default_if_none:"—" }}</p>
     <p><strong>Credits applied:</strong> {{ bill_payment_status.credited|default_if_none:"—" }}</p>
@@ -24,12 +29,35 @@
     <p><strong>Notes:</strong> {{ bill.notes|default:"-" }}</p>
     <div style="display:flex; gap:1rem; flex-wrap:wrap;">
       <a class="button" href="{% url 'vendor-bill-list' %}">Back</a>
-      <a class="button" href="{% url 'vendor-bill-edit' bill.pk %}">Edit bill</a>
+      {% if can_edit_bill %}<a class="button" href="{% url 'vendor-bill-edit' bill.pk %}">Edit bill</a>{% endif %}
+      {% if can_submit_bill %}
+        <form method="post">{% csrf_token %}<input type="hidden" name="action" value="submit"><button type="submit">Submit for approval</button></form>
+      {% endif %}
+      {% if can_withdraw_bill %}
+        <form method="post">{% csrf_token %}<input type="hidden" name="action" value="withdraw"><button type="submit">Withdraw submission</button></form>
+      {% endif %}
       {% if can_pay_bills and not payment_blocker %}
         <a class="button primary" href="{% url 'vendor-bill-pay' bill.pk %}">Pay bill</a>
       {% endif %}
     </div>
     {% if can_pay_bills and payment_blocker %}<p class="muted">{{ payment_blocker }}</p>{% endif %}
+  </div>
+  {% if can_approve_bill %}
+    <div class="card">
+      <h2>Independent review</h2>
+      <form method="post">
+        {% csrf_token %}
+        {{ decision_form.reason.label_tag }} {{ decision_form.reason }}
+        <button type="submit" name="action" value="approve" class="button primary">Approve bill</button>
+        <button type="submit" name="action" value="reject">Reject bill</button>
+      </form>
+    </div>
+  {% endif %}
+  <div class="card">
+    <h2>Approval history</h2>
+    {% for event in approval_events %}
+      <p>{{ event.created_at }} — {{ event.get_action_display }} by {{ event.actor|default:"Unknown" }}{% if event.reason %}: {{ event.reason }}{% endif %}</p>
+    {% empty %}<p class="muted">No approval decisions have been recorded.</p>{% endfor %}
   </div>
   {% if can_pay_bills and pending_bill_payments %}
     <div class="card">
@@ -48,11 +76,11 @@
   {% endif %}
   <div class="card">
     <h2>LedgerOS Sync</h2>
-    <form method="post">
+    {% if can_post_bill %}<form method="post">
       {% csrf_token %}
       <input type="hidden" name="action" value="sync">
-      <button type="submit" class="button primary">Sync bill</button>
-    </form>
+      <button type="submit" class="button primary">Post approved bill</button>
+    </form>{% endif %}
     {% for entry in sync_log_entries %}
       <div class="card">
         <strong>{{ entry.title }}</strong>

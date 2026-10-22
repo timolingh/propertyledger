@@ -38,8 +38,8 @@
             <td>{{ row.balance_due }}</td>
             <td>{{ row.invoice.get_status_display }}</td>
             <td class="actions">
-              <a href="{{ row.detail_url }}">Record payment</a>
-              <a href="{% url 'charge-edit' row.invoice.pk %}">Edit</a>
+              <a href="{{ row.detail_url }}">{% if can_bookkeep %}Record payment{% else %}View invoice{% endif %}</a>
+              {% if can_bookkeep %}<a href="{% url 'charge-edit' row.invoice.pk %}">Edit</a>{% endif %}
             </td>
           </tr>
         {% empty %}

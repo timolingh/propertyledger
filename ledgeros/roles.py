@@ -59,9 +59,13 @@ ROLE_PERMISSION_SPECS: dict[str, dict[str, dict[str, tuple[str, ...]]]] = {
             "securitydepositevent": ("add", "change", "delete", "view"),
             "vendor": ("add", "change", "delete", "view"),
             "maintenancecategory": ("add", "change", "delete", "view"),
+            "maintenancerequest": ("add", "change", "view"),
+            "maintenancerequestevent": ("view",),
             "vendorbill": ("add", "change", "delete", "view"),
             "vendorpayment": ("add", "change", "delete", "view"),
             "debtservicepayment": ("add", "change", "delete", "view"),
+            "workflowauthorization": ("view",),
+            "vendorbillapprovalevent": ("view",),
         },
         "reports": {
             "ownercontributiondistribution": ("add", "change", "delete", "view"),
@@ -77,6 +81,8 @@ ROLE_PERMISSION_SPECS: dict[str, dict[str, dict[str, tuple[str, ...]]]] = {
             "tenantcharge": ("view",),
         },
         "payments": {
+            "maintenancerequest": ("add", "change", "view"),
+            "maintenancerequestevent": ("view",),
             "tenantpayment": ("view",),
             "securitydepositevent": ("view",),
             "vendorbill": ("view",),
@@ -102,9 +108,13 @@ ROLE_PERMISSION_SPECS: dict[str, dict[str, dict[str, tuple[str, ...]]]] = {
             "securitydepositevent": ("view", "add", "change"),
             "vendor": ("view", "add", "change"),
             "maintenancecategory": ("view", "add", "change"),
+            "maintenancerequest": ("add", "change", "view"),
+            "maintenancerequestevent": ("view",),
             "vendorbill": ("view", "add", "change"),
             "vendorpayment": ("view", "add", "change"),
             "debtservicepayment": ("view", "add", "change"),
+            "workflowauthorization": ("view",),
+            "vendorbillapprovalevent": ("view",),
         },
         "reports": {
             "ownercontributiondistribution": ("view", "add", "change"),
@@ -139,9 +149,12 @@ ROLE_PERMISSION_SPECS: dict[str, dict[str, dict[str, tuple[str, ...]]]] = {
             "securitydepositevent": ("view",),
             "vendor": ("view",),
             "maintenancecategory": ("view",),
+            "maintenancerequest": ("view",),
+            "maintenancerequestevent": ("view",),
             "vendorbill": ("view",),
             "vendorpayment": ("view",),
             "debtservicepayment": ("view",),
+            "vendorbillapprovalevent": ("view",),
         },
         "reports": {
             "ownercontributiondistribution": ("view",),
@@ -218,13 +231,13 @@ def get_user_role_label(user) -> str:
 
 
 def user_has_any_role(user, roles: tuple[str, ...] | list[str] | set[str]) -> bool:
-    if not getattr(user, "is_authenticated", False):
+    if not getattr(user, "is_authenticated", False) or not user.is_active:
         return False
     if user.is_superuser:
         return True
     assigned_roles = set(user.groups.filter(name__in=_role_group_names()).values_list("name", flat=True))
     if not assigned_roles:
-        return True
+        return False
     allowed_group_names = {ROLE_GROUP_NAMES[role] for role in roles}
     return bool(assigned_roles & allowed_group_names)
 

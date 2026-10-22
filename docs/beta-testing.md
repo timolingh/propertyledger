@@ -24,6 +24,7 @@ bash scripts/beta-seed.sh
 
 These scripts reset and seed the demo data, but they do not leave the web apps running.
 The seed step also copies the selected LedgerOS entity and accounting period into PropertyLedger so the setup screen is already populated for the session.
+It provisions LedgerOS account `2200` as the active, credit-normal tenant security deposit liability and verifies that PropertyLedger's required deposit mapping uses that account.
 If LedgerOS web is not running yet, the seed script will warn and continue instead of failing, then you can run `make smoke` after both web stacks are up.
 
 Start the two stacks separately:
@@ -64,6 +65,9 @@ The session should use these specific records:
 - vendors: `Ace Plumbing`, `Bright Electric`, `GreenLine Landscaping`
 - maintenance categories: `Plumbing`, `Electrical`, `Landscaping`
 - demo users: `beta-admin`, `beta-manager`, `beta-bookkeeper`
+- review users: `beta-owner-viewer`, `beta-read-only`
+
+The seed assigns independent workflow capabilities for the demo: `beta-manager` can approve vendor bills, `beta-bookkeeper` can record approved vendor payments, and `beta-admin` receives both grants for administrative testing. The Ace Plumbing bill is approved, the Bright Electric bill awaits approval, and the GreenLine Landscaping bill remains a draft.
 
 Representative records participants should encounter:
 
@@ -77,10 +81,14 @@ Representative records participants should encounter:
   - `GreenLine Landscaping` for `315.00`
 - a draft vendor payment for `Ace Plumbing` with check number `BETA-1001`
 - three draft security deposit events tied to the three leases
+- `BETA-MIXED-RECEIPT`, a draft `1950.00` receipt with `1450.00` rent and a `500.00` deposit component
+- maintenance scenarios `BETA-MAINT-OPEN`, `BETA-MAINT-HOLD`, and `BETA-MAINT-INVOICE-PENDING`
 
 Default demo password:
 
 - `PropertyLedgerBeta123!`
+
+For the complete step-by-step acceptance sequence and expected accounting results, use the [Guided Workflow Test](./workflow-testing.md).
 
 ## How to run the hour
 
@@ -167,10 +175,10 @@ Ask them to open the payments area:
 Then give them this sequence:
 
 1. Find the vendor bills.
-2. Identify the bill for `Ace Plumbing`.
-3. Identify the bill for `Bright Electric`.
-4. Identify the bill for `GreenLine Landscaping`.
-5. Open the vendor payment for `Ace Plumbing`.
+2. As `beta-manager`, open the approval queue and review the submitted `Bright Electric` bill. Confirm the submitter cannot approve their own bill.
+3. Identify the approved bill for `Ace Plumbing`, the submitted bill for `Bright Electric`, and the draft bill for `GreenLine Landscaping`.
+4. As `beta-bookkeeper`, confirm that an approved bill still has a separate LedgerOS posting state and that payment begins from an eligible posted bill.
+5. Open the existing vendor payment for `Ace Plumbing` and distinguish it from a fresh settlement.
 6. Open the security deposit area and look for the three seeded deposit events.
 
 Ask them to describe what seems ready for action and what seems like a draft or in-progress record.
@@ -219,6 +227,10 @@ Capture feedback on:
 - whether the property, payments, and reports workflows felt connected.
 
 ## Moderator notes
+
+Start each role at `/home/` after setup. Check the three workflow cards, existing record/report links, desktop collapse and mobile menu. Confirm read-only viewers can review maintenance while owner viewers and unassigned users cannot. Exercise request creation, hold/resume, verified closure with each invoice outcome, and reasoned reopening. Create two vendor bills from one request with different vendors, link an existing bill after closure, and confirm operational, approval, posting, and payment states remain separate. Repeat a bill submission and confirm it reuses the existing bill. Exercise the separate bill submitter, approver, and payer capabilities with the seeded users. Record rent-only, deposit-only and combined receipts and verify their component references and totals.
+
+Stop LedgerOS, reload the workflow home, and confirm the outage warning and **Unavailable** accounting values. Save a maintenance change, receipt draft and bill draft. Confirm finalization, bill posting and vendor payment are blocked without a new sync attempt. Restart LedgerOS and retry the same saved records, confirming their local IDs and idempotency identities remain unchanged. Maintenance photos remain gated pending private durable storage. See [WP1 browser acceptance](qa/wp1/README.md) for desktop/mobile examples.
 
 - Keep the group moving, but do not rush them past confusion.
 - If a participant pauses, ask what they expected to happen.

@@ -21,6 +21,9 @@ class _CSRFTokenParser(HTMLParser):
 
 class BillCSRFTests(TestCase):
     def setUp(self):
+        readiness = patch("payments.views.LedgerOSWriteReadinessService.require")
+        readiness.start()
+        self.addCleanup(readiness.stop)
         user = get_user_model().objects.create_user(username="bill-csrf")
         assign_user_role(user, ROLE_ADMIN)
         self.client = Client(enforce_csrf_checks=True)

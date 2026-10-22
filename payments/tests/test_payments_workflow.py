@@ -17,7 +17,8 @@ from django.urls import reverse
 
 from ledgeros.models import LedgerOSConnectionSettings, LedgerOSSyncRecord, Owner, Property, Tenant, TenantCharge, Unit
 from ledgeros.models import PropertyLedgerAccountMapping, PropertyLedgerSetup
-from ledgeros.roles import ROLE_READ_ONLY_VIEWER, assign_user_role
+from ledgeros.roles import ROLE_ADMIN, ROLE_BOOKKEEPER, ROLE_READ_ONLY_VIEWER, assign_user_role
+from payments.approval_services import VendorBillApprovalService, WorkflowAuthorizationService
 from payments.models import DebtServicePayment, MaintenanceCategory, PaymentWorkflowSettings, SecurityDepositEvent, TenantPayment, Vendor, VendorBill, VendorPayment
 from payments.services import (
     DebtServicePaymentService,
@@ -168,17 +169,21 @@ class PaymentsLandingViewTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, reverse("invoice-list"))
-        self.assertContains(response, reverse("banking-dashboard"))
+        self.assertNotContains(response, reverse("banking-dashboard"))
         self.assertContains(response, "Open invoices")
 
 
 class TenantPaymentViewTests(TestCase):
     def setUp(self):
+        readiness = patch("payments.views.LedgerOSWriteReadinessService.require")
+        readiness.start()
+        self.addCleanup(readiness.stop)
         _configure_ledgeros_settings()
         self.owner = Owner.objects.create(name="Owner One")
         self.property = Property.objects.create(name="Property One", primary_owner=self.owner)
         self.tenant = Tenant.objects.create(name="Tenant One")
         self.user = get_user_model().objects.create_user(username="tester", password="password")
+        assign_user_role(self.user, ROLE_BOOKKEEPER)
         self.client.force_login(self.user)
 
     @patch.dict(os.environ, {"LEDGEROS_HMAC_SECRET": "secret"}, clear=False)
@@ -304,6 +309,7 @@ class TenantPaymentViewTests(TestCase):
 class TenantPaymentServiceTests(TestCase):
     def setUp(self):
         _configure_ledgeros_settings()
+        _configure_epic5_mappings()
         self.owner = Owner.objects.create(name="Owner One")
         self.property = Property.objects.create(name="Property One", primary_owner=self.owner)
         self.tenant = Tenant.objects.create(name="Tenant One")
@@ -594,7 +600,10 @@ class TenantPaymentServiceTests(TestCase):
     def test_security_deposit_sync_uses_generic_sync_event_endpoint(self, mock_urlopen):
         mock_urlopen.return_value = _FakeResponse(
             status=201,
-            payload=json.dumps({"sync_event": {"id": "sync_3"}}).encode("utf-8"),
+            payload=json.dumps({
+                "sync_event": {"id": "sync_3"},
+                "journal_entry": {"id": "je_3", "status": "posted"},
+            }).encode("utf-8"),
         )
 
         unit = Unit.objects.create(property=self.property, name="101")
@@ -621,11 +630,17 @@ class TenantPaymentServiceTests(TestCase):
 
         self.assertEqual(event.status, SecurityDepositEvent.Status.POSTED)
         self.assertEqual(event.sync_record.ledgeros_resource_id, "sync_3")
+        self.assertEqual(event.sync_record.ledgeros_journal_entry_id, "je_3")
         request_path, payload = _decode_mock_request(mock_urlopen.call_args_list[0])
         self.assertEqual(request_path, "http://ledgeros-web:8000/api/v1/sync-events/")
         self.assertEqual(payload["domain_event_type"], "security_deposit.received")
         self.assertEqual(payload["source_object_type"], "security_deposit_event")
         self.assertEqual(payload["payload"]["lease_id"], lease.pk)
+        self.assertEqual(payload["occurred_at"], "2026-01-05T00:00:00Z")
+        self.assertEqual(payload["payload"]["accounting_entries"], [
+            {"account_code": "1000", "direction": "debit", "amount": "500.00"},
+            {"account_code": "2200", "direction": "credit", "amount": "500.00"},
+        ])
 
 
 class SecurityDepositLedgerServiceTests(TestCase):
@@ -698,6 +713,30 @@ class Epic5AccountingServiceTests(TestCase):
         self.vendor = Vendor.objects.create(name="Vendor One")
         self.lender = Vendor.objects.create(name="Lender One")
         self.category = MaintenanceCategory.objects.create(name="Plumbing")
+        users = get_user_model().objects
+        self.workflow_admin = users.create_user("workflow-admin")
+        self.bill_submitter = users.create_user("bill-submitter")
+        self.bill_approver = users.create_user("bill-approver")
+        self.bill_payer = users.create_user("bill-payer")
+        assign_user_role(self.workflow_admin, ROLE_ADMIN)
+        for user in (self.bill_submitter, self.bill_approver, self.bill_payer):
+            assign_user_role(user, ROLE_BOOKKEEPER)
+        WorkflowAuthorizationService.set_grants(
+            target=self.bill_approver, actor=self.workflow_admin,
+            can_approve_vendor_bills=True, can_pay_vendor_bills=False,
+        )
+        WorkflowAuthorizationService.set_grants(
+            target=self.bill_payer, actor=self.workflow_admin,
+            can_approve_vendor_bills=False, can_pay_vendor_bills=True,
+        )
+        self.bill_status_patch = patch(
+            "payments.services.BillPaymentStatusService.statuses",
+            side_effect=lambda bills: {
+                bill.pk: {"status": "unpaid", "balance": bill.amount} for bill in bills
+            },
+        )
+        self.bill_status_patch.start()
+        self.addCleanup(self.bill_status_patch.stop)
 
     def _create_vendor_bill(self, **overrides):
         defaults = {
@@ -715,6 +754,14 @@ class Epic5AccountingServiceTests(TestCase):
         }
         defaults.update(overrides)
         return VendorBill.objects.create(**defaults)
+
+    def _approve_bill(self, bill):
+        VendorBillApprovalService.submit(bill, actor=self.bill_submitter)
+        return VendorBillApprovalService.approve(bill, actor=self.bill_approver)
+
+    def _approve_and_sync_bill(self, bill):
+        self._approve_bill(bill)
+        return VendorBillService.sync_bill(bill, actor=self.bill_submitter)
 
     @patch.dict(os.environ, {"LEDGEROS_HMAC_SECRET": "secret"}, clear=False)
     @patch("payments.services.urlopen")
@@ -774,7 +821,7 @@ class Epic5AccountingServiceTests(TestCase):
 
         VendorService.save_and_sync_vendor(self.vendor)
         bill = self._create_vendor_bill()
-        VendorBillService.save_and_sync_bill(bill)
+        self._approve_and_sync_bill(bill)
         bill.refresh_from_db()
 
         self.assertEqual(bill.status, VendorBill.Status.POSTED)
@@ -791,16 +838,17 @@ class Epic5AccountingServiceTests(TestCase):
         self.assertEqual(second_payload["lines"][0]["account_code"], "5000")
         self.assertEqual(second_payload["lines"][0]["amount"], "125.00")
 
-        VendorBillService.sync_bill(bill)
+        VendorBillService.sync_bill(bill, actor=self.bill_submitter)
         bill.refresh_from_db()
         self.assertEqual(LedgerOSSyncRecord.objects.filter(local_object_type="vendor_bill").count(), 1)
         self.assertEqual(bill.sync_record.status, LedgerOSSyncRecord.Status.SUCCEEDED)
 
     def test_vendor_bill_sync_requires_synced_vendor(self):
         bill = self._create_vendor_bill()
+        self._approve_bill(bill)
 
         with self.assertRaises(ValidationError) as exc:
-            VendorBillService.sync_bill(bill)
+            VendorBillService.sync_bill(bill, actor=self.bill_submitter)
 
         self.assertIn("The vendor must be synced to LedgerOS before this bill can post.", exc.exception.messages)
 
@@ -816,7 +864,7 @@ class Epic5AccountingServiceTests(TestCase):
 
         VendorService.save_and_sync_vendor(self.vendor)
         bill = self._create_vendor_bill()
-        VendorBillService.save_and_sync_bill(bill)
+        self._approve_and_sync_bill(bill)
 
         card_payment = VendorPayment.objects.create(
             vendor=self.vendor,
@@ -829,7 +877,7 @@ class Epic5AccountingServiceTests(TestCase):
             memo="Card swipe",
             is_credit_card_payoff=False,
         )
-        VendorPaymentService.save_and_sync_payment(card_payment)
+        VendorPaymentService.save_and_sync_payment(card_payment, actor=self.bill_payer)
         card_payment.refresh_from_db()
 
         payoff = VendorPayment.objects.create(
@@ -842,7 +890,7 @@ class Epic5AccountingServiceTests(TestCase):
             memo="Payoff",
             is_credit_card_payoff=True,
         )
-        VendorPaymentService.save_and_sync_payment(payoff)
+        VendorPaymentService.save_and_sync_payment(payoff, actor=self.bill_submitter)
         payoff.refresh_from_db()
 
         self.assertEqual(card_payment.status, VendorPayment.Status.POSTED)
@@ -873,7 +921,7 @@ class Epic5AccountingServiceTests(TestCase):
 
         VendorService.save_and_sync_vendor(self.vendor)
         bill = self._create_vendor_bill()
-        VendorBillService.save_and_sync_bill(bill)
+        self._approve_and_sync_bill(bill)
 
         payment = VendorPayment.objects.create(
             vendor=self.vendor,
@@ -886,7 +934,7 @@ class Epic5AccountingServiceTests(TestCase):
             memo="ACH payment",
             is_credit_card_payoff=False,
         )
-        VendorPaymentService.save_and_sync_payment(payment)
+        VendorPaymentService.save_and_sync_payment(payment, actor=self.bill_payer)
         payment.refresh_from_db()
 
         self.assertEqual(payment.status, VendorPayment.Status.POSTED)
@@ -907,7 +955,7 @@ class Epic5AccountingServiceTests(TestCase):
 
         VendorService.save_and_sync_vendor(self.vendor)
         bill = self._create_vendor_bill()
-        VendorBillService.save_and_sync_bill(bill)
+        self._approve_and_sync_bill(bill)
 
         payment = VendorPayment.objects.create(
             vendor=self.vendor,
@@ -921,7 +969,7 @@ class Epic5AccountingServiceTests(TestCase):
         )
 
         with self.assertRaises(ValidationError) as exc:
-            VendorPaymentService.save_and_sync_payment(payment)
+            VendorPaymentService.save_and_sync_payment(payment, actor=self.bill_payer)
 
         self.assertIn("Vendor payments must use the configured operating bank account", str(exc.exception))
 
@@ -969,8 +1017,8 @@ class Epic5AccountingServiceTests(TestCase):
         ]
 
         VendorService.save_and_sync_vendor(self.vendor)
-        VendorBillService.save_and_sync_bill(self._create_vendor_bill(amount=Decimal("50.00")))
-        VendorBillService.save_and_sync_bill(
+        self._approve_and_sync_bill(self._create_vendor_bill(amount=Decimal("50.00")))
+        self._approve_and_sync_bill(
             self._create_vendor_bill(
                 amount=Decimal("75.00"),
                 maintenance_category=None,

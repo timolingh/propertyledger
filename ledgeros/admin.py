@@ -236,6 +236,19 @@ class AuditLogAdmin(admin.ModelAdmin):
 
 @admin.register(RoleLandingPage)
 class RoleLandingPageAdmin(admin.ModelAdmin):
+    # Preserved as historical configuration; /home/ is now shared by every role.
+    readonly_fields = ["group_name", "landing_url_name", "priority", "is_active", "notes", "created_at", "updated_at"]
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    change_list_template = "admin/ledgeros/rolelandingpage/change_list.html"
     list_display = [
         "group_name",
         "landing_url_name",

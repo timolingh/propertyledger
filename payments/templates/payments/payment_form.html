@@ -5,10 +5,11 @@
 {% block content %}
   <div class="card">
     <h1>{{ object|default:"Add payment" }}</h1>
+    <p class="muted">Enter the full receipt amount. If it includes a refundable security deposit, enter that portion and choose its lease. The remainder is available for invoice allocation.</p>
     <form method="post">
       {% csrf_token %}
       {{ form.as_p }}
-      <button type="submit" class="button primary">Save local payment</button>
+      <button type="submit" class="button primary">Save receipt for review</button>
       <a class="button" href="{% url 'tenant-payment-list' %}">Back</a>
     </form>
   </div>

@@ -1,0 +1,27 @@
+{% extends "ledgeros/base.html" %}
+
+{% block title %}Vendor bill approvals | PropertyLedger{% endblock %}
+
+{% block content %}
+  <div class="card">
+    <h1>Vendor bill approvals</h1>
+    <p>Review submitted bills created by another user. Approval does not itself post or pay the bill.</p>
+  </div>
+  <div class="card">
+    <table>
+      <thead><tr><th>Bill</th><th>Vendor</th><th>Property</th><th>Amount</th><th>Submitted by</th><th>Action</th></tr></thead>
+      <tbody>
+        {% for bill in bills %}
+          <tr>
+            <td>{{ bill.pk }}</td><td>{{ bill.vendor }}</td><td>{{ bill.property }}</td><td>{{ bill.amount }}</td>
+            <td>{{ bill.submitted_by|default:"Unknown" }}</td>
+            <td><a href="{% url 'vendor-bill-detail' bill.pk %}">Review</a></td>
+          </tr>
+        {% empty %}
+          <tr><td colspan="6" class="muted">No independently reviewable bills are awaiting your approval.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+{% endblock %}
+

@@ -75,6 +75,42 @@ Key rules:
 
 ## Main workflows
 
+### Shared workflow home (WP1)
+
+`GET /home/` renders `WorkflowHomeView` for every authenticated user, rather than redirecting by role. Login still targets `/home/`; `/` remains the existing admin-only Setup route. `get_home_redirect_url` now returns this shared home. Historical `RoleLandingPage` rows remain read-only in admin and are no longer created or rewritten by `post_migrate` or used for navigation.
+
+`propertyledger/workflows.py` reads setup/configuration without singleton `.load()` helpers, checks LedgerOS health once with explicitly supplied configuration, and composes local queues. Home GET creates no setup rows, sync records, payments or accounting requests. Home POST is unsupported. Receipt queues exclude posted/voided records and successful parent syncs; payment-confirmation queues include attempted, unconfirmed vendor payments only. WP3 adds a local active-maintenance queue that excludes closed and cancelled requests. Counts cover each full role-authorized query, while displayed rows are limited to five. No payable balances are inferred.
+
+The shared navigation context checks the destination views' role policies. Users without recognized roles have no workflow access; inactive users fail role checks. Reporting views separately enforce the capability required by unsafe HTTP methods, so viewer access to a detail page does not authorize posting. Write controls are hidden on read-only pages. WP2 adds current-database checks for individually assigned bill-approval and vendor-payment capabilities.
+
+Home distinguishes missing configuration, denied LedgerOS access and outages; raw credentials or upstream response bodies are not rendered there. Health is readiness information, not proof that a financial action is authorized or posted. Existing posting/financial semantics remain unchanged.
+
+All UI paths that create LedgerOS accounting effects call `LedgerOSWriteReadinessService.require()` immediately before the domain service. Its health request is capped at five seconds even if a larger timeout is configured. Setup, configuration, permission and availability failures have different operator messages. A failed preflight creates no sync attempt; an outage during the subsequent request is still recorded by the existing adapter against its stable idempotency key. PropertyLedger does not queue financial writes offline.
+
+Before release or rollback, run `python manage.py inventory_workflow_release --json`. The command only reads data and counts unapproved legacy bills, attempted vendor payments, journal-less legacy deposit events and parent-only legacy receipts. Rollback must first disable financial writes at the deployment boundary. Keep the additive migrations and every local/sync/audit row in place; use a forward fix or read-only application version rather than reversing accounting migrations.
+
+`ledgeros/static/ledgeros/workflows.css` and `navigation.js` provide the shared responsive sidebar. Desktop collapse is stored in browser local storage, with a fallback when storage is disabled. The mobile drawer supports inert background/closed navigation, focus containment, Escape and focus return; without JavaScript, mobile navigation remains expanded. Production deployments must run `collectstatic` and serve `STATIC_ROOT` through their static-file hosting configuration; Django's local debug server serves these assets during development.
+
+Browser acceptance artifacts and repeatable fixture commands are in [WP1 QA](qa/wp1/README.md). The existing workflow PRD and [implementation plan](workflow-implementation-plan.md) define later work packages.
+
+### Maintenance lifecycle (WP3)
+
+`MaintenanceRequest` is a local operational record. Its required fields are property, description, category, and priority; unit, tenant, assigned vendor, target date, and nonnegative estimated cost are optional. A unit must belong to the selected property. When a tenant is selected, a lease must associate that tenant with the selected property and optional unit. Source metadata and creator attribution leave a future tenant-origin path without granting tenant access now.
+
+The canonical path is `Open → Triaged → Assigned → In progress → Verified → Closed`. Triaged, assigned, or in-progress work can be put on hold and resumes to its prior state. Active work can be cancelled with a reason. Verification records its actor and time. Closure is allowed only after verification and requires a note plus either `Vendor invoice pending` or `No external cost`; no bill or payment is required. Reopening requires a reason, returns the request to Triaged, increments the reopen count, and preserves the prior closure event.
+
+All mutations use `MaintenanceRequestService`, which checks the admin/property-manager/bookkeeper role from current database state, locks the row, and checks the submitted version before writing. Each create, edit, and transition increments the optimistic version and writes an immutable `MaintenanceRequestEvent` plus the shared audit log. Read-only viewers may use the request list and detail pages; owner viewers gain no maintenance scope. Admin lifecycle fields are read-only and admin saves use the same service.
+
+Maintenance lifecycle writes do not call LedgerOS and remain available during an outage. They create no invoice, payment, journal, balance, owner-statement line, tenant-ledger entry, or report total. Photo upload fields and controls remain absent until private durable storage, backup/access policy, JPEG/PNG decoding and re-encoding, metadata stripping, and size limits are configured and tested.
+
+### Maintenance bill handoff (WP4)
+
+`VendorBill.maintenance_request` is an optional protected many-to-one link: one request may have multiple vendors and bills, while each bill belongs to at most one request. The service requires matching properties and, for a unit-specific request, an exact bill unit match. Linking and unlinking lock the request and bill, check the request version, increment that version, and append an actor-attributed maintenance event. Existing posted bills may be linked explicitly without changing their accounting fields, sync record, journal identity, approval, or payment state.
+
+Admins, property managers, and bookkeepers may link a compatible existing bill. Creating a new bill still requires the established admin/bookkeeper bill-editor role. The maintenance bill form prefills property, unit, assigned vendor, category, repair description, and bill date for review. GET creates no record. Its signed token binds the request, version, and UUID; the UUID is stored on the new bill before any later posting and repeated form submission returns the same bill. Creation uses `VendorBillApprovalService.save_draft`, and optional submission uses the normal WP2 approval service. It never posts or pays automatically.
+
+The maintenance detail batches linked bills through `BillPaymentStatusService` and displays maintenance status separately from bill approval, LedgerOS posting, and current payable state. Bills can be created or linked before or after verification and closure. Link changes never reopen or close maintenance, and bill credits, reversals, approval, posting, or payment do not mutate the operational lifecycle. The home queue for maintenance awaiting a vendor bill includes verified requests and closed requests marked invoice pending with no linked bill; no-cost closures are excluded.
+
 ### Setup and onboarding
 
 - Configure LedgerOS connection settings.
@@ -113,14 +149,28 @@ and idempotency key; confirmed allocations are skipped. Accounting fields are
 locked after an allocation has been attempted, including timeout cases where
 LedgerOS might already have committed the payment. Notes remain editable.
 
-Finalizing the receipt retries unconfirmed allocations and requires the entire
-receipt amount to be allocated and posted. It sends no parent receipt event to
-LedgerOS and never posts the money again. The parent's `LedgerOSSyncRecord` is
-a local `payment_collection` summary under `tenant_payment.finalized`; its
-response lists the allocation sync records, LedgerOS payment IDs, journal IDs,
-and amounts. Existing report queries continue to use the parent's succeeded
-sync status. Failed finalization remains outside official receipt totals.
-Unapplied amounts are local operational data, not posted tenant credit.
+One receipt may include invoice allocations and one refundable security-deposit
+allocation. The deposit belongs to a matching lease and posts through
+`POST /api/v1/sync-events/` with explicit entries: debit the configured operating
+bank account and credit the configured tenant security-deposit liability. Its
+event date is the receipt date. Deposit-only receipts are supported.
+
+Finalizing retries unconfirmed invoice and deposit components and requires the
+entire receipt amount to be allocated. It sends no parent receipt event to
+LedgerOS and never posts the money again. Each component freezes its serialized
+request before the first attempt and reuses the same idempotency key. A component
+succeeds only when LedgerOS returns a posted journal ID. The parent's
+`LedgerOSSyncRecord` is a local `payment_collection` summary under
+`tenant_payment.finalized`; it lists confirmed invoice payment IDs, deposit event
+ID, journal IDs, and component amounts.
+
+Reports use confirmed invoice applications for tenant AR, rent collections, and
+owner income. They use confirmed deposit allocations only for deposit-liability
+activity. A partially posted receipt therefore exposes its confirmed components
+without treating the full parent amount as rent. Parent-only historic receipts
+without component rows retain the previous whole-receipt report behavior; no
+historical journal is changed or reposted. Unapplied amounts remain local
+operational data, not posted tenant credit.
 
 Legacy `tenant_payment.received` sync-event rows are retained unchanged. When a
 receipt is finalized again, its parent link moves to the new local summary;
@@ -129,7 +179,10 @@ Existing allocation records are reused. A changed retry payload is rejected
 for manual reconciliation rather than sent with a new idempotency key. No data
 migration or automatic reposting is performed.
 
-Security-deposit events retain their existing generic sync-event contract.
+Standalone received/refunded security-deposit events use the same explicit
+Cash/liability journal contract and require a posted journal response. Required
+and deducted events are not posted until their separate accounting treatment is
+defined.
 
 For manual acceptance in a prepared Docker sandbox, create two posted invoices
 for the same tenant/property for `40.00` and `60.00`, then allocate a `100.00`
@@ -140,11 +193,40 @@ finalization. Finalize again and confirm no extra payment or journal. For a
 `40.00`. Test a failed allocation by interrupting LedgerOS availability, then
 restore it and retry the same receipt; payment IDs for successful allocations
 must remain unchanged. No reset of an existing bookkeeping database is needed.
+For the mixed acceptance case, post a `2,000.00` receipt with `1,500.00` applied
+to rent and `500.00` to the deposit liability. Confirm aggregate Cash `+2,000.00`,
+AR `-1,500.00`, deposit liability `+500.00`, and no balance or journal-count
+change after exact replay.
 
 ### Vendor and debt workflows
 
 - Record vendors, bills, vendor payments, and debt-service payments.
 - Keep credit-card and liability workflows behind the supported adapter paths.
+
+### Vendor bill approval and payment authority (WP2)
+
+Vendor bill approval is independent of LedgerOS posting status. New bills follow:
+
+```text
+Draft → Submitted → Approved → Explicit LedgerOS post → Eligible for payment
+                  ↘ Rejected → Corrected draft → Resubmitted
+Submitted → Withdrawn → Corrected draft → Resubmitted
+```
+
+The submitter cannot approve or reject the same bill, including when that user is an administrator. Approval and vendor-payment authority are separate per-user grants managed at `/payments/workflow-authorizations/`. A grant is effective only while the user is active and assigned an admin, property-manager, or bookkeeper workflow role. Grant checks query current database state at each financial decision so revocation takes effect immediately. Administrators manage grants but do not implicitly receive either economic capability.
+
+The approval fingerprint covers vendor, property/unit attribution, bill and due dates, amount, expense and maintenance categories, repair description, and tenant-chargeable treatment. General notes are excluded and are not sent in the LedgerOS bill payload. Submitted bills cannot be edited. A material change to an approved but unposted bill returns it to draft and clears the decision; posted accounting fields remain immutable. Approval transitions and grant changes record their actor and immutable history.
+
+Saving a bill never posts it. An administrator or bookkeeper explicitly posts an approved bill through the existing LedgerOS bill API. New vendor settlements must be started from an approved, successfully posted bill by a user with the payment grant. The service rechecks LedgerOS payable status and amount, while retaining the existing signed submission token, persisted UUID/fingerprint, row locking, and stable idempotency key.
+
+A retry of a saved uncertain payment requires a currently authorized payer but preserves the original payment, payload, and key. Revoking the original user's grant prevents that user from retrying; another authorized user may resume the same saved operation. Credit-card-funded bill settlements follow these rules. Credit-card payoff and debt-service workflows remain distinct and do not confer or consume vendor-bill approval.
+
+Migration `payments.0006_workflow_authorization_and_bill_approval` labels existing posted bills `Legacy / approval not recorded`; it does not fabricate approvals or grants and does not alter journals. A legacy posted bill must receive prospective submission and approval before a new payment. Historical successful payments remain viewable and are not reposted. The legacy card reconciliation command remains read-only by default; `--apply` now requires an explicitly named, currently payment-authorized actor:
+
+```bash
+docker compose -f docker-compose.yml run --rm propertyledger-web \
+  python manage.py reconcile_bill_card_payments --apply --payment-id 123 --actor authorized-user
+```
 
 Bill payment status is read from LedgerOS using authenticated
 `GET /api/v1/bills/` batches of up to 100 repeated `external_bill_number`
@@ -192,7 +274,7 @@ The client needs `bills` scope for reads and the existing `payments` scope and
 docker compose -f ../ledgeros_v2/docker-compose.yml run --rm web python manage.py migrate
 docker compose -f docker-compose.yml run --rm propertyledger-web python manage.py reconcile_bill_card_payments
 # After reviewing the preview, reconcile one existing payment:
-docker compose -f docker-compose.yml run --rm propertyledger-web python manage.py reconcile_bill_card_payments --apply --payment-id 123
+docker compose -f docker-compose.yml run --rm propertyledger-web python manage.py reconcile_bill_card_payments --apply --payment-id 123 --actor authorized-user
 ```
 
 The preview is read-only. Apply creates missing payment/application records

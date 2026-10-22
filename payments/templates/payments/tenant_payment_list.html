@@ -17,8 +17,9 @@
           <th>Date</th>
           <th>Amount</th>
           <th>Status</th>
-          <th>Allocated</th>
-          <th>Credit</th>
+          <th>Invoice / rent</th>
+          <th>Deposit</th>
+          <th>Unallocated</th>
           <th>Actions</th>
         </tr>
       </thead>
@@ -31,13 +32,14 @@
             <td>{{ payment.amount }}</td>
             <td>{{ payment.get_status_display }}</td>
             <td>{{ payment.allocated_amount }}</td>
+            <td>{{ payment.deposit_amount }}</td>
             <td>{{ payment.unapplied_amount }}</td>
             <td class="actions">
               <a href="{% url 'tenant-payment-detail' payment.pk %}">View</a>
             </td>
           </tr>
         {% empty %}
-          <tr><td colspan="8" class="muted">No payments yet.</td></tr>
+          <tr><td colspan="9" class="muted">No payments yet.</td></tr>
         {% endfor %}
       </tbody>
     </table>

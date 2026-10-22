@@ -1,18 +1,27 @@
 from django.contrib import admin
+from decimal import Decimal
 
-from payments.forms import DebtServicePaymentForm, MaintenanceCategoryForm, TenantPaymentForm, VendorBillForm, VendorForm, VendorPaymentForm
+from payments.forms import DebtServicePaymentForm, MaintenanceCategoryForm, SecurityDepositEventForm, TenantPaymentForm, VendorBillForm, VendorForm, VendorPaymentForm
+from payments.maintenance_forms import MaintenanceRequestForm
 from payments.models import (
     DebtServicePayment,
     MaintenanceCategory,
+    MaintenanceRequest,
+    MaintenanceRequestEvent,
     PaymentWorkflowSettings,
     SecurityDepositEvent,
     TenantPayment,
     TenantPaymentApplication,
+    TenantPaymentDepositAllocation,
     Vendor,
     VendorBill,
+    VendorBillApprovalEvent,
     VendorPayment,
+    WorkflowAuthorization,
 )
-from payments.services import VendorService
+from payments.approval_services import VendorBillApprovalService
+from payments.maintenance_services import MaintenanceRequestService
+from payments.services import TenantPaymentService, VendorPaymentService, VendorService
 
 
 @admin.register(PaymentWorkflowSettings)
@@ -34,13 +43,32 @@ class TenantPaymentApplicationInline(admin.TabularInline):
         return False
 
 
+class TenantPaymentDepositAllocationInline(admin.StackedInline):
+    model = TenantPaymentDepositAllocation
+    extra = 0
+    fields = ["lease", "amount", "sync_record", "frozen_request_payload"]
+    readonly_fields = fields
+    can_delete = False
+
+    def has_add_permission(self, request, obj=None):
+        return False
+
+
 @admin.register(TenantPayment)
 class TenantPaymentAdmin(admin.ModelAdmin):
     form = TenantPaymentForm
     list_display = ["tenant", "property", "payment_date", "amount", "status", "allocated_amount", "unapplied_amount"]
     list_filter = ["status", "payment_method", "property"]
     search_fields = ["tenant__name", "property__name", "reference"]
-    inlines = [TenantPaymentApplicationInline]
+    inlines = [TenantPaymentApplicationInline, TenantPaymentDepositAllocationInline]
+
+    def save_model(self, request, obj, form, change):
+        super().save_model(request, obj, form, change)
+        TenantPaymentService.set_deposit_allocation(
+            payment=obj,
+            lease=form.cleaned_data.get("deposit_lease"),
+            amount=form.cleaned_data.get("deposit_amount") or Decimal("0.00"),
+        )
 
 
 @admin.register(TenantPaymentApplication)
@@ -52,15 +80,29 @@ class TenantPaymentApplicationAdmin(admin.ModelAdmin):
     def has_add_permission(self, request):
         return False
 
+
+@admin.register(TenantPaymentDepositAllocation)
+class TenantPaymentDepositAllocationAdmin(admin.ModelAdmin):
+    list_display = ["payment", "lease", "amount", "sync_record", "created_at"]
+    readonly_fields = ["payment", "lease", "amount", "frozen_request_payload", "sync_record", "created_at", "updated_at"]
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
     def has_delete_permission(self, request, obj=None):
         return False
 
 
 @admin.register(SecurityDepositEvent)
 class SecurityDepositEventAdmin(admin.ModelAdmin):
+    form = SecurityDepositEventForm
     list_display = ["tenant", "property", "unit", "event_type", "event_date", "amount", "status"]
     list_filter = ["status", "event_type", "property"]
     search_fields = ["tenant__name", "property__name", "unit__name", "lease__id", "description"]
+    readonly_fields = ["status", "sync_record", "frozen_request_payload"]
 
 
 @admin.register(Vendor)
@@ -82,12 +124,72 @@ class MaintenanceCategoryAdmin(admin.ModelAdmin):
     search_fields = ["name", "description"]
 
 
+@admin.register(MaintenanceRequest)
+class MaintenanceRequestAdmin(admin.ModelAdmin):
+    form = MaintenanceRequestForm
+    list_display = ["id", "property", "unit", "category", "priority", "status", "assigned_vendor", "target_completion_date"]
+    list_filter = ["status", "priority", "category", "property"]
+    search_fields = ["description", "property__name", "unit__name", "tenant__name", "assigned_vendor__name"]
+    readonly_fields = [
+        "status", "version", "source", "source_reference", "hold_from_status",
+        "closure_financial_status", "closure_notes", "reopen_count", "created_by",
+        "verified_by", "verified_at", "closed_by", "closed_at", "created_at", "updated_at",
+    ]
+
+    def save_model(self, request, obj, form, change):  # pragma: no cover - admin behavior
+        if change:
+            saved = MaintenanceRequestService.update(
+                request=obj,
+                actor=request.user,
+                expected_version=form.cleaned_data.get("version", obj.version) if form else obj.version,
+            )
+        else:
+            saved = MaintenanceRequestService.create(
+                actor=request.user,
+                property=obj.property,
+                unit=obj.unit,
+                tenant=obj.tenant,
+                category=obj.category,
+                priority=obj.priority,
+                description=obj.description,
+                assigned_vendor=obj.assigned_vendor,
+                target_completion_date=obj.target_completion_date,
+                estimated_cost=obj.estimated_cost,
+                source=obj.source,
+                source_reference=obj.source_reference,
+            )
+        obj.__dict__.update(saved.__dict__)
+
+
+@admin.register(MaintenanceRequestEvent)
+class MaintenanceRequestEventAdmin(admin.ModelAdmin):
+    list_display = ["request", "action", "from_status", "to_status", "actor", "request_version", "created_at"]
+    readonly_fields = ["request", "action", "from_status", "to_status", "actor", "reason", "request_version", "metadata", "created_at"]
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+
 @admin.register(VendorBill)
 class VendorBillAdmin(admin.ModelAdmin):
     form = VendorBillForm
-    list_display = ["vendor", "property", "unit", "bill_date", "amount", "expense_category", "status"]
-    list_filter = ["status", "expense_category", "property"]
+    list_display = ["vendor", "property", "unit", "bill_date", "amount", "approval_status", "status"]
+    list_filter = ["approval_status", "status", "expense_category", "property"]
     search_fields = ["vendor__name", "property__name", "unit__name", "repair_notes", "notes"]
+    readonly_fields = [
+        "status", "sync_record", "approval_status", "created_by", "submitted_by", "submitted_at",
+        "submission_version", "approved_fingerprint", "decision_by", "decision_at", "decision_reason",
+        "maintenance_request", "maintenance_submission_id",
+    ]
+
+    def save_model(self, request, obj, form, change):  # pragma: no cover - admin behavior
+        VendorBillApprovalService.save_draft(obj, actor=request.user)
 
 
 @admin.register(VendorPayment)
@@ -96,6 +198,40 @@ class VendorPaymentAdmin(admin.ModelAdmin):
     list_display = ["vendor", "vendor_bill", "payment_date", "amount", "payment_method", "status"]
     list_filter = ["status", "payment_method", "is_credit_card_payoff"]
     search_fields = ["vendor__name", "vendor_bill__vendor__name", "memo", "notes"]
+    readonly_fields = ["status", "sync_record", "submission_id", "submission_hash", "initiated_by"]
+
+    def save_model(self, request, obj, form, change):  # pragma: no cover - admin behavior
+        VendorPaymentService.save_and_sync_payment(obj, actor=request.user)
+
+
+@admin.register(WorkflowAuthorization)
+class WorkflowAuthorizationAdmin(admin.ModelAdmin):
+    list_display = ["user", "can_approve_vendor_bills", "can_pay_vendor_bills", "updated_by", "updated_at"]
+    readonly_fields = ["user", "can_approve_vendor_bills", "can_pay_vendor_bills", "updated_by", "created_at", "updated_at"]
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+
+@admin.register(VendorBillApprovalEvent)
+class VendorBillApprovalEventAdmin(admin.ModelAdmin):
+    list_display = ["bill", "action", "actor", "submission_version", "created_at"]
+    readonly_fields = ["bill", "action", "actor", "submission_version", "financial_fingerprint", "reason", "created_at"]
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
 
 
 @admin.register(DebtServicePayment)

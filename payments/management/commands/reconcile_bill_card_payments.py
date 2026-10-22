@@ -1,5 +1,7 @@
 from django.core.management.base import BaseCommand, CommandError
+from django.contrib.auth import get_user_model
 
+from ledgeros.audit import audit_success
 from payments.models import VendorPayment
 from payments.services import VendorPaymentService
 
@@ -10,8 +12,17 @@ class Command(BaseCommand):
     def add_arguments(self, parser):
         parser.add_argument("--apply", action="store_true", help="Link verified existing journals; default is preview only.")
         parser.add_argument("--payment-id", type=int)
+        parser.add_argument("--actor", help="Username of the authorized operator performing --apply.")
 
     def handle(self, *args, **options):
+        actor = None
+        if options["apply"]:
+            if not options.get("actor"):
+                raise CommandError("--actor is required with --apply.")
+            try:
+                actor = get_user_model().objects.get(username=options["actor"])
+            except get_user_model().DoesNotExist as exc:
+                raise CommandError("The specified actor does not exist.") from exc
         payments = VendorPayment.objects.filter(
             payment_method=VendorPayment.PaymentMethod.CREDIT_CARD, is_credit_card_payoff=False,
         ).exclude(status=VendorPayment.Status.VOIDED).select_related("sync_record", "vendor_bill__sync_record", "vendor")
@@ -28,9 +39,15 @@ class Command(BaseCommand):
             self.stdout.write(f"Payment {payment.pk}: bill {payment.vendor_bill_id}, amount {payment.amount}")
             if options["apply"]:
                 try:
-                    result = VendorPaymentService.sync_payment(payment)
+                    result = VendorPaymentService.sync_payment(payment, actor=actor)
                     if not result.sync_record or result.sync_record.status != "succeeded":
                         raise CommandError("LedgerOS could not verify the existing journal; inspect the payment sync error.")
+                    audit_success(
+                        action="legacy_card_payment_reconciled",
+                        record=result,
+                        user=actor,
+                        source="management_command",
+                    )
                 except Exception as exc:
                     failures += 1
                     self.stderr.write(f"Payment {payment.pk}: {exc}")

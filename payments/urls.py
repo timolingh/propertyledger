@@ -1,5 +1,14 @@
 from django.urls import path
 
+from payments.maintenance_views import (
+    MaintenanceBillCreateView,
+    MaintenanceBillLinkView,
+    MaintenanceBillUnlinkView,
+    MaintenanceRequestCreateView,
+    MaintenanceRequestDetailView,
+    MaintenanceRequestListView,
+    MaintenanceRequestUpdateView,
+)
 from payments.views import (
     DebtServicePaymentCreateView,
     DebtServicePaymentDetailView,
@@ -21,6 +30,7 @@ from payments.views import (
     TenantPaymentListView,
     PaymentsLandingView,
     VendorBillCreateView,
+    VendorBillApprovalQueueView,
     VendorBillDetailView,
     VendorBillPayView,
     VendorBillListView,
@@ -32,6 +42,7 @@ from payments.views import (
     VendorPaymentDetailView,
     VendorPaymentListView,
     VendorPaymentUpdateView,
+    WorkflowAuthorizationView,
 )
 
 
@@ -44,7 +55,15 @@ urlpatterns = [
     path("maintenance-categories/", MaintenanceCategoryListView.as_view(), name="maintenance-category-list"),
     path("maintenance-categories/add/", MaintenanceCategoryCreateView.as_view(), name="maintenance-category-create"),
     path("maintenance-categories/<int:pk>/edit/", MaintenanceCategoryUpdateView.as_view(), name="maintenance-category-edit"),
+    path("maintenance/", MaintenanceRequestListView.as_view(), name="maintenance-request-list"),
+    path("maintenance/add/", MaintenanceRequestCreateView.as_view(), name="maintenance-request-create"),
+    path("maintenance/<int:pk>/", MaintenanceRequestDetailView.as_view(), name="maintenance-request-detail"),
+    path("maintenance/<int:pk>/edit/", MaintenanceRequestUpdateView.as_view(), name="maintenance-request-edit"),
+    path("maintenance/<int:pk>/bills/add/", MaintenanceBillCreateView.as_view(), name="maintenance-bill-create"),
+    path("maintenance/<int:pk>/bills/link/", MaintenanceBillLinkView.as_view(), name="maintenance-bill-link"),
+    path("maintenance/<int:pk>/bills/<int:bill_pk>/unlink/", MaintenanceBillUnlinkView.as_view(), name="maintenance-bill-unlink"),
     path("vendor-bills/", VendorBillListView.as_view(), name="vendor-bill-list"),
+    path("vendor-bills/approvals/", VendorBillApprovalQueueView.as_view(), name="vendor-bill-approval-queue"),
     path("vendor-bills/add/", VendorBillCreateView.as_view(), name="vendor-bill-create"),
     path("vendor-bills/<int:pk>/", VendorBillDetailView.as_view(), name="vendor-bill-detail"),
     path("vendor-bills/<int:pk>/pay/", VendorBillPayView.as_view(), name="vendor-bill-pay"),
@@ -53,6 +72,7 @@ urlpatterns = [
     path("vendor-payments/add/", VendorPaymentCreateView.as_view(), name="vendor-payment-create"),
     path("vendor-payments/<int:pk>/", VendorPaymentDetailView.as_view(), name="vendor-payment-detail"),
     path("vendor-payments/<int:pk>/edit/", VendorPaymentUpdateView.as_view(), name="vendor-payment-edit"),
+    path("workflow-authorizations/", WorkflowAuthorizationView.as_view(), name="workflow-authorizations"),
     path("debt-service-payments/", DebtServicePaymentListView.as_view(), name="debt-service-payment-list"),
     path("debt-service-payments/add/", DebtServicePaymentCreateView.as_view(), name="debt-service-payment-create"),
     path("debt-service-payments/<int:pk>/", DebtServicePaymentDetailView.as_view(), name="debt-service-payment-detail"),

@@ -10,7 +10,8 @@ from django.test import TestCase, TransactionTestCase
 from django.urls import reverse
 
 from ledgeros.models import LedgerOSSyncRecord, Owner, Property
-from ledgeros.roles import ROLE_BOOKKEEPER, ROLE_READ_ONLY_VIEWER, assign_user_role
+from ledgeros.roles import ROLE_ADMIN, ROLE_BOOKKEEPER, ROLE_READ_ONLY_VIEWER, assign_user_role
+from payments.approval_services import VendorBillApprovalService, WorkflowAuthorizationService
 from payments.models import Vendor, VendorBill, VendorPayment
 from payments.tests.test_payments_workflow import _FakeResponse, _configure_ledgeros_settings, _configure_epic5_mappings
 
@@ -18,10 +19,19 @@ from payments.tests.test_payments_workflow import _FakeResponse, _configure_ledg
 @patch.dict(os.environ, {"LEDGEROS_HMAC_SECRET": "secret"})
 class BillPaymentFlowTests(TestCase):
     def setUp(self):
+        readiness = patch("payments.views.LedgerOSWriteReadinessService.require")
+        readiness.start()
+        self.addCleanup(readiness.stop)
         _configure_ledgeros_settings()
         _configure_epic5_mappings()
         self.user = get_user_model().objects.create_user("bill-payer")
+        self.grant_admin = get_user_model().objects.create_user("grant-admin")
         assign_user_role(self.user, ROLE_BOOKKEEPER)
+        assign_user_role(self.grant_admin, ROLE_ADMIN)
+        WorkflowAuthorizationService.set_grants(
+            target=self.user, actor=self.grant_admin,
+            can_approve_vendor_bills=False, can_pay_vendor_bills=True,
+        )
         self.client.force_login(self.user)
         vendor = Vendor.objects.create(name="Vendor")
         property_obj = Property.objects.create(name="Building", primary_owner=Owner.objects.create(name="Owner"))
@@ -33,6 +43,9 @@ class BillPaymentFlowTests(TestCase):
             external_id=f"vendor-bill:{self.bill.pk}", idempotency_key=f"bill:{self.bill.pk}", request_hash="bill",
             ledgeros_resource_type="bill", ledgeros_resource_id=str(self.bill.pk), status=LedgerOSSyncRecord.Status.SUCCEEDED)
         self.bill.save()
+        self.bill.approval_status = VendorBill.ApprovalStatus.APPROVED
+        self.bill.approved_fingerprint = VendorBillApprovalService.financial_fingerprint(self.bill)
+        self.bill.save(update_fields=["approval_status", "approved_fingerprint", "updated_at"])
         self.detail_url = reverse("vendor-bill-detail", args=[self.bill.pk])
         self.pay_url = reverse("vendor-bill-pay", args=[self.bill.pk])
         self.balance = Decimal("100.00")
@@ -200,6 +213,10 @@ class BillPaymentFlowTests(TestCase):
         self.assertContains(response, "invalid or expired")
         other_user = get_user_model().objects.create_user("another-bookkeeper")
         assign_user_role(other_user, ROLE_BOOKKEEPER)
+        WorkflowAuthorizationService.set_grants(
+            target=other_user, actor=self.grant_admin,
+            can_approve_vendor_bills=False, can_pay_vendor_bills=True,
+        )
         self.client.force_login(other_user)
         response = self.client.post(self.pay_url, data)
         self.assertContains(response, "invalid or expired")
@@ -242,6 +259,15 @@ class BillPaymentConcurrencyTests(TransactionTestCase):
         from payments.services import VendorPaymentService
         _configure_ledgeros_settings()
         _configure_epic5_mappings()
+        user_model = get_user_model()
+        actor = user_model.objects.create_user("concurrent-payer")
+        grant_admin = user_model.objects.create_user("concurrent-admin")
+        assign_user_role(actor, ROLE_BOOKKEEPER)
+        assign_user_role(grant_admin, ROLE_ADMIN)
+        WorkflowAuthorizationService.set_grants(
+            target=actor, actor=grant_admin,
+            can_approve_vendor_bills=False, can_pay_vendor_bills=True,
+        )
         vendor = Vendor.objects.create(name="Concurrent vendor")
         property_obj = Property.objects.create(name="Building", primary_owner=Owner.objects.create(name="Owner"))
         bill = VendorBill.objects.create(vendor=vendor, property=property_obj, bill_date=date(2026, 5, 1),
@@ -252,6 +278,9 @@ class BillPaymentConcurrencyTests(TransactionTestCase):
             external_id=f"vendor-bill:{bill.pk}", idempotency_key="concurrent-bill", request_hash="bill",
             ledgeros_resource_type="bill", status=LedgerOSSyncRecord.Status.SUCCEEDED)
         bill.save()
+        bill.approval_status = VendorBill.ApprovalStatus.APPROVED
+        bill.approved_fingerprint = VendorBillApprovalService.financial_fingerprint(bill)
+        bill.save(update_fields=["approval_status", "approved_fingerprint", "updated_at"])
         statuses.return_value = {bill.pk: {"status": "unpaid", "balance": Decimal("100.00")}}
         transport.return_value = _FakeResponse(status=201, payload=json.dumps({"payment": {"id": 22},
             "journal_entry": {"id": 33, "status": "posted"}}).encode())
@@ -264,7 +293,9 @@ class BillPaymentConcurrencyTests(TransactionTestCase):
             close_old_connections()
             try:
                 barrier.wait(timeout=10)
-                return VendorPaymentService.pay_bill(bill=bill, submission_id=submission_id, details=details).pk
+                return VendorPaymentService.pay_bill(
+                    bill=bill, submission_id=submission_id, details=details, actor=actor
+                ).pk
             finally:
                 close_old_connections()
 

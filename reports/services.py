@@ -27,12 +27,44 @@ from ledgeros.models import (
     TenantCharge,
 )
 from ledgeros.signing import sign_request
-from payments.models import SecurityDepositEvent, TenantPayment, VendorBill
+from payments.models import SecurityDepositEvent, TenantPayment, TenantPaymentDepositAllocation, VendorBill
 from payments.models import TenantPaymentApplication
 from reports.models import OwnerContributionDistribution
 
 
 logger = logging.getLogger(__name__)
+
+
+def _confirmed_rent_amount(payment: TenantPayment) -> Decimal:
+    applications = list(payment.applications.all())
+    if applications:
+        return sum(
+            (
+                application.amount_applied
+                for application in applications
+                if application.sync_record
+                and application.sync_record.status == LedgerOSSyncRecord.Status.SUCCEEDED
+            ),
+            Decimal("0.00"),
+        ).quantize(Decimal("0.01"))
+    try:
+        payment.deposit_allocation
+    except TenantPaymentDepositAllocation.DoesNotExist:
+        deposit_exists = False
+    else:
+        deposit_exists = True
+    if (
+        not deposit_exists
+        and payment.sync_record
+        and payment.sync_record.status == LedgerOSSyncRecord.Status.SUCCEEDED
+    ):
+        # Legacy receipts predate component allocation records.
+        return payment.amount.quantize(Decimal("0.01"))
+    return Decimal("0.00")
+
+
+def _receipt_has_confirmed_rent(payment: TenantPayment) -> bool:
+    return _confirmed_rent_amount(payment) > Decimal("0.00")
 
 
 @dataclass(frozen=True)
@@ -320,13 +352,13 @@ class OwnerStatementService:
                 charge_date__range=(start_date, end_date),
             ).select_related("tenant", "lease")
         )
-        payments = list(
-            TenantPayment.objects.filter(
-                property=property_obj,
-                sync_record__status=LedgerOSSyncRecord.Status.SUCCEEDED,
-                payment_date__range=(start_date, end_date),
-            )
-        )
+        receipt_candidates = TenantPayment.objects.filter(
+            property=property_obj,
+            payment_date__range=(start_date, end_date),
+        ).exclude(status=TenantPayment.Status.VOIDED).select_related(
+            "sync_record", "deposit_allocation__sync_record"
+        ).prefetch_related("applications__sync_record")
+        payments = [payment for payment in receipt_candidates if _receipt_has_confirmed_rent(payment)]
         bills = list(
             VendorBill.objects.filter(
                 property=property_obj,
@@ -349,9 +381,16 @@ class OwnerStatementService:
                 event_date__range=(start_date, end_date),
             )
         )
+        receipt_deposits = list(
+            TenantPaymentDepositAllocation.objects.filter(
+                payment__property=property_obj,
+                payment__payment_date__range=(start_date, end_date),
+                sync_record__status=LedgerOSSyncRecord.Status.SUCCEEDED,
+            ).exclude(payment__status=TenantPayment.Status.VOIDED)
+        )
 
         rent_charged = sum((charge.amount for charge in rent_charges), Decimal("0.00")).quantize(Decimal("0.01"))
-        rent_collected = sum((payment.amount for payment in payments), Decimal("0.00")).quantize(Decimal("0.01"))
+        rent_collected = sum((_confirmed_rent_amount(payment) for payment in payments), Decimal("0.00")).quantize(Decimal("0.01"))
         maintenance_expenses = sum(
             (
                 bill.amount
@@ -387,7 +426,8 @@ class OwnerStatementService:
         deposit_received = sum(
             (event.amount for event in deposit_events if event.event_type == SecurityDepositEvent.EventType.RECEIVED),
             Decimal("0.00"),
-        ).quantize(Decimal("0.01"))
+        ) + sum((allocation.amount for allocation in receipt_deposits), Decimal("0.00"))
+        deposit_received = deposit_received.quantize(Decimal("0.01"))
         deposit_deducted = sum(
             (event.amount for event in deposit_events if event.event_type == SecurityDepositEvent.EventType.DEDUCTED),
             Decimal("0.00"),
@@ -637,8 +677,9 @@ class PropertyReportService:
             sync_record__status=LedgerOSSyncRecord.Status.SUCCEEDED,
             charge_date__lte=period_end,
         ).exclude(status=TenantCharge.Status.VOIDED)
-        payments = TenantPayment.objects.select_related("tenant", "property").filter(
-            sync_record__status=LedgerOSSyncRecord.Status.SUCCEEDED,
+        payments = TenantPayment.objects.select_related(
+            "tenant", "property", "sync_record", "deposit_allocation__sync_record"
+        ).prefetch_related("applications__sync_record").filter(
             payment_date__lte=period_end,
         ).exclude(status=TenantPayment.Status.VOIDED)
         if property_obj is not None:
@@ -648,10 +689,14 @@ class PropertyReportService:
             charges = charges.filter(tenant=tenant)
             payments = payments.filter(tenant=tenant)
 
+        payment_rows = [payment for payment in payments if _receipt_has_confirmed_rent(payment)]
         opening_balance = sum(
             (_quantize(charge.amount) for charge in charges.filter(charge_date__lt=period_start)),
             Decimal("0.00"),
-        ) - sum((_quantize(payment.amount) for payment in payments.filter(payment_date__lt=period_start)), Decimal("0.00"))
+        ) - sum(
+            (_confirmed_rent_amount(payment) for payment in payment_rows if payment.payment_date < period_start),
+            Decimal("0.00"),
+        )
 
         entries: list[dict[str, Any]] = []
         running_balance = opening_balance
@@ -670,8 +715,10 @@ class PropertyReportService:
                 }
             )
 
-        for payment in payments.filter(payment_date__range=(period_start, period_end)):
-            payment_amount = _quantize(payment.amount)
+        for payment in payment_rows:
+            if not period_start <= payment.payment_date <= period_end:
+                continue
+            payment_amount = _confirmed_rent_amount(payment)
             running_balance -= payment_amount
             entries.append(
                 {
@@ -806,8 +853,9 @@ class PropertyReportService:
             sync_record__status=LedgerOSSyncRecord.Status.SUCCEEDED,
             bill_date__range=(period_start, period_end),
         ).exclude(status=VendorBill.Status.VOIDED)
-        payments = TenantPayment.objects.select_related("property", "tenant").filter(
-            sync_record__status=LedgerOSSyncRecord.Status.SUCCEEDED,
+        payments = TenantPayment.objects.select_related(
+            "property", "tenant", "sync_record", "deposit_allocation__sync_record"
+        ).prefetch_related("applications__sync_record").filter(
             payment_date__range=(period_start, period_end),
         ).exclude(status=TenantPayment.Status.VOIDED)
         if property_obj is not None:
@@ -827,8 +875,11 @@ class PropertyReportService:
 
         collections_by_method: dict[str, Decimal] = {}
         for payment in payments:
+            confirmed_rent = _confirmed_rent_amount(payment)
+            if confirmed_rent <= Decimal("0.00"):
+                continue
             collections_by_method.setdefault(payment.payment_method, Decimal("0.00"))
-            collections_by_method[payment.payment_method] += _quantize(payment.amount)
+            collections_by_method[payment.payment_method] += confirmed_rent
 
         income_total = sum(income_by_type.values(), Decimal("0.00")).quantize(Decimal("0.01"))
         expense_total = sum(expense_by_type.values(), Decimal("0.00")).quantize(Decimal("0.01"))
@@ -897,26 +948,59 @@ class PropertyReportService:
         if tenant is not None:
             events = events.filter(tenant=tenant)
 
+        allocations = TenantPaymentDepositAllocation.objects.select_related(
+            "payment__property", "payment__tenant", "lease__unit", "sync_record"
+        ).filter(
+            sync_record__status=LedgerOSSyncRecord.Status.SUCCEEDED,
+            payment__payment_date__range=(period_start, period_end),
+        ).exclude(payment__status=TenantPayment.Status.VOIDED)
+        if property_obj is not None:
+            allocations = allocations.filter(payment__property=property_obj)
+        if tenant is not None:
+            allocations = allocations.filter(payment__tenant=tenant)
+
         rows: list[list[Any]] = []
         running_balance = Decimal("0.00")
-        for event in events.order_by("event_date", "id"):
-            if event.event_type == SecurityDepositEvent.EventType.RECEIVED:
-                running_balance += _quantize(event.amount)
-            elif event.event_type in {
-                SecurityDepositEvent.EventType.DEDUCTED,
-                SecurityDepositEvent.EventType.REFUNDED,
-            }:
-                running_balance -= _quantize(event.amount)
+        activity = [
+            {
+                "date": event.event_date,
+                "sort_id": event.pk,
+                "property": event.property.name,
+                "tenant": event.tenant.name,
+                "unit": event.unit.name,
+                "type": event.get_event_type_display(),
+                "amount": _quantize(event.amount),
+                "direction": 1 if event.event_type == SecurityDepositEvent.EventType.RECEIVED else -1,
+                "status": event.get_status_display(),
+            }
+            for event in events
+        ]
+        activity.extend(
+            {
+                "date": allocation.payment.payment_date,
+                "sort_id": allocation.pk,
+                "property": allocation.payment.property.name,
+                "tenant": allocation.payment.tenant.name,
+                "unit": allocation.lease.unit.name,
+                "type": "Received (mixed receipt)",
+                "amount": _quantize(allocation.amount),
+                "direction": 1,
+                "status": "Posted",
+            }
+            for allocation in allocations
+        )
+        for item in sorted(activity, key=lambda row: (row["date"], row["sort_id"], row["type"])):
+            running_balance += item["amount"] * item["direction"]
             rows.append(
                 [
-                    event.property.name,
-                    event.tenant.name,
-                    event.unit.name,
-                    event.get_event_type_display(),
-                    event.event_date,
-                    _quantize(event.amount),
+                    item["property"],
+                    item["tenant"],
+                    item["unit"],
+                    item["type"],
+                    item["date"],
+                    item["amount"],
                     running_balance,
-                    event.get_status_display(),
+                    item["status"],
                 ]
             )
 

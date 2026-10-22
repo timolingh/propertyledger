@@ -10,6 +10,7 @@ The short version:
 4. copy the selected LedgerOS entity and accounting period into PropertyLedger
 5. configure the required account mappings
 6. run the setup smoke check
+7. assign bill-approval and vendor-payment authorizations
 
 If those steps are not complete, feature testing will mostly measure setup gaps instead of the product itself.
 
@@ -118,6 +119,7 @@ If those fields are blank, the setup is not complete.
 Use the values from LedgerOS admin or the beta bootstrap flow and make sure they are copied into PropertyLedger.
 
 For the beta demo, the seed script should already populate these values.
+It also provisions LedgerOS account `2200` as the active, credit-normal tenant security deposit liability and verifies the corresponding PropertyLedger mapping. If an existing `2200` account has conflicting settings, seeding stops instead of changing its accounting treatment.
 If LedgerOS web is not running yet, the seed script will warn and continue instead of failing, then you can run `make smoke` after both web stacks are up.
 
 ## Step 5: Configure account mappings
@@ -174,6 +176,24 @@ Both paths now record the smoke result back onto the setup screen.
 
 If setup is not complete, use the `Recommended Order` section to find the next missing step.
 
+## Step 7: Assign workflow authorizations
+
+Open **Workflow authorizations** from the Administration navigation or visit:
+
+- `http://localhost:8000/payments/workflow-authorizations/`
+
+Assign bill approval and vendor-payment authority independently. A user needs an active Admin, Property manager, or Bookkeeper role before either grant can be enabled. Administrators can manage grants but do not receive approval or payment authority automatically. Give at least one user approval authority and a different user the ability to submit bills, because submitters cannot approve their own bills. Give payment authority only to users who may record already-executed vendor payments.
+
+After migration, existing posted bills display `Legacy / approval not recorded`, and no production user receives an automatic grant. Submit and approve a legacy bill prospectively before its next payment; do not recreate or repost the historical bill.
+
+## Step 8: Enable maintenance roles
+
+Maintenance lifecycle authority comes from the existing workflow roles; there is no separate financial grant. Admins, property managers, and bookkeepers can create and transition requests. Read-only viewers can review request lists and history. Owner viewers and unassigned users have no maintenance access.
+
+Open the queue at `http://localhost:8000/payments/maintenance/`. Maintenance data is local and remains writable during a LedgerOS outage. It does not post bills or journals. Photo uploads are intentionally unavailable until the deployment has private durable storage, backups, access policy, and validated JPEG/PNG processing. Do not expose a public media route as a substitute.
+
+Admins and bookkeepers can create a vendor bill from a maintenance request. Property managers can link and unlink compatible existing bills but cannot use that handoff to create, approve, post, or pay one. The linked bill must share the request property and, for a unit-specific request, its unit. These changes are audited and remain independent of maintenance closure.
+
 ## Beta demo example
 
 When you are preparing the beta demo, use these seeded records:
@@ -210,5 +230,10 @@ You are ready to start feature testing only after:
 - the required account mappings are present;
 - the LedgerOS health check passes;
 - the setup smoke test passes.
+- the intended approvers and vendor-payment users have explicit workflow authorizations;
+- maintenance staff have Admin, Property manager, or Bookkeeper roles and can reach the maintenance queue.
 
-At that point, PropertyLedger is ready for property, payments, and reporting workflows.
+At that point, PropertyLedger is ready for property, payments, maintenance, and reporting workflows.
+## Release and rollback check
+
+Run `make release-check` from the repository root before enabling financial writes. Review `python manage.py inventory_workflow_release --json` for legacy and in-flight rows, verify the designated bill approver and payer grants, and run setup smoke against the intended LedgerOS books and account mappings. For rollback, disable financial writes first. Preserve database rows and additive migrations, including sync IDs, frozen request payloads, approvals and receipt components.

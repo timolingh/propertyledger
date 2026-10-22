@@ -1,0 +1,48 @@
+{% extends "ledgeros/base.html" %}
+{% block title %}Home | PropertyLedger{% endblock %}
+{% block content %}
+<section class="home-intro" aria-labelledby="home-heading">
+  <p class="eyebrow">Your workspace</p>
+  <h1 id="home-heading">What would you like to do today?</h1>
+  <p class="muted">Choose a workflow or resume work that needs attention.</p>
+</section>
+{% if not workflow_access %}
+  <div class="banner"><strong>Welcome to PropertyLedger</strong><p>Ask an administrator to assign your role before accessing records or starting workflows.</p></div>
+{% else %}
+  <div class="home-readiness" aria-label="Workspace status">
+    <div><strong>{% if home_setup_complete %}Setup complete{% else %}Setup incomplete{% endif %}</strong>
+      {% if not home_setup_complete %}<p class="muted">{% if can_configure %}<a href="{% url 'ledgeros-setup' %}">Complete setup</a> before starting accounting workflows.{% else %}Ask an administrator to complete setup before starting accounting workflows.{% endif %}</p>{% endif %}
+    </div>
+    <div><strong{% if connection_status == 'unavailable' %} class="status-bad"{% endif %}>{{ connection_message }}</strong>
+      <p class="muted">{% if connection_status == 'available' %}Balances are checked on the bill or banking page.{% elif connection_status == 'permission' %}Ask an administrator to review LedgerOS credentials and permissions.{% elif connection_status == 'configuration' %}Ask an administrator to configure the LedgerOS connection.{% else %}Review local records; posting requires a working connection.{% endif %}
+      <a href="{% url 'ledgeros-health' %}">Connection details</a></p>
+      {% if connection_status != 'available' %}<p class="muted">Accounting balances: Unavailable.</p>{% endif %}
+    </div>
+  </div>
+{% endif %}
+<div class="workflow-grid">
+  {% for card in workflow_cards %}
+  <section class="card workflow-card" aria-labelledby="workflow-{{ card.number }}">
+    <span class="workflow-number" aria-hidden="true">{{ card.number }}</span>
+    <h2 id="workflow-{{ card.number }}">{{ card.title }}</h2>
+    <p class="muted">{{ card.description }}</p>
+    <div class="workflow-links">{% for link in card.links %}<a class="{% if link.primary %}button primary{% else %}workflow-link{% endif %}" href="{{ link.url }}">{{ link.label }}</a>{% endfor %}</div>
+    <p class="workflow-gate">{{ card.gate }}</p>
+  </section>
+  {% endfor %}
+</div>
+{% if workflow_access %}
+<section aria-labelledby="queue-heading" class="home-queues">
+  <div class="section-heading"><h2 id="queue-heading">My Work Queues</h2><span class="muted">{% if work_queues.0.can_act %}Review and resume{% else %}View only{% endif %}</span></div>
+  <p class="muted">Local workflow records in your role’s permitted scope. Counts do not represent posted balances.</p>
+  <div class="queue-grid">{% for queue in work_queues %}
+    <section class="card" aria-labelledby="queue-{{ queue.key }}">
+      <div class="section-heading"><h3 id="queue-{{ queue.key }}">{{ queue.title }}</h3><span class="queue-count">{{ queue.count }}</span></div>
+      <ul class="queue-list">{% for item in queue.items %}<li><a href="{{ item.url }}">{{ item.label }}</a><span class="muted">{{ item.detail }}</span></li>{% empty %}<li class="muted">Nothing needs review here.</li>{% endfor %}</ul>
+      {% if queue.count > 5 %}<p class="muted">Showing 5 of {{ queue.count }}</p>{% endif %}
+      <a href="{{ queue.url }}">View all {% if queue.key == 'receipts' %}receipts{% elif queue.key == 'approvals' %}bill approvals{% else %}vendor payments{% endif %}</a>
+    </section>
+  {% endfor %}</div>
+</section>
+{% endif %}
+{% endblock %}

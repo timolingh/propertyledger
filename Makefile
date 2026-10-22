@@ -1,4 +1,4 @@
-.PHONY: help up down migrate smoke build test check shell dev-bootstrap
+.PHONY: help up down migrate smoke build test check release-check shell dev-bootstrap
 
 help:
 	@printf '%s\n' \
@@ -11,6 +11,7 @@ help:
 		'  make dev-bootstrap - bootstrap LedgerOS-related setup rows without rewriting .env' \
 		'  make test         - run the Django test suite in Docker only' \
 		'  make check        - run Django checks in Docker only' \
+		'  make release-check - run checks, migrations drift, tests, and legacy inventory' \
 		'  make shell        - open a Django shell in the PropertyLedger web container'
 
 up:
@@ -31,6 +32,9 @@ test:
 check:
 	docker compose -f docker-compose.yml run --rm propertyledger-web python manage.py check
 	docker compose -f docker-compose.yml run --rm propertyledger-web python manage.py makemigrations --check --dry-run
+
+release-check: check test
+	docker compose -f docker-compose.yml run --rm propertyledger-web python manage.py inventory_workflow_release
 
 shell:
 	docker compose -f docker-compose.yml run --rm propertyledger-web python manage.py shell

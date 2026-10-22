@@ -18,11 +18,11 @@
     <p><strong>Description:</strong> {{ invoice.description|default:"-" }}</p>
     <div style="display:flex; gap:1rem; flex-wrap:wrap;">
       <a class="button" href="{% url 'invoice-list' %}">Back to invoices</a>
-      <a class="button" href="{% url 'charge-edit' invoice.pk %}">Edit invoice</a>
+      {% if can_bookkeep %}<a class="button" href="{% url 'charge-edit' invoice.pk %}">Edit invoice</a>{% endif %}
       <a class="button" href="{% url 'tenant-payment-list' %}">Payment history</a>
     </div>
   </div>
-  <div class="card">
+  {% if can_bookkeep %}<div class="card">
     <h2>Record Payment</h2>
     <p class="muted">
       Saving records the payment and posts its invoice allocations to LedgerOS, increasing Cash and reducing AR.
@@ -34,7 +34,7 @@
       {{ payment_form.as_p }}
       <button type="submit" class="button primary">Save and apply payment</button>
     </form>
-  </div>
+  </div>{% endif %}
   <div class="card">
     <h2>Applied Payments</h2>
     <table>

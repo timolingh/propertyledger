@@ -4,15 +4,18 @@ from uuid import UUID
 from decimal import Decimal
 
 from django import forms
+from django.contrib.auth import get_user_model
 from django.core import signing
 from django.core.exceptions import ValidationError
 
 from ledgeros.models import Lease, Property, PropertyLedgerAccountMapping, PropertyLedgerSetup, Tenant, TenantCharge, Unit
+from ledgeros.roles import ROLE_ADMIN, ROLE_BOOKKEEPER, ROLE_GROUP_NAMES, ROLE_PROPERTY_MANAGER
 from payments.models import (
     DebtServicePayment,
     MaintenanceCategory,
     SecurityDepositEvent,
     TenantPayment,
+    TenantPaymentDepositAllocation,
     Vendor,
     VendorBill,
     VendorPayment,
@@ -45,6 +48,20 @@ class MaintenanceCategoryForm(forms.ModelForm):
 
 
 class TenantPaymentForm(forms.ModelForm):
+    deposit_amount = forms.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        min_value=Decimal("0.00"),
+        required=False,
+        initial=Decimal("0.00"),
+        help_text="Amount of this receipt held as a refundable tenant security deposit.",
+    )
+    deposit_lease = forms.ModelChoiceField(
+        queryset=Lease.objects.none(),
+        required=False,
+        help_text="Required when part of the receipt is a security deposit.",
+    )
+
     class Meta:
         model = TenantPayment
         fields = [
@@ -65,10 +82,39 @@ class TenantPaymentForm(forms.ModelForm):
         super().__init__(*args, **kwargs)
         self.fields["property"].queryset = Property.objects.filter(status=Property.Status.ACTIVE)
         self.fields["tenant"].queryset = Tenant.objects.filter(is_active=True)
+        self.fields["status"].disabled = True
+        self.fields["deposit_lease"].queryset = Lease.objects.select_related("unit__property", "tenant").exclude(
+            status=Lease.Status.CANCELLED
+        )
+        if self.instance and self.instance.pk:
+            try:
+                deposit = self.instance.deposit_allocation
+            except TenantPaymentDepositAllocation.DoesNotExist:
+                deposit = None
+            if deposit is not None:
+                self.fields["deposit_amount"].initial = deposit.amount
+                self.fields["deposit_lease"].initial = deposit.lease_id
         if self.instance and self.instance.pk and not self.instance.is_editable_after_sync:
             for name in self.fields:
                 if name != "notes":
                     self.fields[name].disabled = True
+
+    def clean(self):
+        cleaned = super().clean()
+        amount = cleaned.get("amount")
+        deposit_amount = cleaned.get("deposit_amount") or Decimal("0.00")
+        lease = cleaned.get("deposit_lease")
+        property_obj = cleaned.get("property")
+        tenant = cleaned.get("tenant")
+        if amount is not None and deposit_amount > amount:
+            self.add_error("deposit_amount", "Deposit amount cannot exceed the total receipt amount.")
+        if deposit_amount > Decimal("0.00") and lease is None:
+            self.add_error("deposit_lease", "Choose the lease that owns the deposit.")
+        if lease is not None and property_obj is not None and lease.unit.property_id != property_obj.pk:
+            self.add_error("deposit_lease", "The deposit lease must belong to the selected property.")
+        if lease is not None and tenant is not None and lease.tenant_id != tenant.pk:
+            self.add_error("deposit_lease", "The deposit lease must belong to the selected tenant.")
+        return cleaned
 
 
 class InvoicePaymentForm(forms.ModelForm):
@@ -117,6 +163,7 @@ class SecurityDepositEventForm(forms.ModelForm):
         self.fields["unit"].queryset = Unit.objects.select_related("property").all()
         self.fields["tenant"].queryset = Tenant.objects.filter(is_active=True)
         self.fields["lease"].queryset = Lease.objects.select_related("unit__property", "tenant").all()
+        self.fields["status"].disabled = True
         if self.instance and self.instance.pk and not self.instance.is_editable_after_sync:
             for name in self.fields:
                 if name != "notes":
@@ -153,6 +200,26 @@ class VendorBillForm(_SyncEditableModelForm):
         self.fields["unit"].queryset = Unit.objects.select_related("property").all()
         self.fields["maintenance_category"].queryset = MaintenanceCategory.objects.filter(is_active=True)
         self._apply_sync_edit_restrictions()
+
+
+class VendorBillDecisionForm(forms.Form):
+    reason = forms.CharField(required=False, widget=forms.Textarea(attrs={"rows": 3}))
+
+
+class WorkflowAuthorizationForm(forms.Form):
+    user = forms.ModelChoiceField(queryset=get_user_model().objects.none())
+    can_approve_vendor_bills = forms.BooleanField(required=False)
+    can_pay_vendor_bills = forms.BooleanField(required=False)
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        eligible_groups = [
+            ROLE_GROUP_NAMES[role]
+            for role in (ROLE_ADMIN, ROLE_PROPERTY_MANAGER, ROLE_BOOKKEEPER)
+        ]
+        self.fields["user"].queryset = get_user_model().objects.filter(
+            is_active=True, groups__name__in=eligible_groups
+        ).distinct().order_by("username")
 
 
 class VendorPaymentForm(_SyncEditableModelForm):

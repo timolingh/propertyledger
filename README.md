@@ -17,6 +17,12 @@ This repository now includes the Epic 1 through Epic 3 Django foundation for Pro
 - Epic 3 tenant-charge workflow for base rent generation and manual charges.
 - Epic 4 payments app for tenant payments, payment applications, and security deposits.
 - Epic 5 vendor bills, vendor payments, debt-service payments, and maintenance summaries.
+- WP1 shared workflow home at `/home/`, responsive sidebar, role-aware links and local review queues.
+- WP2 independent vendor-bill approval, per-user approval/payment authorizations, actor-attributed posting, and legacy-safe payment enforcement.
+- WP3 local maintenance requests with role-gated creation, triage, assignment, progress, hold/resume, verification, independent closure, cancellation, and audited reopening.
+- WP4 audited maintenance-to-vendor-bill handoff, safe prefill, replay-safe creation, multi-vendor bill lists, and separate operational/approval/posting/payment states.
+- WP5 combined rent/security-deposit receipts with frozen component retries, explicit deposit-liability journals, and component-based reporting.
+- WP6 bounded LedgerOS readiness gates, degraded local-first operation, outage recovery coverage, global connection messaging, and release/rollback inventory tooling.
 
 ## Environment variables
 
@@ -79,17 +85,22 @@ Where to get the LedgerOS values:
 
 ## Included docs
 
+- `docs/PropertyLedger_Workflow_Home_PRD_v1.0.md` — approved workflow revamp requirements and accounting-contract gates.
+- `docs/workflow-implementation-plan.md` — checkout findings, proposed implementation decisions, file-by-file work packages, dependencies, and verification results.
 - `docs/technical-manual.md` — architecture, API, sync, configuration, and testing reference.
 - `docs/user-manual.md` — day-to-day product usage guide for property managers and bookkeepers.
 - `docs/admin-setup.md` — admin setup checklist for connection settings, selected books, and account mappings.
 - `docs/quick-start.md` — minimal startup and smoke-check guide.
 - `docs/beta-testing.md` — manual beta-testing checklist for admin, manager, and bookkeeper roles.
+- `docs/workflow-testing.md` — repeatable WP1–WP6 workflow acceptance guide with seeded records, expected accounting results, outage recovery, and evidence capture.
 - `docs/archive/` — archived epic docs and historical decision records.
 - `CLAUDE.md` — guidance for AI agents working on the PropertyLedger repo.
 
 ## Testing
 
 Always run automated tests in Docker containers. Use the compose commands below from the repo root:
+
+For a release candidate, run `make release-check`. It combines system checks, migration-drift detection, the full test suite, and the read-only legacy/in-flight inventory. During rollback, disable financial writes before changing application versions and preserve all workflow and sync rows.
 
 ```bash
 docker compose -f docker-compose.yml run --rm propertyledger-web python manage.py test
@@ -132,7 +143,7 @@ Deferred or post-MVP:
 - tenant portal;
 - online rent collection;
 - automated bank-feed ingestion;
-- full maintenance work orders;
+- maintenance photo uploads;
 - owner portal;
 - automated management-fee calculation;
 - multi-entity owner books;

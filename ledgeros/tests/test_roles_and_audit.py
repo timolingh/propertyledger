@@ -137,10 +137,10 @@ class AppLoginTests(TestCase):
         self.assertEqual(response.url, "/home/")
 
         home = self.client.get(reverse("app-home"))
-        self.assertEqual(home.status_code, 302)
-        self.assertEqual(home.url, reverse("reports-home"))
+        self.assertEqual(home.status_code, 200)
+        self.assertContains(home, "What would you like to do today?")
 
-    def test_custom_group_redirects_via_config_table(self):
+    def test_historical_custom_landing_does_not_override_shared_home(self):
         custom_group = Group.objects.create(name="PropertyLedger Inspector")
         RoleLandingPage.objects.create(
             group_name=custom_group.name,
@@ -153,5 +153,5 @@ class AppLoginTests(TestCase):
         self.client.login(username="inspector", password="password")
         response = self.client.get(reverse("app-home"))
 
-        self.assertEqual(response.status_code, 302)
-        self.assertEqual(response.url, reverse("reports-home"))
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Ask an administrator to assign your role")
