@@ -4,10 +4,12 @@ from uuid import UUID
 from decimal import Decimal
 
 from django import forms
+from django.contrib.auth import get_user_model
 from django.core import signing
 from django.core.exceptions import ValidationError
 
 from ledgeros.models import Lease, Property, PropertyLedgerAccountMapping, PropertyLedgerSetup, Tenant, TenantCharge, Unit
+from ledgeros.roles import ROLE_ADMIN, ROLE_BOOKKEEPER, ROLE_GROUP_NAMES, ROLE_PROPERTY_MANAGER
 from payments.models import (
     DebtServicePayment,
     MaintenanceCategory,
@@ -153,6 +155,26 @@ class VendorBillForm(_SyncEditableModelForm):
         self.fields["unit"].queryset = Unit.objects.select_related("property").all()
         self.fields["maintenance_category"].queryset = MaintenanceCategory.objects.filter(is_active=True)
         self._apply_sync_edit_restrictions()
+
+
+class VendorBillDecisionForm(forms.Form):
+    reason = forms.CharField(required=False, widget=forms.Textarea(attrs={"rows": 3}))
+
+
+class WorkflowAuthorizationForm(forms.Form):
+    user = forms.ModelChoiceField(queryset=get_user_model().objects.none())
+    can_approve_vendor_bills = forms.BooleanField(required=False)
+    can_pay_vendor_bills = forms.BooleanField(required=False)
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        eligible_groups = [
+            ROLE_GROUP_NAMES[role]
+            for role in (ROLE_ADMIN, ROLE_PROPERTY_MANAGER, ROLE_BOOKKEEPER)
+        ]
+        self.fields["user"].queryset = get_user_model().objects.filter(
+            is_active=True, groups__name__in=eligible_groups
+        ).distinct().order_by("username")
 
 
 class VendorPaymentForm(_SyncEditableModelForm):

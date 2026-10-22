@@ -62,6 +62,8 @@ ROLE_PERMISSION_SPECS: dict[str, dict[str, dict[str, tuple[str, ...]]]] = {
             "vendorbill": ("add", "change", "delete", "view"),
             "vendorpayment": ("add", "change", "delete", "view"),
             "debtservicepayment": ("add", "change", "delete", "view"),
+            "workflowauthorization": ("view",),
+            "vendorbillapprovalevent": ("view",),
         },
         "reports": {
             "ownercontributiondistribution": ("add", "change", "delete", "view"),
@@ -105,6 +107,8 @@ ROLE_PERMISSION_SPECS: dict[str, dict[str, dict[str, tuple[str, ...]]]] = {
             "vendorbill": ("view", "add", "change"),
             "vendorpayment": ("view", "add", "change"),
             "debtservicepayment": ("view", "add", "change"),
+            "workflowauthorization": ("view",),
+            "vendorbillapprovalevent": ("view",),
         },
         "reports": {
             "ownercontributiondistribution": ("view", "add", "change"),
@@ -142,6 +146,7 @@ ROLE_PERMISSION_SPECS: dict[str, dict[str, dict[str, tuple[str, ...]]]] = {
             "vendorbill": ("view",),
             "vendorpayment": ("view",),
             "debtservicepayment": ("view",),
+            "vendorbillapprovalevent": ("view",),
         },
         "reports": {
             "ownercontributiondistribution": ("view",),

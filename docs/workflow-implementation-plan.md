@@ -1,6 +1,6 @@
 # Workflow revamp: discovery and implementation plan
 
-Date: October 21, 2026. Status: discovery complete; WP0 and WP1 complete; WP2–WP6 proposed.
+Date: October 21, 2026. Status: discovery complete; WP0 through WP2 complete; WP3–WP6 proposed.
 
 Scope authority: [Workflow Home PRD v1.0](PropertyLedger_Workflow_Home_PRD_v1.0.md), especially approved Q1–Q16 and the implementation gates in §14. This plan preserves those product choices. Historical epics are context, not the current scope.
 
@@ -138,7 +138,7 @@ Implemented October 21, 2026: shared authenticated home, responsive sidebar acro
 
 Validation: `docker compose -f docker-compose.yml run --rm propertyledger-web python manage.py test --noinput` passed 126 tests in 539.934 seconds. After adding three scenarios for ready setup, read-only detail actions and legacy landing bootstrap, `docker compose -f docker-compose.yml run --rm propertyledger-web python manage.py test ledgeros.tests.test_workflow_home ledgeros.tests.test_health --noinput` passed all 20 focused tests in 10.550 seconds. Both runs destroyed their test databases normally. `make check` passed with no system issues or missing migrations. Docker `findstatic ledgeros/workflows.css ledgeros/navigation.js` and Node `--check` on both JavaScript files passed. Local read-only inventory found zero active non-superusers without recognized workflow roles. [Browser acceptance and screenshots](qa/wp1/README.md) cover desktop/mobile, persisted collapse, focus containment/return, existing record navigation, viewer and outage states using fictional data in a separate disposable database.
 
-WP1 does not implement bill approvals/grants, actor-aware financial service changes, maintenance requests, mixed receipt posting, or complete outage enforcement across existing posting endpoints. Those remain WP2–WP6. Home does not offer bill creation when health fails because the current bill-save path auto-posts rather than saving an offline-only draft. Existing record URLs and accounting behavior otherwise remain intact. No production deployment or live LedgerOS financial acceptance was performed.
+WP1 did not implement bill approvals/grants, actor-aware financial service changes, maintenance requests, mixed receipt posting, or complete outage enforcement across existing posting endpoints. WP2 now supplies the bill approval and payment authorization controls. Maintenance, mixed receipts, and broader integration/release work remain WP3–WP6. Existing record URLs and accounting behavior otherwise remain intact. No production deployment or live LedgerOS financial acceptance was performed.
 
 | File | Change |
 | --- | --- |
@@ -158,6 +158,12 @@ WP1 does not implement bill approvals/grants, actor-aware financial service chan
 | Existing test fixtures using unassigned users | Assign intended explicit roles; retain real negative tests for unassigned users. |
 
 ### WP2 — Approval, authority and payment enforcement (AP-01–07, OPS-04)
+
+Implemented October 21, 2026: additive workflow authorization and bill-approval models; draft, submit, independent approve/reject/withdraw, and explicit post actions; current-database grant checks; service-, UI-, admin-, and command-level actor enforcement; prospective approval of legacy posted bills without journal changes; and payment retry preservation after grant revocation. New bills no longer auto-post on save. New vendor settlements start from an approved bill and retain the existing signed submission UUID, fingerprint, row lock, balance validation, and LedgerOS idempotency behavior. Debt-service payments and credit-card payoffs remain separate workflows.
+
+Migration `payments.0006_workflow_authorization_and_bill_approval` marks existing posted bills `Legacy / approval not recorded`, leaves existing drafts as drafts, creates no user grants, and does not modify sync records or LedgerOS journals. An administrator must configure explicit grants after deployment. Existing posted bills can then be submitted and approved prospectively before a new settlement; historical payments remain unchanged.
+
+Validation: `make check` passed with no system or migration issues. The full Docker test suite passed all 142 tests. The focused WP2 suite covers independent grants, self-approval denial, stale/submitted edits, concurrent decisions, rejection and resubmission, legacy prospective approval, direct UI/admin/service bypasses, signed bill-scoped payment entry, revocation, and retry identity. No application database migration, production operation, or live LedgerOS financial acceptance was performed.
 
 | File | Change |
 | --- | --- |

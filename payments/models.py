@@ -3,6 +3,7 @@ from __future__ import annotations
 import builtins
 from decimal import Decimal
 
+from django.conf import settings
 from django.db import models
 from django.core.exceptions import ValidationError
 
@@ -269,6 +270,29 @@ class MaintenanceCategory(TimestampedModel):
         return self.name
 
 
+class WorkflowAuthorization(TimestampedModel):
+    user = models.OneToOneField(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="propertyledger_workflow_authorization",
+    )
+    can_approve_vendor_bills = models.BooleanField(default=False)
+    can_pay_vendor_bills = models.BooleanField(default=False)
+    updated_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        blank=True,
+        null=True,
+        related_name="propertyledger_authorization_updates",
+    )
+
+    class Meta:
+        ordering = ["user__username", "user_id"]
+
+    def __str__(self) -> str:
+        return f"Workflow authorization for {self.user}"
+
+
 class VendorBill(TimestampedModel):
     class ExpenseCategory(models.TextChoices):
         REPAIRS_AND_MAINTENANCE = "repairs_and_maintenance", "Repairs and maintenance"
@@ -281,6 +305,14 @@ class VendorBill(TimestampedModel):
         READY_TO_SYNC = "ready_to_sync", "Ready to sync"
         POSTED = "posted", "Posted"
         VOIDED = "voided", "Voided"
+
+    class ApprovalStatus(models.TextChoices):
+        DRAFT = "draft", "Draft"
+        SUBMITTED = "submitted", "Awaiting approval"
+        APPROVED = "approved", "Approved"
+        REJECTED = "rejected", "Rejected"
+        WITHDRAWN = "withdrawn", "Withdrawn"
+        LEGACY_UNRECORDED = "legacy_unrecorded", "Legacy / approval not recorded"
 
     vendor = models.ForeignKey(
         Vendor,
@@ -314,6 +346,37 @@ class VendorBill(TimestampedModel):
     tenant_chargeable = models.BooleanField(default=False)
     notes = models.TextField(blank=True, default="")
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.DRAFT)
+    approval_status = models.CharField(
+        max_length=24,
+        choices=ApprovalStatus.choices,
+        default=ApprovalStatus.DRAFT,
+    )
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        blank=True,
+        null=True,
+        related_name="created_vendor_bills",
+    )
+    submitted_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        blank=True,
+        null=True,
+        related_name="submitted_vendor_bills",
+    )
+    submitted_at = models.DateTimeField(blank=True, null=True)
+    submission_version = models.PositiveIntegerField(default=0)
+    approved_fingerprint = models.CharField(max_length=64, blank=True, default="")
+    decision_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        blank=True,
+        null=True,
+        related_name="decided_vendor_bills",
+    )
+    decision_at = models.DateTimeField(blank=True, null=True)
+    decision_reason = models.TextField(blank=True, default="")
     sync_record = models.OneToOneField(
         LedgerOSSyncRecord,
         on_delete=models.SET_NULL,
@@ -342,6 +405,32 @@ class VendorBill(TimestampedModel):
             raise ValidationError({"unit": "Unit must belong to the selected property."})
 
 
+class VendorBillApprovalEvent(models.Model):
+    bill = models.ForeignKey(
+        VendorBill,
+        on_delete=models.PROTECT,
+        related_name="approval_events",
+    )
+    action = models.CharField(max_length=32, choices=VendorBill.ApprovalStatus.choices)
+    actor = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        blank=True,
+        null=True,
+        related_name="vendor_bill_approval_events",
+    )
+    submission_version = models.PositiveIntegerField(default=0)
+    financial_fingerprint = models.CharField(max_length=64, blank=True, default="")
+    reason = models.TextField(blank=True, default="")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["created_at", "id"]
+
+    def __str__(self) -> str:
+        return f"Bill {self.bill_id}: {self.get_action_display()}"
+
+
 class VendorPayment(TimestampedModel):
     class PaymentMethod(models.TextChoices):
         MANUAL_CHECK = "manual_check", "Manual check"
@@ -364,6 +453,13 @@ class VendorPayment(TimestampedModel):
 
     submission_id = models.UUIDField(null=True, blank=True, unique=True, editable=False)
     submission_hash = models.CharField(max_length=64, blank=True, default="", editable=False)
+    initiated_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        blank=True,
+        null=True,
+        related_name="initiated_vendor_payments",
+    )
 
     vendor = models.ForeignKey(
         Vendor,

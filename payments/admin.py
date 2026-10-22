@@ -10,9 +10,12 @@ from payments.models import (
     TenantPaymentApplication,
     Vendor,
     VendorBill,
+    VendorBillApprovalEvent,
     VendorPayment,
+    WorkflowAuthorization,
 )
-from payments.services import VendorService
+from payments.approval_services import VendorBillApprovalService
+from payments.services import VendorPaymentService, VendorService
 
 
 @admin.register(PaymentWorkflowSettings)
@@ -85,9 +88,16 @@ class MaintenanceCategoryAdmin(admin.ModelAdmin):
 @admin.register(VendorBill)
 class VendorBillAdmin(admin.ModelAdmin):
     form = VendorBillForm
-    list_display = ["vendor", "property", "unit", "bill_date", "amount", "expense_category", "status"]
-    list_filter = ["status", "expense_category", "property"]
+    list_display = ["vendor", "property", "unit", "bill_date", "amount", "approval_status", "status"]
+    list_filter = ["approval_status", "status", "expense_category", "property"]
     search_fields = ["vendor__name", "property__name", "unit__name", "repair_notes", "notes"]
+    readonly_fields = [
+        "status", "sync_record", "approval_status", "created_by", "submitted_by", "submitted_at",
+        "submission_version", "approved_fingerprint", "decision_by", "decision_at", "decision_reason",
+    ]
+
+    def save_model(self, request, obj, form, change):  # pragma: no cover - admin behavior
+        VendorBillApprovalService.save_draft(obj, actor=request.user)
 
 
 @admin.register(VendorPayment)
@@ -96,6 +106,40 @@ class VendorPaymentAdmin(admin.ModelAdmin):
     list_display = ["vendor", "vendor_bill", "payment_date", "amount", "payment_method", "status"]
     list_filter = ["status", "payment_method", "is_credit_card_payoff"]
     search_fields = ["vendor__name", "vendor_bill__vendor__name", "memo", "notes"]
+    readonly_fields = ["status", "sync_record", "submission_id", "submission_hash", "initiated_by"]
+
+    def save_model(self, request, obj, form, change):  # pragma: no cover - admin behavior
+        VendorPaymentService.save_and_sync_payment(obj, actor=request.user)
+
+
+@admin.register(WorkflowAuthorization)
+class WorkflowAuthorizationAdmin(admin.ModelAdmin):
+    list_display = ["user", "can_approve_vendor_bills", "can_pay_vendor_bills", "updated_by", "updated_at"]
+    readonly_fields = ["user", "can_approve_vendor_bills", "can_pay_vendor_bills", "updated_by", "created_at", "updated_at"]
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+
+@admin.register(VendorBillApprovalEvent)
+class VendorBillApprovalEventAdmin(admin.ModelAdmin):
+    list_display = ["bill", "action", "actor", "submission_version", "created_at"]
+    readonly_fields = ["bill", "action", "actor", "submission_version", "financial_fingerprint", "reason", "created_at"]
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
 
 
 @admin.register(DebtServicePayment)

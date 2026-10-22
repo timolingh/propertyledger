@@ -81,7 +81,7 @@ Key rules:
 
 `propertyledger/workflows.py` reads setup/configuration without singleton `.load()` helpers, checks LedgerOS health once with explicitly supplied configuration, and composes local queues. Home GET creates no setup rows, sync records, payments or accounting requests. Home POST is unsupported. Receipt queues exclude posted/voided records and successful parent syncs; payment-confirmation queues include attempted, unconfirmed vendor payments only. Counts cover the full role-authorized query, while displayed rows are limited to five. No payable balances, approval counts or maintenance request counts are inferred.
 
-The shared navigation context checks the destination views' role policies. Users without recognized roles have no workflow access; inactive users fail role checks. Reporting views now separately require bookkeeper/admin access for unsafe HTTP methods, so viewer access to a detail page does not authorize posting. Write controls are hidden on read-only pages. Individually assigned approval/payment capabilities and actor-aware financial service enforcement are WP2 scope; WP1 does not claim to implement them.
+The shared navigation context checks the destination views' role policies. Users without recognized roles have no workflow access; inactive users fail role checks. Reporting views separately enforce the capability required by unsafe HTTP methods, so viewer access to a detail page does not authorize posting. Write controls are hidden on read-only pages. WP2 adds current-database checks for individually assigned bill-approval and vendor-payment capabilities.
 
 Home distinguishes missing configuration, denied LedgerOS access and outages; raw credentials or upstream response bodies are not rendered there. Health is readiness information, not proof that a financial action is authorized or posted. Existing posting/financial semantics remain unchanged.
 
@@ -160,6 +160,31 @@ must remain unchanged. No reset of an existing bookkeeping database is needed.
 - Record vendors, bills, vendor payments, and debt-service payments.
 - Keep credit-card and liability workflows behind the supported adapter paths.
 
+### Vendor bill approval and payment authority (WP2)
+
+Vendor bill approval is independent of LedgerOS posting status. New bills follow:
+
+```text
+Draft → Submitted → Approved → Explicit LedgerOS post → Eligible for payment
+                  ↘ Rejected → Corrected draft → Resubmitted
+Submitted → Withdrawn → Corrected draft → Resubmitted
+```
+
+The submitter cannot approve or reject the same bill, including when that user is an administrator. Approval and vendor-payment authority are separate per-user grants managed at `/payments/workflow-authorizations/`. A grant is effective only while the user is active and assigned an admin, property-manager, or bookkeeper workflow role. Grant checks query current database state at each financial decision so revocation takes effect immediately. Administrators manage grants but do not implicitly receive either economic capability.
+
+The approval fingerprint covers vendor, property/unit attribution, bill and due dates, amount, expense and maintenance categories, repair description, and tenant-chargeable treatment. General notes are excluded and are not sent in the LedgerOS bill payload. Submitted bills cannot be edited. A material change to an approved but unposted bill returns it to draft and clears the decision; posted accounting fields remain immutable. Approval transitions and grant changes record their actor and immutable history.
+
+Saving a bill never posts it. An administrator or bookkeeper explicitly posts an approved bill through the existing LedgerOS bill API. New vendor settlements must be started from an approved, successfully posted bill by a user with the payment grant. The service rechecks LedgerOS payable status and amount, while retaining the existing signed submission token, persisted UUID/fingerprint, row locking, and stable idempotency key.
+
+A retry of a saved uncertain payment requires a currently authorized payer but preserves the original payment, payload, and key. Revoking the original user's grant prevents that user from retrying; another authorized user may resume the same saved operation. Credit-card-funded bill settlements follow these rules. Credit-card payoff and debt-service workflows remain distinct and do not confer or consume vendor-bill approval.
+
+Migration `payments.0006_workflow_authorization_and_bill_approval` labels existing posted bills `Legacy / approval not recorded`; it does not fabricate approvals or grants and does not alter journals. A legacy posted bill must receive prospective submission and approval before a new payment. Historical successful payments remain viewable and are not reposted. The legacy card reconciliation command remains read-only by default; `--apply` now requires an explicitly named, currently payment-authorized actor:
+
+```bash
+docker compose -f docker-compose.yml run --rm propertyledger-web \
+  python manage.py reconcile_bill_card_payments --apply --payment-id 123 --actor authorized-user
+```
+
 Bill payment status is read from LedgerOS using authenticated
 `GET /api/v1/bills/` batches of up to 100 repeated `external_bill_number`
 parameters. Only the integration client's own bill references are returned.
@@ -206,7 +231,7 @@ The client needs `bills` scope for reads and the existing `payments` scope and
 docker compose -f ../ledgeros_v2/docker-compose.yml run --rm web python manage.py migrate
 docker compose -f docker-compose.yml run --rm propertyledger-web python manage.py reconcile_bill_card_payments
 # After reviewing the preview, reconcile one existing payment:
-docker compose -f docker-compose.yml run --rm propertyledger-web python manage.py reconcile_bill_card_payments --apply --payment-id 123
+docker compose -f docker-compose.yml run --rm propertyledger-web python manage.py reconcile_bill_card_payments --apply --payment-id 123 --actor authorized-user
 ```
 
 The preview is read-only. Apply creates missing payment/application records

@@ -19,6 +19,7 @@ from django.db import models, transaction
 from django.utils import timezone
 
 from ledgeros.idempotency import build_idempotency_key
+from ledgeros.audit import audit_failure, audit_success
 from ledgeros.models import (
     LedgerOSConnectionSettings,
     LedgerOSSyncRecord,
@@ -28,6 +29,8 @@ from ledgeros.models import (
     Lease,
 )
 from ledgeros.signing import sign_api_request
+from payments.approval_services import VendorBillApprovalService
+from payments.authorization import require_bill_editor, require_vendor_payer
 from payments.models import (
     DebtServicePayment,
     PaymentWorkflowSettings,
@@ -423,7 +426,9 @@ class LedgerOSVendorBillService:
         description_parts = [bill.get_expense_category_display()]
         if bill.maintenance_category_id and bill.maintenance_category:
             description_parts.append(bill.maintenance_category.name)
-        note = bill.repair_notes.strip() or bill.notes.strip()
+        # General notes remain locally editable after approval and therefore
+        # must not change the frozen LedgerOS posting payload.
+        note = bill.repair_notes.strip()
         if note:
             description_parts.append(note)
         elif bill.tenant_chargeable:
@@ -1158,23 +1163,20 @@ class VendorBillService(Epic5AccountingService):
 
     @staticmethod
     @transaction.atomic
-    def save_and_sync_bill(bill: VendorBill) -> VendorBill:
-        bill.full_clean()
-        bill.save()
-        if bill.status == VendorBill.Status.VOIDED:
-            return bill
-        if bill.sync_record and bill.sync_record.status == LedgerOSSyncRecord.Status.SUCCEEDED:
-            return bill
-        if VendorBillService._sync_blockers(bill):
-            if bill.status != VendorBill.Status.POSTED:
-                bill.status = VendorBill.Status.DRAFT
-                bill.save(update_fields=["status", "updated_at"])
-            return bill
-        return VendorBillService.sync_bill(bill)
+    def save_and_sync_bill(bill: VendorBill, *, actor) -> VendorBill:
+        """Compatibility entrypoint: WP2 saves locally and requires explicit approval/posting."""
+        return VendorBillApprovalService.save_draft(bill, actor=actor)
 
     @staticmethod
     @transaction.atomic
-    def sync_bill(bill: VendorBill) -> VendorBill:
+    def sync_bill(bill: VendorBill, *, actor) -> VendorBill:
+        require_bill_editor(actor)
+        bill = VendorBill.objects.select_for_update().get(pk=bill.pk)
+        approval_blocker = VendorBillApprovalService.approval_blocker(bill)
+        if approval_blocker:
+            raise ValidationError(approval_blocker)
+        if bill.sync_record and bill.sync_record.status == LedgerOSSyncRecord.Status.SUCCEEDED:
+            return bill
         blockers = VendorBillService._sync_blockers(bill)
         if blockers:
             raise ValidationError(blockers)
@@ -1210,6 +1212,14 @@ class VendorBillService(Epic5AccountingService):
             sync_record.last_error = str(exc)
             sync_record.response_payload = {"status": "failed", "error": str(exc)}
             sync_record.save(update_fields=["status", "last_error", "response_payload", "updated_at"])
+            audit_failure(
+                action="vendor_bill_post_failed",
+                record_type="VendorBill",
+                record_id=str(bill.pk),
+                user=actor,
+                source="service",
+                metadata={"sync_record_id": sync_record.pk, "error": str(exc)},
+            )
             return bill
 
         sync_record.status = LedgerOSSyncRecord.Status.SUCCEEDED
@@ -1228,6 +1238,13 @@ class VendorBillService(Epic5AccountingService):
         sync_record.save(update_fields=["status", "ledgeros_resource_id", "ledgeros_journal_entry_id", "response_payload", "last_synced_at", "updated_at"])
         bill.status = VendorBill.Status.POSTED
         bill.save(update_fields=["status", "updated_at"])
+        audit_success(
+            action="vendor_bill_posted",
+            record=bill,
+            user=actor,
+            source="service",
+            metadata={"sync_record_id": sync_record.pk},
+        )
         return bill
 
 
@@ -1241,6 +1258,9 @@ class VendorPaymentService(Epic5AccountingService):
     def bill_payment_blocker(bill, status):
         if bill.status == VendorBill.Status.VOIDED:
             return "Voided bills cannot be paid."
+        approval_blocker = VendorBillApprovalService.approval_blocker(bill)
+        if approval_blocker:
+            return approval_blocker
         if bill.status != VendorBill.Status.POSTED or not bill.sync_record or bill.sync_record.status != LedgerOSSyncRecord.Status.SUCCEEDED:
             return "The bill must sync successfully to LedgerOS before payment."
         if status["status"] == "paid":
@@ -1252,7 +1272,8 @@ class VendorPaymentService(Epic5AccountingService):
         return ""
 
     @staticmethod
-    def pay_bill(*, bill, submission_id, details):
+    def pay_bill(*, bill, submission_id, details, actor):
+        require_vendor_payer(actor)
         try:
             submission_id = uuid.UUID(str(submission_id))
         except (TypeError, ValueError) as exc:
@@ -1287,9 +1308,10 @@ class VendorPaymentService(Epic5AccountingService):
                     raise ValidationError(blockers)
                 candidate.submission_id = submission_id
                 candidate.submission_hash = fingerprint
+                candidate.initiated_by = actor
                 candidate.save()
                 payment = candidate
-        return VendorPaymentService.sync_payment(payment)
+        return VendorPaymentService.sync_payment(payment, actor=actor)
 
     @staticmethod
     def legacy_card_record(payment):
@@ -1457,9 +1479,25 @@ class VendorPaymentService(Epic5AccountingService):
 
     @staticmethod
     @transaction.atomic
-    def save_and_sync_payment(payment: VendorPayment) -> VendorPayment:
+    def save_and_sync_payment(payment: VendorPayment, *, actor) -> VendorPayment:
+        if payment.is_credit_card_payoff:
+            require_bill_editor(actor)
+        else:
+            require_vendor_payer(actor)
+            if payment.pk is None and payment.submission_id is None:
+                raise ValidationError(
+                    "Start a new vendor settlement from the approved bill so its submission identity is preserved."
+                )
         VendorPaymentService._normalize_payment_account(payment)
         payment.full_clean()
+        if payment.initiated_by_id is None:
+            payment.initiated_by = actor
+        current_bill = VendorBill.objects.get(pk=payment.vendor_bill_id)
+        payment.vendor_bill = current_bill
+        if not payment.is_credit_card_payoff:
+            approval_blocker = VendorBillApprovalService.approval_blocker(current_bill)
+            if approval_blocker:
+                raise ValidationError(approval_blocker)
         payment.save()
         if payment.status == VendorPayment.Status.VOIDED:
             return payment
@@ -1471,14 +1509,18 @@ class VendorPaymentService(Epic5AccountingService):
                 payment.status = VendorPayment.Status.DRAFT
                 payment.save(update_fields=["status", "updated_at"])
             return payment
-        return VendorPaymentService.sync_payment(payment)
+        return VendorPaymentService.sync_payment(payment, actor=actor)
 
     @staticmethod
     @transaction.atomic
-    def sync_payment(payment: VendorPayment) -> VendorPayment:
+    def sync_payment(payment: VendorPayment, *, actor) -> VendorPayment:
         # Read related sync state after acquiring the lock. A joined SELECT can
         # retain pre-wait sync state while another submission finishes posting.
         payment = VendorPayment.objects.select_for_update().get(pk=payment.pk)
+        if payment.is_credit_card_payoff:
+            require_bill_editor(actor)
+        else:
+            require_vendor_payer(actor)
         if payment.status == VendorPayment.Status.VOIDED:
             raise ValidationError({"payment": "Voided payments cannot be posted."})
         if payment.sync_record and payment.sync_record.status == LedgerOSSyncRecord.Status.SUCCEEDED and payment.sync_record.ledgeros_resource_type == "payment":
@@ -1486,6 +1528,23 @@ class VendorPaymentService(Epic5AccountingService):
         blockers = VendorPaymentService._sync_blockers(payment)
         if blockers:
             raise ValidationError(blockers)
+        attempted = bool(
+            payment.sync_record
+            and (
+                payment.sync_record.attempt_count
+                or payment.sync_record.ledgeros_resource_type == "sync_event"
+            )
+        )
+        if not payment.is_credit_card_payoff and not attempted:
+            approval_blocker = VendorBillApprovalService.approval_blocker(payment.vendor_bill)
+            if approval_blocker:
+                raise ValidationError(approval_blocker)
+            status = BillPaymentStatusService.statuses([payment.vendor_bill])[payment.vendor_bill_id]
+            blocker = VendorPaymentService.bill_payment_blocker(payment.vendor_bill, status)
+            if blocker:
+                raise ValidationError(blocker)
+            if payment.amount > status["balance"]:
+                raise ValidationError("Payment amount cannot exceed the current outstanding balance.")
         use_payment_endpoint = not payment.is_credit_card_payoff
         if use_payment_endpoint:
             request_payload = LedgerOSVendorPaymentService._build_payment_payload(payment)
@@ -1542,6 +1601,14 @@ class VendorPaymentService(Epic5AccountingService):
             sync_record.last_error = str(exc)
             sync_record.response_payload = {"status": "failed", "error": str(exc)}
             sync_record.save(update_fields=["status", "last_error", "response_payload", "updated_at"])
+            audit_failure(
+                action="vendor_payment_post_failed",
+                record_type="VendorPayment",
+                record_id=str(payment.pk),
+                user=actor,
+                source="service",
+                metadata={"sync_record_id": sync_record.pk, "error": str(exc)},
+            )
             return payment
 
         sync_record.status = LedgerOSSyncRecord.Status.SUCCEEDED
@@ -1561,6 +1628,13 @@ class VendorPaymentService(Epic5AccountingService):
         sync_record.save(update_fields=update_fields)
         payment.status = VendorPayment.Status.POSTED
         payment.save(update_fields=["status", "updated_at"])
+        audit_success(
+            action="vendor_payment_posted",
+            record=payment,
+            user=actor,
+            source="service",
+            metadata={"sync_record_id": sync_record.pk},
+        )
         return payment
 
 

@@ -74,6 +74,7 @@ After the app starts, confirm:
 4. the required account mappings are present;
 5. the setup smoke test passes and is recorded on the setup screen.
 6. sign in with an explicitly assigned PropertyLedger role and confirm the shared home and sidebar appear. Unassigned accounts receive access guidance; Django staff status alone does not assign a workflow role.
+7. as an administrator, open `/payments/workflow-authorizations/` and explicitly assign the intended bill approvers and vendor-payment users. Migration creates no automatic financial grants.
 
 ## Typical development commands
 

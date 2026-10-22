@@ -1,0 +1,34 @@
+{% extends "ledgeros/base.html" %}
+
+{% block title %}Workflow authorizations | PropertyLedger{% endblock %}
+
+{% block content %}
+  <div class="card">
+    <h1>Workflow authorizations</h1>
+    <p>Bill approval and vendor-payment authority are independent. A grant does not change the user's broader PropertyLedger role.</p>
+    <form method="post">
+      {% csrf_token %}
+      {{ form.as_p }}
+      <button type="submit" class="button primary">Save authorizations</button>
+    </form>
+  </div>
+  <div class="card">
+    <h2>Current grants</h2>
+    <table>
+      <thead><tr><th>User</th><th>Approve bills</th><th>Pay vendor bills</th><th>Updated by</th><th>Updated</th></tr></thead>
+      <tbody>
+        {% for authorization in authorization_rows %}
+          <tr>
+            <td>{{ authorization.user }}</td>
+            <td>{{ authorization.can_approve_vendor_bills|yesno:"Yes,No" }}</td>
+            <td>{{ authorization.can_pay_vendor_bills|yesno:"Yes,No" }}</td>
+            <td>{{ authorization.updated_by|default:"—" }}</td>
+            <td>{{ authorization.updated_at }}</td>
+          </tr>
+        {% empty %}
+          <tr><td colspan="5" class="muted">No workflow grants have been configured.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+{% endblock %}

@@ -10,6 +10,7 @@ The short version:
 4. copy the selected LedgerOS entity and accounting period into PropertyLedger
 5. configure the required account mappings
 6. run the setup smoke check
+7. assign bill-approval and vendor-payment authorizations
 
 If those steps are not complete, feature testing will mostly measure setup gaps instead of the product itself.
 
@@ -174,6 +175,16 @@ Both paths now record the smoke result back onto the setup screen.
 
 If setup is not complete, use the `Recommended Order` section to find the next missing step.
 
+## Step 7: Assign workflow authorizations
+
+Open **Workflow authorizations** from the Administration navigation or visit:
+
+- `http://localhost:8000/payments/workflow-authorizations/`
+
+Assign bill approval and vendor-payment authority independently. A user needs an active Admin, Property manager, or Bookkeeper role before either grant can be enabled. Administrators can manage grants but do not receive approval or payment authority automatically. Give at least one user approval authority and a different user the ability to submit bills, because submitters cannot approve their own bills. Give payment authority only to users who may record already-executed vendor payments.
+
+After migration, existing posted bills display `Legacy / approval not recorded`, and no production user receives an automatic grant. Submit and approve a legacy bill prospectively before its next payment; do not recreate or repost the historical bill.
+
 ## Beta demo example
 
 When you are preparing the beta demo, use these seeded records:
@@ -210,5 +221,6 @@ You are ready to start feature testing only after:
 - the required account mappings are present;
 - the LedgerOS health check passes;
 - the setup smoke test passes.
+- the intended approvers and vendor-payment users have explicit workflow authorizations.
 
 At that point, PropertyLedger is ready for property, payments, and reporting workflows.

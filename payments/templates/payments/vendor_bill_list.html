@@ -12,6 +12,8 @@
       <a class="button primary" href="{{ create_gate_url }}">{{ create_gate_label }}</a>
     {% endif %}
     {% endif %}
+    {% if can_approve_vendor_bills %}<a class="button" href="{% url 'vendor-bill-approval-queue' %}">Approval queue</a>{% endif %}
+    {% if can_manage_workflow_authorizations %}<a class="button" href="{% url 'workflow-authorizations' %}">Workflow authorizations</a>{% endif %}
   </div>
   <div class="card">
     <h2>Maintenance Expense Summary — all bills</h2>
@@ -60,6 +62,7 @@
         <tr>
           <th>Name</th>
           <th>Summary</th>
+          <th>Approval</th>
           <th>Payment status</th>
           <th>Paid</th>
           <th>Credits</th>
@@ -72,6 +75,7 @@
           <tr>
             <td><strong>{{ row.object }}</strong></td>
             <td>{{ row.summary }}</td>
+            <td>{{ row.object.get_approval_status_display }}</td>
             <td>{{ row.payment_status.label }}{% if row.payment_status.error %}<p class="muted">{{ row.payment_status.error }}</p>{% endif %}</td>
             <td>{{ row.payment_status.paid|default_if_none:"—" }}</td>
             <td>{{ row.payment_status.credited|default_if_none:"—" }}</td>
@@ -84,7 +88,7 @@
             </td>
           </tr>
         {% empty %}
-          <tr><td colspan="7" class="muted">No bills match this filter.</td></tr>
+          <tr><td colspan="8" class="muted">No bills match this filter.</td></tr>
         {% endfor %}
       </tbody>
     </table>

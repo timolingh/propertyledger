@@ -1,0 +1,24 @@
+{% extends "ledgeros/base.html" %}
+
+{% block title %}{{ page_title }} | PropertyLedger{% endblock %}
+
+{% block content %}
+  <div class="card">
+    <h1>{{ page_title }}</h1>
+    {% if create_available %}
+      <form method="post">
+        {% csrf_token %}
+        {{ form.as_p }}
+        <div class="actions">
+          <button type="submit" name="action" value="draft">Save draft</button>
+          <button type="submit" name="action" value="submit" class="button primary">Save and submit for approval</button>
+          <a href="{{ list_url }}">Cancel</a>
+        </div>
+      </form>
+    {% else %}
+      <p>{{ create_gate_message }}</p>
+      <a href="{{ create_gate_url }}">{{ create_gate_label }}</a>
+    {% endif %}
+  </div>
+{% endblock %}
+

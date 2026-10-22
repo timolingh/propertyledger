@@ -117,13 +117,24 @@ class WorkflowHomeTests(TestCase):
 
     def test_outage_and_missing_configuration_are_distinct_and_do_not_invent_balances(self):
         self.login_role(ROLE_BOOKKEEPER)
+        setup = PropertyLedgerSetup.objects.create(
+            setup_status="complete", ledgeros_entity_id="entity", ledgeros_entity_name="Books",
+            ledgeros_accounting_period_id="period", ledgeros_accounting_period_name="Open period",
+            last_ledgeros_health_check_healthy=True, last_setup_smoke_healthy=True,
+        )
+        for key in setup.REQUIRED_ACCOUNT_MAPPING_KEYS:
+            PropertyLedgerAccountMapping.objects.create(
+                setup=setup, mapping_key=key, ledgeros_account_id=key,
+                ledgeros_account_name=key,
+                ledgeros_account_type=sorted(PropertyLedgerAccountMapping.ACCOUNT_TYPE_HINTS[key])[0],
+            )
         for details, text in (({"error": "missing_configuration"}, "LedgerOS configuration needed"), ({"error": "connection failed"}, "LedgerOS unavailable"), ({"http_status": 403}, "LedgerOS access denied")):
             self.probe.return_value = HealthCheckResult(healthy=False, source="ledgeros", details=details)
             response = self.client.get(reverse("app-home"))
             self.assertContains(response, text)
             self.assertContains(response, "Unavailable")
             self.assertNotContains(response, "$0")
-            self.assertNotContains(response, f'href="{reverse("vendor-bill-create")}"')
+            self.assertContains(response, f'href="{reverse("vendor-bill-create")}"')
             self.assertContains(response, "Combined rent and deposit receipts are not available yet")
             self.assertContains(response, "Maintenance requests are not available yet")
 

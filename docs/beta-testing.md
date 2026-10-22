@@ -65,6 +65,8 @@ The session should use these specific records:
 - maintenance categories: `Plumbing`, `Electrical`, `Landscaping`
 - demo users: `beta-admin`, `beta-manager`, `beta-bookkeeper`
 
+The seed assigns independent workflow capabilities for the demo: `beta-manager` can approve vendor bills, `beta-bookkeeper` can record approved vendor payments, and `beta-admin` receives both grants for administrative testing. The Ace Plumbing bill is approved, the Bright Electric bill awaits approval, and the GreenLine Landscaping bill remains a draft.
+
 Representative records participants should encounter:
 
 - unit `101` with tenant `Avery Jordan`, rent `1450.00`, deposit `1450.00`
@@ -167,10 +169,10 @@ Ask them to open the payments area:
 Then give them this sequence:
 
 1. Find the vendor bills.
-2. Identify the bill for `Ace Plumbing`.
-3. Identify the bill for `Bright Electric`.
-4. Identify the bill for `GreenLine Landscaping`.
-5. Open the vendor payment for `Ace Plumbing`.
+2. As `beta-manager`, open the approval queue and review the submitted `Bright Electric` bill. Confirm the submitter cannot approve their own bill.
+3. Identify the approved bill for `Ace Plumbing`, the submitted bill for `Bright Electric`, and the draft bill for `GreenLine Landscaping`.
+4. As `beta-bookkeeper`, confirm that an approved bill still has a separate LedgerOS posting state and that payment begins from an eligible posted bill.
+5. Open the existing vendor payment for `Ace Plumbing` and distinguish it from a fresh settlement.
 6. Open the security deposit area and look for the three seeded deposit events.
 
 Ask them to describe what seems ready for action and what seems like a draft or in-progress record.
@@ -220,7 +222,7 @@ Capture feedback on:
 
 ## Moderator notes
 
-For the WP1 navigation release, start each role at `/home/` after setup. Check the three workflow cards, existing record/report links, desktop collapse and mobile menu. Confirm viewers see read actions and that unassigned users see access guidance. Maintenance requests, independent approvals/payment grants and combined rent/deposit receipts are visibly gated pending later work packages; do not treat those cards as completed financial workflows. See [WP1 browser acceptance](qa/wp1/README.md) for desktop/mobile examples.
+Start each role at `/home/` after setup. Check the three workflow cards, existing record/report links, desktop collapse and mobile menu. Confirm viewers see read actions and that unassigned users see access guidance. Exercise the separate bill submitter, approver, and payer capabilities with the seeded users. Maintenance requests and combined rent/deposit receipts remain visibly gated pending later work packages. See [WP1 browser acceptance](qa/wp1/README.md) for desktop/mobile examples.
 
 - Keep the group moving, but do not rush them past confusion.
 - If a participant pauses, ask what they expected to happen.

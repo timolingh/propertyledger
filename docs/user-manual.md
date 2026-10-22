@@ -35,7 +35,7 @@ The home shows actual saved receipts awaiting finalization and attempted vendor 
 
 Setup stays at `/` for administrators. The home shows setup and connection status separately. During a connection failure it labels accounting balances unavailable; it does not substitute zero. Open the existing bill or banking screen to read current LedgerOS balances.
 
-This first navigation release does not yet implement independent bill approvals, individual payment authorizations, maintenance requests, or combined rent/deposit receipts. The cards explain those limitations. Existing accounting workflows continue to use their current posting and retry rules.
+Vendor bills now use independent approval and individual payment authorizations. Maintenance requests and combined rent/deposit receipts remain gated for later work packages. Existing accounting workflows continue to use their current posting and retry rules.
 
 ### 1. Start with setup
 
@@ -83,6 +83,14 @@ a replacement receipt.
 Use vendor records for payees and vendor bills for expenses.
 
 You can also record vendor payments and debt-service payments when those workflows apply.
+
+New vendor bills are saved locally first. Choose **Save draft** while entering or correcting a bill, or **Save and submit for approval** when it is ready for review. The submitter cannot approve the same bill. A separately authorized approver opens the approval queue, reviews the bill, and approves or rejects it. Rejected bills can be corrected and resubmitted.
+
+Approval does not post the bill. After approval, an administrator or bookkeeper explicitly chooses **Post approved bill**. The bill must be both approved and successfully posted before a new payment can begin. Approval status, posting status, and payment status appear separately.
+
+Payment-authorized users open an approved posted bill and choose **Pay bill**. Bill approvers do not automatically have payment authority, and payment-authorized users do not automatically receive approval authority. Administrators configure both grants separately under **Workflow authorizations**.
+
+Existing posted bills created before this workflow show **Legacy / approval not recorded**. Submit one for prospective approval before recording another payment. This does not repost the bill or rewrite its accounting history.
 
 The Vendor Bills list and bill detail page show **Payment status**, **Amount
 paid**, **Credits applied**, and **Balance due** from LedgerOS. These include

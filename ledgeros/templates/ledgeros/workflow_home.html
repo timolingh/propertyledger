@@ -40,7 +40,7 @@
       <div class="section-heading"><h3 id="queue-{{ queue.key }}">{{ queue.title }}</h3><span class="queue-count">{{ queue.count }}</span></div>
       <ul class="queue-list">{% for item in queue.items %}<li><a href="{{ item.url }}">{{ item.label }}</a><span class="muted">{{ item.detail }}</span></li>{% empty %}<li class="muted">Nothing needs review here.</li>{% endfor %}</ul>
       {% if queue.count > 5 %}<p class="muted">Showing 5 of {{ queue.count }}</p>{% endif %}
-      <a href="{{ queue.url }}">View all {% if queue.key == 'receipts' %}receipts{% else %}vendor payments{% endif %}</a>
+      <a href="{{ queue.url }}">View all {% if queue.key == 'receipts' %}receipts{% elif queue.key == 'approvals' %}bill approvals{% else %}vendor payments{% endif %}</a>
     </section>
   {% endfor %}</div>
 </section>

@@ -5,7 +5,8 @@ from ledgeros.models import LedgerOSConnectionSettings, LedgerOSSyncRecord, Prop
 from ledgeros.permissions import BookkeepingRoleRequiredMixin, ReportingRoleRequiredMixin
 from ledgeros.roles import user_has_any_role
 from ledgeros.services import LedgerOSHealthCheckService
-from payments.models import TenantPayment, VendorPayment
+from payments.authorization import can_approve_vendor_bills, can_pay_vendor_bills
+from payments.models import TenantPayment, VendorBill, VendorPayment
 
 
 def _link(label, route, *, primary=False):
@@ -15,6 +16,8 @@ def _link(label, route, *, primary=False):
 def workflow_home_context(user):
     can_read = user_has_any_role(user, ReportingRoleRequiredMixin.allowed_roles)
     can_write = user_has_any_role(user, BookkeepingRoleRequiredMixin.allowed_roles)
+    can_approve = can_approve_vendor_bills(user)
+    can_pay = can_pay_vendor_bills(user)
     context = {"work_queues": [], "workflow_access": can_read, "workflow_cards": [], "home_setup_complete": False}
     rent_links, vendor_links, maintenance_links = [], [], []
     if can_read:
@@ -35,30 +38,46 @@ def workflow_home_context(user):
         context.update(home_setup_complete=ready, connection_status=status, connection_message=message)
         if can_write and ready:
             rent_links.extend((_link("Create charge / invoice", "charge-create", primary=True), _link("Record rent receipt", "tenant-payment-create")))
-            # The current bill save auto-posts; do not offer it as an offline draft action.
-            if health.healthy:
-                vendor_links.append(_link("Record vendor bill", "vendor-bill-create", primary=True))
+            # WP2 bill entry is local-first; explicit posting remains blocked by
+            # LedgerOS validation after independent approval.
+            vendor_links.append(_link("Record vendor bill", "vendor-bill-create", primary=True))
         rent_links.extend((_link("Open invoices", "invoice-list", primary=not rent_links), _link("View receipts", "tenant-payment-list"), _link("View deposits", "security-deposit-list")))
         vendor_links.extend((_link("View vendor bills", "vendor-bill-list", primary=not vendor_links), _link("View vendor payments", "vendor-payment-list")))
+        if can_approve:
+            vendor_links.append(_link("Review bill approvals", "vendor-bill-approval-queue"))
+        if can_pay:
+            vendor_links.append(_link("Pay approved bills", "vendor-bill-list"))
         maintenance_links.append(_link("View maintenance expenses", "maintenance-expense-summary-report"))
 
         receipts = TenantPayment.objects.exclude(status__in=(TenantPayment.Status.POSTED, TenantPayment.Status.VOIDED)).exclude(sync_record__status=LedgerOSSyncRecord.Status.SUCCEEDED)
         pending = VendorPayment.objects.filter(sync_record__attempt_count__gt=0).exclude(status__in=(VendorPayment.Status.POSTED, VendorPayment.Status.VOIDED)).exclude(sync_record__status=LedgerOSSyncRecord.Status.SUCCEEDED)
-        for key, title, records, list_route, detail_route in (
+        queue_definitions = [
             ("receipts", "Receipts awaiting finalization", receipts, "tenant-payment-list", "tenant-payment-detail"),
             ("payments", "Vendor payments awaiting confirmation", pending, "vendor-payment-list", "vendor-payment-detail"),
-        ):
+        ]
+        if can_approve:
+            approvals = VendorBill.objects.filter(
+                approval_status=VendorBill.ApprovalStatus.SUBMITTED
+            ).exclude(submitted_by=user)
+            queue_definitions.append(
+                ("approvals", "Vendor bills awaiting approval", approvals, "vendor-bill-approval-queue", "vendor-bill-detail")
+            )
+        for key, title, records, list_route, detail_route in queue_definitions:
             count = records.count()
             if key == "receipts":
                 records = records.select_related("tenant", "property")
                 items = [{"label": row.reference or f"Receipt {row.pk}", "detail": f"{row.tenant} · {row.property} · {row.get_status_display()}", "url": reverse(detail_route, args=[row.pk])} for row in records.order_by("payment_date", "id")[:5]]
-            else:
+            elif key == "payments":
                 records = records.select_related("vendor", "vendor_bill")
                 items = [{"label": f"Payment {row.pk} · {row.vendor}", "detail": f"Bill {row.vendor_bill_id} · {row.get_status_display()}", "url": reverse(detail_route, args=[row.pk])} for row in records.order_by("payment_date", "id")[:5]]
-            context["work_queues"].append({"key": key, "title": title, "count": count, "items": items, "url": reverse(list_route), "can_act": can_write})
+            else:
+                records = records.select_related("vendor", "property", "submitted_by")
+                items = [{"label": f"Bill {row.pk} · {row.vendor}", "detail": f"{row.property} · {row.amount} · submitted by {row.submitted_by}", "url": reverse(detail_route, args=[row.pk])} for row in records.order_by("submitted_at", "id")[:5]]
+            can_act = can_approve if key == "approvals" else (can_pay if key == "payments" else can_write)
+            context["work_queues"].append({"key": key, "title": title, "count": count, "items": items, "url": reverse(list_route), "can_act": can_act})
     context["workflow_cards"] = [
         {"number": "01", "title": "Collect Rent / Deposit", "description": "Create invoices and record money received from tenants.", "links": rent_links, "gate": "Combined rent and deposit receipts are not available yet. Record them separately using the existing workflows."},
-        {"number": "02", "title": "Get Billed & Pay Vendors", "description": "Review vendor invoices, their posting status, and current balances.", "links": vendor_links, "gate": "Independent bill approvals and individual payment authorizations are not available yet. Existing bill payment rules still apply."},
+        {"number": "02", "title": "Get Billed & Pay Vendors", "description": "Submit vendor invoices for independent approval, then record authorized payments.", "links": vendor_links, "gate": "Approval, LedgerOS posting, and payable balance are shown as separate states."},
         {"number": "03", "title": "Log Maintenance Request", "description": "Track work through verified completion, independently of vendor billing.", "links": maintenance_links, "gate": "Maintenance requests are not available yet. Existing maintenance expense reports remain accessible."},
     ]
     return context

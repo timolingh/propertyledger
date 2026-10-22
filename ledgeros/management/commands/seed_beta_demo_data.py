@@ -25,6 +25,7 @@ from ledgeros.roles import (
     ensure_role_groups,
 )
 from payments.models import MaintenanceCategory, Vendor, VendorBill, VendorPayment, SecurityDepositEvent
+from payments.approval_services import VendorBillApprovalService, WorkflowAuthorizationService
 
 
 @dataclass(frozen=True)
@@ -106,6 +107,7 @@ class Command(BaseCommand):
             leases=leases,
         )
         self._upsert_demo_users(password=password)
+        self._configure_demo_workflow_authorizations()
 
         return BetaSeedSummary(
             owner_name=owner.name,
@@ -387,3 +389,43 @@ class Command(BaseCommand):
             if is_superuser and not user.is_staff:
                 user.is_staff = True
                 user.save(update_fields=["is_staff"])
+
+    def _configure_demo_workflow_authorizations(self) -> None:
+        from django.contrib.auth import get_user_model
+
+        User = get_user_model()
+        admin_user = User.objects.get(username="beta-admin")
+        manager = User.objects.get(username="beta-manager")
+        bookkeeper = User.objects.get(username="beta-bookkeeper")
+        WorkflowAuthorizationService.set_grants(
+            target=admin_user,
+            actor=admin_user,
+            can_approve_vendor_bills=True,
+            can_pay_vendor_bills=True,
+            source="beta_seed",
+        )
+        WorkflowAuthorizationService.set_grants(
+            target=manager,
+            actor=admin_user,
+            can_approve_vendor_bills=True,
+            can_pay_vendor_bills=False,
+            source="beta_seed",
+        )
+        WorkflowAuthorizationService.set_grants(
+            target=bookkeeper,
+            actor=admin_user,
+            can_approve_vendor_bills=False,
+            can_pay_vendor_bills=True,
+            source="beta_seed",
+        )
+        bills = list(VendorBill.objects.order_by("id"))
+        for bill in bills:
+            if bill.created_by_id is None:
+                bill.created_by = bookkeeper
+                bill.save(update_fields=["created_by", "updated_at"])
+        if bills and bills[0].approval_status == VendorBill.ApprovalStatus.DRAFT:
+            VendorBillApprovalService.submit(bills[0], actor=bookkeeper)
+            VendorBillApprovalService.approve(bills[0], actor=manager, reason="Seeded approved bill")
+        if len(bills) > 1 and bills[1].approval_status == VendorBill.ApprovalStatus.DRAFT:
+            VendorBillApprovalService.submit(bills[1], actor=bookkeeper)
+        VendorPayment.objects.filter(initiated_by__isnull=True).update(initiated_by=bookkeeper)

@@ -17,7 +17,8 @@ This repository now includes the Epic 1 through Epic 3 Django foundation for Pro
 - Epic 3 tenant-charge workflow for base rent generation and manual charges.
 - Epic 4 payments app for tenant payments, payment applications, and security deposits.
 - Epic 5 vendor bills, vendor payments, debt-service payments, and maintenance summaries.
-- WP1 shared workflow home at `/home/`, responsive sidebar, role-aware links and local review queues. Bill approvals, maintenance requests and combined receipts remain later work packages; see the workflow implementation plan.
+- WP1 shared workflow home at `/home/`, responsive sidebar, role-aware links and local review queues.
+- WP2 independent vendor-bill approval, per-user approval/payment authorizations, actor-attributed posting, and legacy-safe payment enforcement. Maintenance requests and combined receipts remain later work packages; see the workflow implementation plan.
 
 ## Environment variables
 
