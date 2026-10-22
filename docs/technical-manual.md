@@ -145,14 +145,28 @@ and idempotency key; confirmed allocations are skipped. Accounting fields are
 locked after an allocation has been attempted, including timeout cases where
 LedgerOS might already have committed the payment. Notes remain editable.
 
-Finalizing the receipt retries unconfirmed allocations and requires the entire
-receipt amount to be allocated and posted. It sends no parent receipt event to
-LedgerOS and never posts the money again. The parent's `LedgerOSSyncRecord` is
-a local `payment_collection` summary under `tenant_payment.finalized`; its
-response lists the allocation sync records, LedgerOS payment IDs, journal IDs,
-and amounts. Existing report queries continue to use the parent's succeeded
-sync status. Failed finalization remains outside official receipt totals.
-Unapplied amounts are local operational data, not posted tenant credit.
+One receipt may include invoice allocations and one refundable security-deposit
+allocation. The deposit belongs to a matching lease and posts through
+`POST /api/v1/sync-events/` with explicit entries: debit the configured operating
+bank account and credit the configured tenant security-deposit liability. Its
+event date is the receipt date. Deposit-only receipts are supported.
+
+Finalizing retries unconfirmed invoice and deposit components and requires the
+entire receipt amount to be allocated. It sends no parent receipt event to
+LedgerOS and never posts the money again. Each component freezes its serialized
+request before the first attempt and reuses the same idempotency key. A component
+succeeds only when LedgerOS returns a posted journal ID. The parent's
+`LedgerOSSyncRecord` is a local `payment_collection` summary under
+`tenant_payment.finalized`; it lists confirmed invoice payment IDs, deposit event
+ID, journal IDs, and component amounts.
+
+Reports use confirmed invoice applications for tenant AR, rent collections, and
+owner income. They use confirmed deposit allocations only for deposit-liability
+activity. A partially posted receipt therefore exposes its confirmed components
+without treating the full parent amount as rent. Parent-only historic receipts
+without component rows retain the previous whole-receipt report behavior; no
+historical journal is changed or reposted. Unapplied amounts remain local
+operational data, not posted tenant credit.
 
 Legacy `tenant_payment.received` sync-event rows are retained unchanged. When a
 receipt is finalized again, its parent link moves to the new local summary;
@@ -161,7 +175,10 @@ Existing allocation records are reused. A changed retry payload is rejected
 for manual reconciliation rather than sent with a new idempotency key. No data
 migration or automatic reposting is performed.
 
-Security-deposit events retain their existing generic sync-event contract.
+Standalone received/refunded security-deposit events use the same explicit
+Cash/liability journal contract and require a posted journal response. Required
+and deducted events are not posted until their separate accounting treatment is
+defined.
 
 For manual acceptance in a prepared Docker sandbox, create two posted invoices
 for the same tenant/property for `40.00` and `60.00`, then allocate a `100.00`
@@ -172,6 +189,10 @@ finalization. Finalize again and confirm no extra payment or journal. For a
 `40.00`. Test a failed allocation by interrupting LedgerOS availability, then
 restore it and retry the same receipt; payment IDs for successful allocations
 must remain unchanged. No reset of an existing bookkeeping database is needed.
+For the mixed acceptance case, post a `2,000.00` receipt with `1,500.00` applied
+to rent and `500.00` to the deposit liability. Confirm aggregate Cash `+2,000.00`,
+AR `-1,500.00`, deposit liability `+500.00`, and no balance or journal-count
+change after exact replay.
 
 ### Vendor and debt workflows
 

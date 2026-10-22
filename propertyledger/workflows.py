@@ -40,7 +40,7 @@ def workflow_home_context(user):
             status, message = "unavailable", "LedgerOS unavailable"
         context.update(home_setup_complete=ready, connection_status=status, connection_message=message)
         if can_write and ready:
-            rent_links.extend((_link("Create charge / invoice", "charge-create", primary=True), _link("Record rent receipt", "tenant-payment-create")))
+            rent_links.extend((_link("Create charge / invoice", "charge-create", primary=True), _link("Record rent / deposit receipt", "tenant-payment-create")))
             # WP2 bill entry is local-first; explicit posting remains blocked by
             # LedgerOS validation after independent approval.
             vendor_links.append(_link("Record vendor bill", "vendor-bill-create", primary=True))

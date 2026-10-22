@@ -8,15 +8,34 @@
     <p><strong>Tenant:</strong> {{ payment.tenant }}</p>
     <p><strong>Property:</strong> {{ payment.property }}</p>
     <p><strong>Status:</strong> {{ payment.get_status_display }}</p>
-    <p><strong>Allocated:</strong> {{ payment.allocated_amount }}</p>
-    <p><strong>Unapplied / credit:</strong> {{ payment.unapplied_amount }}</p>
+    <p><strong>Invoice / rent component:</strong> {{ payment.allocated_amount }}</p>
+    <p><strong>Security deposit component:</strong> {{ payment.deposit_amount }}</p>
+    <p><strong>Unallocated:</strong> {{ payment.unapplied_amount }}</p>
     <p><strong>Notes:</strong> {{ payment.notes|default:"-" }}</p>
-    <p class="muted">Allocating posts each invoice payment to LedgerOS. Finalizing retries any failed allocations and confirms the receipt after the full amount has posted. Unapplied amounts must be allocated before finalization.</p>
+    <p class="muted">Invoice allocations settle accounts receivable. The deposit component posts to the security deposit liability. Finalizing retries only unconfirmed components and confirms the local receipt after every component has a posted LedgerOS journal.</p>
     <div style="display:flex; gap:1rem; flex-wrap:wrap;">
       <a class="button" href="{% url 'tenant-payment-list' %}">Back</a>
       <a class="button" href="{% url 'invoice-list' %}">Open invoices</a>
       {% if can_bookkeep %}<a class="button" href="{% url 'tenant-payment-edit' payment.pk %}">Edit payment notes</a>{% endif %}
     </div>
+  </div>
+  <div class="card">
+    <h2>Security deposit component</h2>
+    {% if deposit_allocation %}
+      <p><strong>Lease:</strong> {{ deposit_allocation.lease }}</p>
+      <p><strong>Amount:</strong> {{ deposit_allocation.amount }}</p>
+      <p><strong>Sync:</strong> {{ deposit_allocation.sync_record.status|default:"Not attempted" }}</p>
+      {% if deposit_sync_log_entry %}
+        <div class="card">
+          <strong>{{ deposit_sync_log_entry.title }}</strong>
+          <div class="muted">{{ deposit_sync_log_entry.updated_at }} | {{ deposit_sync_log_entry.status }}</div>
+          {% if deposit_sync_log_entry.error %}<pre>{{ deposit_sync_log_entry.error }}</pre>{% endif %}
+          {% if deposit_sync_log_entry.response_text %}<pre>{{ deposit_sync_log_entry.response_text }}</pre>{% endif %}
+        </div>
+      {% endif %}
+    {% else %}
+      <p class="muted">This receipt has no security deposit component.</p>
+    {% endif %}
   </div>
   <div class="card">
     <h2>Allocations</h2>
@@ -68,7 +87,7 @@
       {% csrf_token %}
       <input type="hidden" name="action" value="sync">
       <input type="hidden" name="payment_id" value="{{ payment.pk }}">
-      <button type="submit" class="button primary">Retry and finalize payment</button>
+      <button type="submit" class="button primary">Retry components and finalize receipt</button>
     </form>{% endif %}
     {% if sync_log_entries %}
       {% for entry in sync_log_entries %}

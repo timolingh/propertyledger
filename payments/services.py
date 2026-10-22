@@ -37,6 +37,7 @@ from payments.models import (
     SecurityDepositEvent,
     TenantPayment,
     TenantPaymentApplication,
+    TenantPaymentDepositAllocation,
     Vendor,
     VendorBill,
     VendorPayment,
@@ -396,8 +397,13 @@ class LedgerOSPaymentService:
         )
 
     @staticmethod
-    def submit_payment_application(*, application: TenantPaymentApplication, idempotency_key: str) -> SyncResult:
-        payload = LedgerOSPaymentService._build_payment_payload(application)
+    def submit_payment_application(
+        *,
+        application: TenantPaymentApplication,
+        idempotency_key: str,
+        payload: dict[str, Any] | None = None,
+    ) -> SyncResult:
+        payload = payload or LedgerOSPaymentService._build_payment_payload(application)
         return LedgerOSSyncEventService._submit(
             method="POST",
             path=LedgerOSPaymentService.PAYMENT_PATH,
@@ -711,6 +717,108 @@ class TenantPaymentService:
         return hashlib.sha256(json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode("utf-8")).hexdigest()
 
     @staticmethod
+    def _account_code(*, mapping_key: str, field_name: str, expected_type: str) -> str:
+        setup = PropertyLedgerSetup.load()
+        mapping = setup.account_mappings.filter(mapping_key=mapping_key).first()
+        if mapping is None or not mapping.is_valid_for_completion:
+            raise ValidationError({field_name: f"A valid {mapping_key.replace('_', ' ')} mapping is required."})
+        if mapping.ledgeros_account_type != expected_type:
+            raise ValidationError({field_name: f"The {mapping_key.replace('_', ' ')} mapping must be an {expected_type} account."})
+        return mapping.ledgeros_account_id
+
+    @staticmethod
+    def _posted_sync_event_result(payload: Any) -> bool:
+        if not isinstance(payload, dict):
+            return False
+        event = payload.get("sync_event")
+        journal = payload.get("journal_entry")
+        return bool(
+            isinstance(event, dict)
+            and event.get("id")
+            and isinstance(journal, dict)
+            and journal.get("id")
+            and journal.get("status") == "posted"
+        )
+
+    @staticmethod
+    def _deposit_accounting_entries(*, amount: Decimal, received: bool = True) -> list[dict[str, str]]:
+        cash_code = TenantPaymentService._account_code(
+            mapping_key=PropertyLedgerAccountMapping.MappingKey.OPERATING_BANK_ACCOUNT,
+            field_name="operating_bank_account",
+            expected_type="asset",
+        )
+        liability_code = TenantPaymentService._account_code(
+            mapping_key=PropertyLedgerAccountMapping.MappingKey.TENANT_SECURITY_DEPOSITS_LIABILITY,
+            field_name="tenant_security_deposits_liability",
+            expected_type="liability",
+        )
+        formatted_amount = str(amount.quantize(Decimal("0.01")))
+        if received:
+            return [
+                {"account_code": cash_code, "direction": "debit", "amount": formatted_amount},
+                {"account_code": liability_code, "direction": "credit", "amount": formatted_amount},
+            ]
+        return [
+            {"account_code": liability_code, "direction": "debit", "amount": formatted_amount},
+            {"account_code": cash_code, "direction": "credit", "amount": formatted_amount},
+        ]
+
+    @staticmethod
+    def set_deposit_allocation(
+        *, payment: TenantPayment, lease: Lease | None, amount: Decimal
+    ) -> TenantPaymentDepositAllocation | None:
+        amount = Decimal(str(amount)).quantize(Decimal("0.01"))
+        with transaction.atomic():
+            payment = TenantPayment.objects.select_for_update().get(pk=payment.pk)
+            existing = TenantPaymentDepositAllocation.objects.select_related("sync_record").filter(payment=payment).first()
+            if existing and not existing.is_editable_after_sync:
+                if existing.amount != amount or existing.lease_id != (lease.pk if lease else None):
+                    raise ValidationError({"deposit_amount": "An attempted deposit allocation cannot be changed. Reconcile it before retrying."})
+                return existing
+            if not payment.is_editable_after_sync:
+                raise ValidationError({"payment": "A receipt with attempted components cannot be changed."})
+            if amount < Decimal("0.00") or amount > payment.amount:
+                raise ValidationError({"deposit_amount": "Deposit amount must be between zero and the receipt total."})
+            if amount == Decimal("0.00"):
+                if existing:
+                    existing.delete()
+                return None
+            if lease is None:
+                raise ValidationError({"deposit_lease": "Choose the lease that owns the deposit."})
+            if lease.tenant_id != payment.tenant_id or lease.unit.property_id != payment.property_id:
+                raise ValidationError({"deposit_lease": "The deposit lease must match the receipt tenant and property."})
+            allocation, _ = TenantPaymentDepositAllocation.objects.update_or_create(
+                payment=payment,
+                defaults={"lease": lease, "amount": amount},
+            )
+            return allocation
+
+    @staticmethod
+    def _build_deposit_allocation_payload(allocation: TenantPaymentDepositAllocation) -> dict[str, Any]:
+        payment = allocation.payment
+        return TenantPaymentService._build_sync_event_payload(
+            source_system="propertyledger",
+            domain_event_type="security_deposit.received",
+            external_id=f"tenant-payment:{payment.pk}:deposit",
+            source_object_type="tenant_payment_deposit_allocation",
+            source_object_id=str(allocation.pk),
+            occurred_at=f"{payment.payment_date.isoformat()}T00:00:00Z",
+            payload={
+                "receipt_id": payment.pk,
+                "property_id": payment.property_id,
+                "unit_id": allocation.lease.unit_id,
+                "tenant_id": payment.tenant_id,
+                "lease_id": allocation.lease_id,
+                "payment_date": payment.payment_date.isoformat(),
+                "payment_method": payment.payment_method,
+                "reference": payment.reference,
+                "total_receipt_amount": str(payment.amount.quantize(Decimal("0.01"))),
+                "deposit_amount": str(allocation.amount.quantize(Decimal("0.01"))),
+                "accounting_entries": TenantPaymentService._deposit_accounting_entries(amount=allocation.amount),
+            },
+        )
+
+    @staticmethod
     def _build_sync_record(
         *,
         local_object_type: str,
@@ -849,9 +957,14 @@ class TenantPaymentService:
                 and allocation.sync_record.status == LedgerOSSyncRecord.Status.SUCCEEDED
                 for allocation in payment.applications.all()
             )
-            if not payment.applications.exists():
+            deposit = TenantPaymentDepositAllocation.objects.select_related("sync_record").filter(payment=payment).first()
+            deposit_synced = deposit is None or (
+                deposit.sync_record
+                and deposit.sync_record.status == LedgerOSSyncRecord.Status.SUCCEEDED
+            )
+            if not payment.applications.exists() and deposit is None:
                 payment.status = TenantPayment.Status.DRAFT
-            elif all_allocations_synced and payment.remaining_amount == Decimal("0.00"):
+            elif all_allocations_synced and deposit_synced and payment.remaining_amount == Decimal("0.00"):
                 payment.status = TenantPayment.Status.READY_TO_SYNC
             else:
                 payment.status = TenantPayment.Status.ALLOCATED
@@ -866,7 +979,13 @@ class TenantPaymentService:
         ).get(pk=application.pk)
         if application.payment.status == TenantPayment.Status.VOIDED:
             raise ValidationError({"payment": "Voided payments cannot be posted."})
-        request_payload = LedgerOSPaymentService._build_payment_payload(application)
+        current_payload = LedgerOSPaymentService._build_payment_payload(application)
+        if application.frozen_request_payload is not None and application.frozen_request_payload != current_payload:
+            raise ValidationError({"payment": "An attempted payment allocation cannot be changed. Reconcile it before retrying."})
+        if application.frozen_request_payload is None:
+            application.frozen_request_payload = current_payload
+            application.save(update_fields=["frozen_request_payload", "updated_at"])
+        request_payload = application.frozen_request_payload
         sync_record = application.sync_record
         if sync_record is not None:
             if sync_record.request_hash != TenantPaymentService._sync_record_payload(request_payload):
@@ -895,7 +1014,11 @@ class TenantPaymentService:
         sync_record.save(update_fields=["status", "attempt_count", "last_error", "updated_at"])
 
         try:
-            result = LedgerOSPaymentService.submit_payment_application(application=application, idempotency_key=sync_record.idempotency_key)
+            result = LedgerOSPaymentService.submit_payment_application(
+                application=application,
+                idempotency_key=sync_record.idempotency_key,
+                payload=request_payload,
+            )
             if not LedgerOSPaymentService.is_posted_result(result.payload):
                 raise RuntimeError("LedgerOS did not return a payment with a posted journal entry. Retry with the same idempotency key or reconcile the result.")
         except Exception as exc:
@@ -917,12 +1040,84 @@ class TenantPaymentService:
 
     @staticmethod
     @transaction.atomic
+    def sync_deposit_allocation(allocation: TenantPaymentDepositAllocation) -> TenantPaymentDepositAllocation:
+        allocation = TenantPaymentDepositAllocation.objects.select_for_update(of=("self",)).select_related(
+            "payment", "lease__unit", "sync_record"
+        ).get(pk=allocation.pk)
+        if allocation.payment.status == TenantPayment.Status.VOIDED:
+            raise ValidationError({"payment": "Voided receipts cannot be posted."})
+        current_payload = TenantPaymentService._build_deposit_allocation_payload(allocation)
+        if allocation.frozen_request_payload is not None and allocation.frozen_request_payload != current_payload:
+            raise ValidationError({"deposit_amount": "An attempted deposit allocation cannot be changed. Reconcile it before retrying."})
+        if allocation.frozen_request_payload is None:
+            allocation.frozen_request_payload = current_payload
+            allocation.save(update_fields=["frozen_request_payload", "updated_at"])
+        request_payload = allocation.frozen_request_payload
+        sync_record = allocation.sync_record
+        if sync_record is not None:
+            if sync_record.request_hash != TenantPaymentService._sync_record_payload(request_payload):
+                raise ValidationError({"deposit_amount": "An attempted deposit allocation cannot be changed. Reconcile it before retrying."})
+            if (
+                sync_record.status == LedgerOSSyncRecord.Status.SUCCEEDED
+                and TenantPaymentService._posted_sync_event_result(sync_record.response_payload)
+            ):
+                return allocation
+        else:
+            sync_record = TenantPaymentService._build_sync_record(
+                local_object_type="tenant_payment_deposit_allocation",
+                local_object_id=str(allocation.pk),
+                source_event_type="tenant_payment.deposit_received",
+                external_id=f"tenant-payment:{allocation.payment_id}:deposit",
+                request_payload=request_payload,
+            )
+            allocation.sync_record = sync_record
+            allocation.save(update_fields=["sync_record", "updated_at"])
+
+        sync_record.status = LedgerOSSyncRecord.Status.IN_PROGRESS
+        sync_record.attempt_count += 1
+        sync_record.last_error = None
+        sync_record.save(update_fields=["status", "attempt_count", "last_error", "updated_at"])
+        try:
+            result = LedgerOSSyncEventService._submit(
+                method="POST",
+                path=LedgerOSSyncEventService.SYNC_EVENT_PATH,
+                payload=request_payload,
+                idempotency_key=sync_record.idempotency_key,
+            )
+            if not TenantPaymentService._posted_sync_event_result(result.payload):
+                raise RuntimeError(
+                    "LedgerOS did not return a deposit event with a posted journal entry. "
+                    "Retry with the same idempotency key or reconcile the result."
+                )
+        except Exception as exc:
+            logger.warning("Tenant receipt deposit sync failed", extra={"deposit_allocation_id": allocation.pk, "error": str(exc)})
+            sync_record.status = LedgerOSSyncRecord.Status.FAILED
+            sync_record.last_error = str(exc)
+            sync_record.response_payload = {"status": "failed", "error": str(exc)}
+            sync_record.save(update_fields=["status", "last_error", "response_payload", "updated_at"])
+            return allocation
+
+        sync_record.status = LedgerOSSyncRecord.Status.SUCCEEDED
+        sync_record.ledgeros_resource_type = "sync_event"
+        sync_record.ledgeros_resource_id = str(result.payload["sync_event"]["id"])
+        sync_record.ledgeros_journal_entry_id = str(result.payload["journal_entry"]["id"])
+        sync_record.response_payload = result.payload
+        sync_record.last_synced_at = timezone.now()
+        sync_record.save(update_fields=[
+            "status", "ledgeros_resource_type", "ledgeros_resource_id", "ledgeros_journal_entry_id",
+            "response_payload", "last_synced_at", "updated_at",
+        ])
+        return allocation
+
+    @staticmethod
+    @transaction.atomic
     def sync_payment(payment: TenantPayment) -> TenantPayment:
         payment = TenantPayment.objects.select_for_update().get(pk=payment.pk)
         if payment.status == TenantPayment.Status.VOIDED:
             raise ValidationError({"payment": "Voided payments cannot be finalized."})
-        if not payment.applications.exists():
-            raise ValidationError({"payment": "Payment must be applied to at least one invoice before sync."})
+        deposit = TenantPaymentDepositAllocation.objects.select_related("sync_record", "lease__unit").filter(payment=payment).first()
+        if not payment.applications.exists() and deposit is None:
+            raise ValidationError({"payment": "Receipt must include an invoice or deposit allocation before sync."})
         if payment.remaining_amount != Decimal("0.00"):
             raise ValidationError({"payment": "Payment must be fully allocated before finalization. Unapplied credit posting is not supported."})
 
@@ -942,9 +1137,31 @@ class TenantPaymentService:
                     "amount": str(application.amount_applied),
                 })
 
+        deposit_summary = None
+        if deposit is not None:
+            deposit = TenantPaymentService.sync_deposit_allocation(deposit)
+            deposit_record = deposit.sync_record
+            if deposit_record.status != LedgerOSSyncRecord.Status.SUCCEEDED:
+                errors.append(deposit_record.last_error or "Deposit allocation did not post.")
+            else:
+                deposit_summary = {
+                    "deposit_allocation_id": deposit.pk,
+                    "sync_record_id": deposit_record.pk,
+                    "sync_event_id": deposit_record.ledgeros_resource_id,
+                    "journal_entry_id": deposit_record.ledgeros_journal_entry_id,
+                    "amount": str(deposit.amount.quantize(Decimal("0.01"))),
+                }
+
         # This local summary is not sent to LedgerOS. Keep legacy receipt events
         # under tenant_payment.received intact for audit history.
-        summary = {"payment_id": payment.pk, "amount": str(payment.amount), "applications": applications}
+        summary = {
+            "payment_id": payment.pk,
+            "amount": str(payment.amount.quantize(Decimal("0.01"))),
+            "rent_amount": str(payment.allocated_amount.quantize(Decimal("0.01"))),
+            "deposit_amount": str(payment.deposit_amount.quantize(Decimal("0.01"))),
+            "applications": applications,
+            "deposit": deposit_summary,
+        }
         if (
             not errors
             and payment.status == TenantPayment.Status.POSTED
@@ -973,24 +1190,55 @@ class TenantPaymentService:
     @staticmethod
     @transaction.atomic
     def sync_security_deposit_event(event: SecurityDepositEvent) -> SecurityDepositEvent:
+        if event.event_type not in {
+            SecurityDepositEvent.EventType.RECEIVED,
+            SecurityDepositEvent.EventType.REFUNDED,
+        }:
+            raise ValidationError({
+                "event_type": (
+                    "Only received and refunded deposit events have a verified cash/liability posting contract. "
+                    "Required and deducted events need an explicit accounting treatment before posting."
+                )
+            })
+        details = TenantPaymentService._security_deposit_event_details(event)
+        details["accounting_entries"] = TenantPaymentService._deposit_accounting_entries(
+            amount=event.amount,
+            received=event.event_type == SecurityDepositEvent.EventType.RECEIVED,
+        )
         request_payload = TenantPaymentService._build_sync_event_payload(
             source_system="propertyledger",
             domain_event_type=f"security_deposit.{event.event_type}",
             external_id=f"security-deposit:{event.pk}",
             source_object_type="security_deposit_event",
             source_object_id=str(event.pk),
-            occurred_at=event.created_at.isoformat(),
-            payload=TenantPaymentService._security_deposit_event_details(event),
+            occurred_at=f"{event.event_date.isoformat()}T00:00:00Z",
+            payload=details,
         )
-        sync_record = TenantPaymentService._build_sync_record(
-            local_object_type="security_deposit_event",
-            local_object_id=str(event.pk),
-            source_event_type=f"security_deposit.{event.event_type}",
-            external_id=f"security-deposit:{event.pk}",
-            request_payload=request_payload,
-        )
-        event.sync_record = sync_record
-        event.save(update_fields=["sync_record", "updated_at"])
+        if event.frozen_request_payload is not None and event.frozen_request_payload != request_payload:
+            raise ValidationError({"event": "An attempted security deposit event cannot be changed. Reconcile it before retrying."})
+        if event.frozen_request_payload is None:
+            event.frozen_request_payload = request_payload
+            event.save(update_fields=["frozen_request_payload", "updated_at"])
+        request_payload = event.frozen_request_payload
+        sync_record = event.sync_record
+        if sync_record is not None:
+            if sync_record.request_hash != TenantPaymentService._sync_record_payload(request_payload):
+                raise ValidationError({"event": "An attempted security deposit event cannot be changed. Reconcile it before retrying."})
+            if (
+                sync_record.status == LedgerOSSyncRecord.Status.SUCCEEDED
+                and TenantPaymentService._posted_sync_event_result(sync_record.response_payload)
+            ):
+                return event
+        else:
+            sync_record = TenantPaymentService._build_sync_record(
+                local_object_type="security_deposit_event",
+                local_object_id=str(event.pk),
+                source_event_type=f"security_deposit.{event.event_type}",
+                external_id=f"security-deposit:{event.pk}",
+                request_payload=request_payload,
+            )
+            event.sync_record = sync_record
+            event.save(update_fields=["sync_record", "updated_at"])
 
         sync_record.status = LedgerOSSyncRecord.Status.IN_PROGRESS
         sync_record.attempt_count += 1
@@ -1006,6 +1254,11 @@ class TenantPaymentService:
                 payload=request_payload,
                 idempotency_key=sync_record.idempotency_key,
             )
+            if not TenantPaymentService._posted_sync_event_result(result.payload):
+                raise RuntimeError(
+                    "LedgerOS did not return a security deposit event with a posted journal entry. "
+                    "Retry with the same idempotency key or reconcile the result."
+                )
         except Exception as exc:
             logger.warning("Security deposit event sync failed", extra={"security_deposit_event_id": event.pk, "error": str(exc)})
             sync_record.status = LedgerOSSyncRecord.Status.FAILED

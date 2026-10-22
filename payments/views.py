@@ -41,6 +41,7 @@ from payments.models import (
     MaintenanceCategory,
     SecurityDepositEvent,
     TenantPayment,
+    TenantPaymentDepositAllocation,
     Vendor,
     VendorBill,
     VendorPayment,
@@ -123,6 +124,13 @@ def _payment_sync_errors(payment: TenantPayment) -> list[str]:
         sync_record = application.sync_record
         if sync_record and sync_record.status == sync_record.Status.FAILED and sync_record.last_error:
             errors.append(f"{application.charge}: {sync_record.last_error}")
+    try:
+        deposit = payment.deposit_allocation
+    except TenantPaymentDepositAllocation.DoesNotExist:
+        deposit = None
+    if deposit and deposit.sync_record and deposit.sync_record.status == LedgerOSSyncRecord.Status.FAILED:
+        if deposit.sync_record.last_error:
+            errors.append(f"Security deposit: {deposit.sync_record.last_error}")
     return errors
 
 
@@ -389,7 +397,9 @@ class TenantPaymentListView(ReportingRoleRequiredMixin, PaymentsAppContextMixin,
     allowed_roles = ReportingRoleRequiredMixin.allowed_roles
 
     def get_queryset(self):
-        return TenantPayment.objects.select_related("tenant", "property", "sync_record").prefetch_related("applications__charge").order_by("-payment_date", "-id")
+        return TenantPayment.objects.select_related(
+            "tenant", "property", "sync_record", "deposit_allocation__sync_record"
+        ).prefetch_related("applications__charge").order_by("-payment_date", "-id")
 
     def post(self, request, *args, **kwargs):
         payment_id = request.POST.get("payment_id", "").strip()
@@ -458,6 +468,11 @@ class TenantPaymentCreateView(BookkeepingRoleRequiredMixin, PaymentsAppContextMi
 
     def form_valid(self, form):
         self.object = form.save()
+        TenantPaymentService.set_deposit_allocation(
+            payment=self.object,
+            lease=form.cleaned_data.get("deposit_lease"),
+            amount=form.cleaned_data.get("deposit_amount") or Decimal("0.00"),
+        )
         audit_success(
             action="tenant_payment_created",
             record=self.object,
@@ -480,6 +495,11 @@ class TenantPaymentUpdateView(BookkeepingRoleRequiredMixin, PaymentsAppContextMi
 
     def form_valid(self, form):
         self.object = form.save()
+        TenantPaymentService.set_deposit_allocation(
+            payment=self.object,
+            lease=form.cleaned_data.get("deposit_lease"),
+            amount=form.cleaned_data.get("deposit_amount") or Decimal("0.00"),
+        )
         audit_success(
             action="tenant_payment_updated",
             record=self.object,
@@ -497,7 +517,9 @@ class TenantPaymentDetailView(ReportingRoleRequiredMixin, PaymentsAppContextMixi
     allowed_roles = ReportingRoleRequiredMixin.allowed_roles
 
     def get_queryset(self):
-        return TenantPayment.objects.select_related("tenant", "property", "sync_record").prefetch_related("applications__charge", "applications__sync_record")
+        return TenantPayment.objects.select_related(
+            "tenant", "property", "sync_record", "deposit_allocation__lease__unit", "deposit_allocation__sync_record"
+        ).prefetch_related("applications__charge", "applications__sync_record")
 
     def post(self, request, *args, **kwargs):
         self.object = self.get_object()
@@ -585,6 +607,26 @@ class TenantPaymentDetailView(ReportingRoleRequiredMixin, PaymentsAppContextMixi
             for application in payment.applications.select_related("charge", "sync_record").all()
             if application.sync_record
         ]
+        try:
+            deposit = payment.deposit_allocation
+        except TenantPaymentDepositAllocation.DoesNotExist:
+            deposit = None
+        context["deposit_allocation"] = deposit
+        context["deposit_sync_log_entry"] = (
+            {
+                "title": "Security deposit component",
+                "status": deposit.sync_record.status,
+                "error": deposit.sync_record.last_error,
+                "response_text": (
+                    json.dumps(deposit.sync_record.response_payload, indent=2, sort_keys=True)
+                    if deposit.sync_record.response_payload is not None
+                    else ""
+                ),
+                "updated_at": deposit.sync_record.updated_at,
+            }
+            if deposit and deposit.sync_record
+            else None
+        )
         return context
 
 

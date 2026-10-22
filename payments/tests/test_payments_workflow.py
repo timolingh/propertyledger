@@ -306,6 +306,7 @@ class TenantPaymentViewTests(TestCase):
 class TenantPaymentServiceTests(TestCase):
     def setUp(self):
         _configure_ledgeros_settings()
+        _configure_epic5_mappings()
         self.owner = Owner.objects.create(name="Owner One")
         self.property = Property.objects.create(name="Property One", primary_owner=self.owner)
         self.tenant = Tenant.objects.create(name="Tenant One")
@@ -596,7 +597,10 @@ class TenantPaymentServiceTests(TestCase):
     def test_security_deposit_sync_uses_generic_sync_event_endpoint(self, mock_urlopen):
         mock_urlopen.return_value = _FakeResponse(
             status=201,
-            payload=json.dumps({"sync_event": {"id": "sync_3"}}).encode("utf-8"),
+            payload=json.dumps({
+                "sync_event": {"id": "sync_3"},
+                "journal_entry": {"id": "je_3", "status": "posted"},
+            }).encode("utf-8"),
         )
 
         unit = Unit.objects.create(property=self.property, name="101")
@@ -623,11 +627,17 @@ class TenantPaymentServiceTests(TestCase):
 
         self.assertEqual(event.status, SecurityDepositEvent.Status.POSTED)
         self.assertEqual(event.sync_record.ledgeros_resource_id, "sync_3")
+        self.assertEqual(event.sync_record.ledgeros_journal_entry_id, "je_3")
         request_path, payload = _decode_mock_request(mock_urlopen.call_args_list[0])
         self.assertEqual(request_path, "http://ledgeros-web:8000/api/v1/sync-events/")
         self.assertEqual(payload["domain_event_type"], "security_deposit.received")
         self.assertEqual(payload["source_object_type"], "security_deposit_event")
         self.assertEqual(payload["payload"]["lease_id"], lease.pk)
+        self.assertEqual(payload["occurred_at"], "2026-01-05T00:00:00Z")
+        self.assertEqual(payload["payload"]["accounting_entries"], [
+            {"account_code": "1000", "direction": "debit", "amount": "500.00"},
+            {"account_code": "2200", "direction": "credit", "amount": "500.00"},
+        ])
 
 
 class SecurityDepositLedgerServiceTests(TestCase):

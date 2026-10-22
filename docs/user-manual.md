@@ -35,7 +35,7 @@ The home shows actual saved receipts awaiting finalization, attempted vendor pay
 
 Setup stays at `/` for administrators. The home shows setup and connection status separately. During a connection failure it labels accounting balances unavailable; it does not substitute zero. Open the existing bill or banking screen to read current LedgerOS balances.
 
-Vendor bills use independent approval and individual payment authorizations. Maintenance requests use a separate local operational lifecycle. Combined rent/deposit receipts remain gated for a later work package. Existing accounting workflows continue to use their current posting and retry rules.
+Vendor bills use independent approval and individual payment authorizations. Maintenance requests use a separate local operational lifecycle. Tenant receipts may combine invoice payments and refundable security deposits, with each component confirmed separately by LedgerOS.
 
 ### 1. Start with setup
 
@@ -68,15 +68,15 @@ Examples:
 
 ### 4. Record tenant payments
 
-Use tenant payments to record money received from tenants and apply it to open invoices.
+Use tenant payments to record money received from tenants. Enter the full receipt amount. If part is a refundable security deposit, enter that amount and choose the matching lease; the remainder can be allocated to open invoices.
 
-Allocating a payment posts its invoice allocations to LedgerOS. Choose **Retry
-and finalize payment** to retry failed allocations and confirm the complete
-receipt. Successfully posted allocations are reused. The full receipt must be
-allocated before it can be finalized; any excess remains unapplied locally.
-After posting has been attempted, accounting fields are locked and notes remain
-editable. If an attempt fails, retry the existing payment rather than creating
-a replacement receipt.
+Allocating posts invoice components to LedgerOS. Choose **Retry components and
+finalize receipt** to post the deposit component, retry failures, and confirm the
+receipt. Successfully posted components are reused. The full amount must be split
+between invoices and the deposit before finalization; any remainder stays
+unallocated locally. After any posting attempt, accounting fields are locked and
+notes remain editable. Retry the existing receipt after a timeout or partial
+failure rather than creating a replacement.
 
 ### 5. Record vendor bills and payments
 
@@ -140,7 +140,7 @@ One request can show multiple vendor bills. Each row displays approval, posting,
 
 ### 7. Track deposits
 
-Security deposit activity is recorded as events and the balance is derived from those events.
+Security deposit activity comes from confirmed receipt deposit components and standalone received/refunded events. Deposit money is a liability and does not appear as rent collection or tenant AR settlement.
 
 ### 8. Review reports and owner statements
 

@@ -217,7 +217,11 @@ Migration `payments.0008_maintenance_bill_handoff` adds nullable link and submis
 | `payments/urls.py`, maintenance detail and vendor bill detail templates | Reciprocal links and independent operational/approval/posting/payable statuses. |
 | `propertyledger/workflows.py` | Enable real maintenance/AP queues and CTAs after routes are functional. |
 
-### WP5 — Mixed receipts, gated on contract proof (RENT-01–07)
+### WP5 — Mixed receipts (RENT-01–07)
+
+Implemented October 21, 2026 after live sandbox contract proof. A receipt owns an optional deposit allocation and existing invoice applications. Invoice components post through the payments endpoint; deposit components post one explicit Cash/security-deposit-liability journal through the sync-event endpoint. Component request bodies freeze before first attempt, retries preserve identities and keys, and the parent remains a local summary. Finalization requires posted journal evidence for every component. Reports use confirmed invoice amounts for rent/AR and confirmed deposit amounts for liability activity, including partial-success visibility and a parent-only legacy fallback.
+
+The live acceptance case produced Cash `+2,000.00`, AR `-1,500.00`, and deposit liability `+500.00`. Exact replays created no additional requests, payments, events, or journals; changed payloads under established keys were rejected. Migration `payments.0009_securitydepositevent_frozen_request_payload_and_more` creates no deposit allocations for historic receipts and performs no accounting correction.
 
 | File | Change |
 | --- | --- |

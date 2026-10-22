@@ -20,7 +20,8 @@ This repository now includes the Epic 1 through Epic 3 Django foundation for Pro
 - WP1 shared workflow home at `/home/`, responsive sidebar, role-aware links and local review queues.
 - WP2 independent vendor-bill approval, per-user approval/payment authorizations, actor-attributed posting, and legacy-safe payment enforcement.
 - WP3 local maintenance requests with role-gated creation, triage, assignment, progress, hold/resume, verification, independent closure, cancellation, and audited reopening.
-- WP4 audited maintenance-to-vendor-bill handoff, safe prefill, replay-safe creation, multi-vendor bill lists, and separate operational/approval/posting/payment states. Combined receipts remain a later work package; see the workflow implementation plan.
+- WP4 audited maintenance-to-vendor-bill handoff, safe prefill, replay-safe creation, multi-vendor bill lists, and separate operational/approval/posting/payment states.
+- WP5 combined rent/security-deposit receipts with frozen component retries, explicit deposit-liability journals, and component-based reporting.
 
 ## Environment variables
 

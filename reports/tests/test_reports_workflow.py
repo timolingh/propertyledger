@@ -24,9 +24,17 @@ from ledgeros.models import (
     Unit,
 )
 from ledgeros.roles import ROLE_READ_ONLY_VIEWER, assign_user_role
-from payments.models import MaintenanceCategory, SecurityDepositEvent, TenantPayment, Vendor, VendorBill
+from payments.models import (
+    MaintenanceCategory,
+    SecurityDepositEvent,
+    TenantPayment,
+    TenantPaymentApplication,
+    TenantPaymentDepositAllocation,
+    Vendor,
+    VendorBill,
+)
 from reports.models import OwnerContributionDistribution
-from reports.services import OwnerActivityService
+from reports.services import OwnerActivityService, OwnerStatementService, PropertyReportService
 
 
 class _FakeResponse:
@@ -384,6 +392,70 @@ class ReportsWorkflowTests(TestCase):
         self.assertEqual(maintenance_response.status_code, 200)
         self.assertContains(maintenance_response, "Maintenance expenses")
         self.assertContains(maintenance_response, "25.00")
+
+    def test_mixed_receipt_reports_confirmed_components_without_treating_deposit_as_rent(self):
+        charge = self._create_synced_charge("1500.00")
+        payment = TenantPayment.objects.create(
+            property=self.property,
+            tenant=self.tenant,
+            payment_date=date(2026, 5, 10),
+            amount=Decimal("2000.00"),
+            payment_method=TenantPayment.PaymentMethod.CHECK,
+            status=TenantPayment.Status.ALLOCATED,
+        )
+        application = TenantPaymentApplication.objects.create(
+            payment=payment,
+            charge=charge,
+            amount_applied=Decimal("1500.00"),
+        )
+        application.sync_record = _synced_record(
+            local_object_type="tenant_payment_application",
+            local_object_id=str(application.pk),
+            source_event_type="tenant_payment.application_applied",
+        )
+        application.save(update_fields=["sync_record", "updated_at"])
+        deposit = TenantPaymentDepositAllocation.objects.create(
+            payment=payment,
+            lease=self.lease,
+            amount=Decimal("500.00"),
+        )
+        deposit.sync_record = _synced_record(
+            local_object_type="tenant_payment_deposit_allocation",
+            local_object_id=str(deposit.pk),
+            source_event_type="tenant_payment.deposit_received",
+        )
+        deposit.save(update_fields=["sync_record", "updated_at"])
+
+        tenant_ledger = PropertyReportService.tenant_ledger(
+            property_obj=self.property,
+            tenant=self.tenant,
+            period_start=date(2026, 5, 1),
+            period_end=date(2026, 5, 31),
+        )
+        income_expense = PropertyReportService.property_income_expense(
+            property_obj=self.property,
+            period_start=date(2026, 5, 1),
+            period_end=date(2026, 5, 31),
+        )
+        deposit_ledger = PropertyReportService.security_deposit_ledger(
+            property_obj=self.property,
+            tenant=self.tenant,
+            period_start=date(2026, 5, 1),
+            period_end=date(2026, 5, 31),
+        )
+        statement = OwnerStatementService.build_statement(
+            owner=self.owner,
+            property_obj=self.property,
+            period_type="custom",
+            period_start=date(2026, 5, 1),
+            period_end=date(2026, 5, 31),
+        )
+
+        self.assertEqual(dict(tenant_ledger["summary_items"])["Closing balance"], Decimal("0.00"))
+        self.assertEqual(dict(income_expense["summary_items"])["Cash collections memo"], Decimal("1500.00"))
+        self.assertEqual(dict(deposit_ledger["summary_items"])["Ending balance"], Decimal("500.00"))
+        self.assertEqual(statement["rent_collected"], Decimal("1500.00"))
+        self.assertEqual(statement["deposit_received"], Decimal("500.00"))
 
     @patch.dict(os.environ, {"LEDGEROS_HMAC_SECRET": "secret"}, clear=False)
     @patch("reports.services.urlopen")

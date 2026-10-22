@@ -100,8 +100,20 @@ class TenantPayment(models.Model):
         return (total or Decimal("0.00")).quantize(Decimal("0.01"))
 
     @builtins.property
+    def deposit_amount(self) -> Decimal:
+        try:
+            allocation = self.deposit_allocation
+        except TenantPaymentDepositAllocation.DoesNotExist:
+            return Decimal("0.00")
+        return allocation.amount.quantize(Decimal("0.01"))
+
+    @builtins.property
+    def rent_amount(self) -> Decimal:
+        return (self.amount - self.deposit_amount).quantize(Decimal("0.01"))
+
+    @builtins.property
     def remaining_amount(self) -> Decimal:
-        return (self.amount - self.allocated_amount).quantize(Decimal("0.01"))
+        return (self.amount - self.deposit_amount - self.allocated_amount).quantize(Decimal("0.01"))
 
     @builtins.property
     def unapplied_amount(self) -> Decimal:
@@ -119,7 +131,15 @@ class TenantPayment(models.Model):
             return False
         # An unsuccessful response can still follow a committed upstream write.
         # Keep retry payloads stable once any allocation has been attempted.
-        return not self.applications.filter(sync_record__attempt_count__gt=0).exists()
+        deposit_attempted = False
+        try:
+            deposit_attempted = bool(
+                self.deposit_allocation.sync_record
+                and self.deposit_allocation.sync_record.attempt_count > 0
+            )
+        except TenantPaymentDepositAllocation.DoesNotExist:
+            pass
+        return not deposit_attempted and not self.applications.filter(sync_record__attempt_count__gt=0).exists()
 
     @builtins.property
     def sync_status(self) -> str:
@@ -145,6 +165,7 @@ class TenantPaymentApplication(models.Model):
         null=True,
         related_name="tenant_payment_application",
     )
+    frozen_request_payload = models.JSONField(blank=True, null=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -162,7 +183,47 @@ class TenantPaymentApplication(models.Model):
 
     @builtins.property
     def is_editable_after_sync(self) -> bool:
-        return self.sync_record is None or self.sync_record.status != LedgerOSSyncRecord.Status.SUCCEEDED
+        return self.sync_record is None or self.sync_record.attempt_count == 0
+
+
+class TenantPaymentDepositAllocation(models.Model):
+    payment = models.OneToOneField(
+        TenantPayment,
+        on_delete=models.CASCADE,
+        related_name="deposit_allocation",
+    )
+    lease = models.ForeignKey(
+        Lease,
+        on_delete=models.PROTECT,
+        related_name="tenant_payment_deposit_allocations",
+    )
+    amount = models.DecimalField(max_digits=12, decimal_places=2)
+    frozen_request_payload = models.JSONField(blank=True, null=True)
+    sync_record = models.OneToOneField(
+        LedgerOSSyncRecord,
+        on_delete=models.SET_NULL,
+        blank=True,
+        null=True,
+        related_name="tenant_payment_deposit_allocation",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["payment_id"]
+        constraints = [
+            models.CheckConstraint(
+                check=models.Q(amount__gt=0),
+                name="tenant_payment_deposit_amount_positive",
+            )
+        ]
+
+    def __str__(self) -> str:
+        return f"Receipt {self.payment_id} deposit"
+
+    @builtins.property
+    def is_editable_after_sync(self) -> bool:
+        return self.sync_record is None or self.sync_record.attempt_count == 0
 
 
 class SecurityDepositEvent(models.Model):
@@ -211,6 +272,7 @@ class SecurityDepositEvent(models.Model):
         null=True,
         related_name="security_deposit_event",
     )
+    frozen_request_payload = models.JSONField(blank=True, null=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -222,7 +284,7 @@ class SecurityDepositEvent(models.Model):
 
     @builtins.property
     def is_editable_after_sync(self) -> bool:
-        return self.sync_record is None or self.sync_record.status != LedgerOSSyncRecord.Status.SUCCEEDED
+        return self.sync_record is None or self.sync_record.attempt_count == 0
 
     @builtins.property
     def sync_status(self) -> str:
