@@ -5,7 +5,6 @@ from django.db.models.signals import post_migrate
 from django.dispatch import receiver
 
 from ledgeros.audit import audit_failure
-from ledgeros.navigation import ensure_role_landing_pages
 from ledgeros.roles import ensure_role_groups
 
 ROLE_PERMISSION_BOOTSTRAP_APPS = {"ledgeros", "payments", "reports"}
@@ -16,7 +15,6 @@ def bootstrap_role_groups(sender, **kwargs) -> None:
     if getattr(sender, "name", "") not in ROLE_PERMISSION_BOOTSTRAP_APPS:
         return
     ensure_role_groups()
-    ensure_role_landing_pages()
 
 
 @receiver(user_login_failed, dispatch_uid="ledgeros.audit_login_failed")

@@ -75,6 +75,20 @@ Key rules:
 
 ## Main workflows
 
+### Shared workflow home (WP1)
+
+`GET /home/` renders `WorkflowHomeView` for every authenticated user, rather than redirecting by role. Login still targets `/home/`; `/` remains the existing admin-only Setup route. `get_home_redirect_url` now returns this shared home. Historical `RoleLandingPage` rows remain read-only in admin and are no longer created or rewritten by `post_migrate` or used for navigation.
+
+`propertyledger/workflows.py` reads setup/configuration without singleton `.load()` helpers, checks LedgerOS health once with explicitly supplied configuration, and composes local queues. Home GET creates no setup rows, sync records, payments or accounting requests. Home POST is unsupported. Receipt queues exclude posted/voided records and successful parent syncs; payment-confirmation queues include attempted, unconfirmed vendor payments only. Counts cover the full role-authorized query, while displayed rows are limited to five. No payable balances, approval counts or maintenance request counts are inferred.
+
+The shared navigation context checks the destination views' role policies. Users without recognized roles have no workflow access; inactive users fail role checks. Reporting views now separately require bookkeeper/admin access for unsafe HTTP methods, so viewer access to a detail page does not authorize posting. Write controls are hidden on read-only pages. Individually assigned approval/payment capabilities and actor-aware financial service enforcement are WP2 scope; WP1 does not claim to implement them.
+
+Home distinguishes missing configuration, denied LedgerOS access and outages; raw credentials or upstream response bodies are not rendered there. Health is readiness information, not proof that a financial action is authorized or posted. Existing posting/financial semantics remain unchanged.
+
+`ledgeros/static/ledgeros/workflows.css` and `navigation.js` provide the shared responsive sidebar. Desktop collapse is stored in browser local storage, with a fallback when storage is disabled. The mobile drawer supports inert background/closed navigation, focus containment, Escape and focus return; without JavaScript, mobile navigation remains expanded. Production deployments must run `collectstatic` and serve `STATIC_ROOT` through their static-file hosting configuration; Django's local debug server serves these assets during development.
+
+Browser acceptance artifacts and repeatable fixture commands are in [WP1 QA](qa/wp1/README.md). The existing workflow PRD and [implementation plan](workflow-implementation-plan.md) define later work packages.
+
 ### Setup and onboarding
 
 - Configure LedgerOS connection settings.

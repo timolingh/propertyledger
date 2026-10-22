@@ -15,17 +15,17 @@
     <div style="display:flex; gap:1rem; flex-wrap:wrap;">
       <a class="button" href="{% url 'tenant-payment-list' %}">Back</a>
       <a class="button" href="{% url 'invoice-list' %}">Open invoices</a>
-      <a class="button" href="{% url 'tenant-payment-edit' payment.pk %}">Edit payment notes</a>
+      {% if can_bookkeep %}<a class="button" href="{% url 'tenant-payment-edit' payment.pk %}">Edit payment notes</a>{% endif %}
     </div>
   </div>
   <div class="card">
     <h2>Allocations</h2>
-    <form method="post">
+    {% if can_bookkeep %}<form method="post">
       {% csrf_token %}
       <input type="hidden" name="action" value="allocate">
       <input type="hidden" name="payment_id" value="{{ payment.pk }}">
       <button type="submit" class="button primary">Auto allocate remaining</button>
-    </form>
+    </form>{% endif %}
     <table>
       <thead>
         <tr>
@@ -64,12 +64,12 @@
   </div>
   <div class="card">
     <h2>Finalize payment</h2>
-    <form method="post">
+    {% if can_bookkeep %}<form method="post">
       {% csrf_token %}
       <input type="hidden" name="action" value="sync">
       <input type="hidden" name="payment_id" value="{{ payment.pk }}">
       <button type="submit" class="button primary">Retry and finalize payment</button>
-    </form>
+    </form>{% endif %}
     {% if sync_log_entries %}
       {% for entry in sync_log_entries %}
         <div class="card">

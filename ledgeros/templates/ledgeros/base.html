@@ -1,241 +1,49 @@
+{% load static %}
 <!doctype html>
 <html lang="en">
   <head>
     <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>{% block title %}PropertyLedger{% endblock %}</title>
-    <style>
-      :root {
-        --bg: #f7f5f1;
-        --panel: #ffffff;
-        --text: #1f1f1f;
-        --muted: #675f52;
-        --border: #d8d3c8;
-        --accent: #1f6f43;
-        --danger: #a33;
-        --nav: #2a2a2a;
-      }
-      body {
-        font-family: Arial, sans-serif;
-        margin: 0;
-        background: var(--bg);
-        color: var(--text);
-      }
-      header {
-        background: var(--nav);
-        color: #fff;
-        padding: 1rem 1.5rem;
-      }
-      header a {
-        color: #fff;
-        text-decoration: none;
-        margin-right: 1rem;
-      }
-      header .logout-form {
-        display: inline;
-      }
-      header .logout-button {
-        margin: 0 1rem 0 0;
-        padding: 0;
-        border: 0;
-        border-radius: 0;
-        background: transparent;
-        color: #fff;
-        font: inherit;
-      }
-      main {
-        max-width: 1100px;
-        margin: 0 auto;
-        padding: 1.5rem;
-      }
-      .banner {
-        border: 1px solid var(--border);
-        border-radius: 12px;
-        background: #fff6e8;
-        padding: 1rem 1.25rem;
-        margin-bottom: 1rem;
-      }
-      .banner-ok {
-        background: #eef7f1;
-        border-color: #c3e0cd;
-      }
-      .banner-bad {
-        background: #fff1f1;
-        border-color: #efc2c2;
-      }
-      .card {
-        background: var(--panel);
-        border: 1px solid var(--border);
-        border-radius: 12px;
-        padding: 1rem 1.25rem;
-        margin-bottom: 1rem;
-      }
-      .messages {
-        list-style: none;
-        padding: 0;
-        margin: 0 0 1rem;
-      }
-      .messages li {
-        border-radius: 10px;
-        border: 1px solid var(--border);
-        padding: 0.75rem 1rem;
-        margin-bottom: 0.5rem;
-        background: #fff;
-        overflow-wrap: anywhere;
-        word-break: break-word;
-      }
-      .messages .success {
-        background: #eef7f1;
-        border-color: #c3e0cd;
-      }
-      .messages .warning {
-        background: #fff6e8;
-        border-color: #ecd8ab;
-      }
-      .messages .error {
-        background: #fff1f1;
-        border-color: #efc2c2;
-      }
-      .muted {
-        color: var(--muted);
-      }
-      .status-ok {
-        color: var(--accent);
-      }
-      .status-bad {
-        color: var(--danger);
-      }
-      code {
-        background: #f1ede6;
-        padding: 0.1rem 0.25rem;
-        border-radius: 4px;
-      }
-      pre {
-        white-space: pre-wrap;
-        overflow-wrap: anywhere;
-        word-break: break-word;
-      }
-      label {
-        display: block;
-        margin-top: 0.75rem;
-        font-weight: 600;
-      }
-      input, select, textarea {
-        width: 100%;
-        max-width: 42rem;
-        padding: 0.5rem;
-        margin-top: 0.25rem;
-        box-sizing: border-box;
-      }
-      textarea {
-        min-height: 8rem;
-      }
-      button, .button {
-        display: inline-block;
-        margin-top: 1rem;
-        padding: 0.65rem 1rem;
-        border-radius: 8px;
-        border: 1px solid var(--border);
-        background: #fff;
-        color: var(--text);
-        text-decoration: none;
-        cursor: pointer;
-      }
-      .button.primary {
-        background: var(--nav);
-        color: #fff;
-        border-color: var(--nav);
-      }
-      table {
-        width: 100%;
-        border-collapse: collapse;
-      }
-      th, td {
-        text-align: left;
-        border-bottom: 1px solid var(--border);
-        padding: 0.75rem 0.5rem;
-        vertical-align: top;
-      }
-      .actions a {
-        margin-right: 0.5rem;
-      }
-    </style>
+    <link rel="stylesheet" href="{% static 'ledgeros/workflows.css' %}">
+    <script src="{% static 'ledgeros/navigation.js' %}" defer></script>
   </head>
   <body>
-    <header>
-      <a href="{% url 'app-home' %}">Home</a>
-      {% if user.is_authenticated %}
-        <span class="muted" style="color:#ddd; margin-right: 1rem;">{{ user.get_username }}</span>
-      {% endif %}
-      <a href="{% url 'ledgeros-setup' %}">Setup</a>
-      <a href="{% url 'owner-list' %}">Owners</a>
-      <a href="{% url 'property-list' %}">Properties</a>
-      <a href="{% url 'unit-list' %}">Units</a>
-      <a href="{% url 'tenant-list' %}">Tenants</a>
-      <a href="{% url 'lease-list' %}">Leases</a>
-      <a href="{% url 'charge-list' %}">Invoices</a>
-      <a href="{% url 'payments-home' %}">Payments</a>
-      <a href="{% url 'reports-home' %}">Reports</a>
-      <a href="{% url 'audit-log' %}">Audit log</a>
-      <a href="{% url 'banking-dashboard' %}">Banking</a>
-      <a href="{% url 'vendor-list' %}">Vendors</a>
-      <a href="{% url 'vendor-bill-list' %}">Bills</a>
-      <a href="{% url 'maintenance-category-list' %}">Maintenance</a>
-      <a href="/admin/">Admin</a>
-      {% if user.is_authenticated %}
-        <form class="logout-form" method="post" action="{% url 'logout' %}">
-          {% csrf_token %}
-          <button class="logout-button" type="submit">Logout</button>
-        </form>
-      {% else %}
-        <a href="{% url 'login' %}">Login</a>
-      {% endif %}
-    </header>
-    <main>
-      {% if setup_obj and not setup_is_complete %}
-        <div class="banner banner-bad">
-          <strong>Setup incomplete</strong>
-          <div class="muted">Connection settings, selected LedgerOS books, and account mappings are separate setup steps.</div>
-          <div class="muted">Status: {{ setup_obj.get_setup_status_display }}</div>
-          {% if setup_next_step %}
-            <div class="muted">
-              Next recommended step:
-              <a href="{{ setup_next_step.url }}">{{ setup_next_step.label }}</a>
-            </div>
-            <div class="muted">{{ setup_next_step.summary }}</div>
-          {% endif %}
-          <ul>
-            {% for error_group in setup_completion_error_groups %}
-              <li>
-                <strong>{{ error_group.label }}</strong>
-                <ul>
-                  {% for message in error_group.messages %}
-                    <li>{{ message }}</li>
-                  {% endfor %}
-                </ul>
-              </li>
-            {% endfor %}
-          </ul>
+    <a class="skip-link" href="#main-content">Skip to content</a>
+    <aside class="sidebar" id="app-sidebar" aria-label="Application navigation">
+      <a class="brand" href="{% url 'app-home' %}" aria-label="PropertyLedger home"><span class="brand-mark" aria-hidden="true">PL</span><span class="nav-label">PropertyLedger</span></a>
+      <button type="button" id="sidebar-collapse" class="navigation-control desktop-control" aria-controls="primary-navigation" aria-expanded="true">Collapse navigation</button>
+      <button type="button" id="sidebar-close" class="navigation-control mobile-control">Close menu</button>
+      <nav id="primary-navigation" aria-label="Primary">
+        {% for group in navigation_groups %}
+          <div class="nav-group"><h2>{{ group.label }}</h2>
+            {% for item in group.items %}<a href="{{ item.url }}" aria-label="{{ item.label }}" title="{{ item.label }}"{% if item.active %} aria-current="page"{% endif %}><span class="nav-short" aria-hidden="true">{{ item.label|slice:':1' }}</span><span class="nav-label">{{ item.label }}</span></a>{% endfor %}
+          </div>
+        {% endfor %}
+      </nav>
+      <p class="sidebar-note nav-label">Property context.<br>Connected accounting.</p>
+    </aside>
+    <div class="drawer-backdrop" id="drawer-backdrop" hidden></div>
+    <div class="page-shell" id="page-shell">
+      <header class="app-header">
+        <button type="button" id="sidebar-open" class="navigation-control mobile-control" aria-controls="app-sidebar" aria-expanded="false">Menu</button>
+        <a class="header-home" href="{% url 'app-home' %}">Home</a>
+        {% if connection_message %}<span class="header-status{% if connection_status == 'unavailable' %} status-bad{% endif %}">{{ connection_message }}</span>{% endif %}
+        <div class="header-user">{% if user.is_authenticated %}<span>{{ user.get_username }} <span class="muted">· {{ navigation_role_label }}</span></span><form class="logout-form" method="post" action="{% url 'logout' %}">{% csrf_token %}<button class="logout-button" type="submit">Logout</button></form>{% else %}<a href="{% url 'login' %}">Login</a>{% endif %}</div>
+      </header>
+      <main>
+        <div id="main-content" tabindex="-1">
+        {% if setup_obj and not setup_is_complete %}
+          <div class="banner banner-bad">
+            <strong>Setup incomplete</strong>
+            <div class="muted">Connection settings, selected LedgerOS books, and account mappings are separate setup steps.</div>
+            {% if can_configure %}<a href="{% url 'ledgeros-setup' %}">Review setup</a>{% else %}<p class="muted">Ask an administrator to complete setup.</p>{% endif %}
+          </div>
+        {% endif %}
+        {% if messages %}<ul class="messages" aria-label="Messages">{% for message in messages %}<li class="{{ message.tags }}">{{ message }}</li>{% endfor %}</ul>{% endif %}
+        {% block content %}{% endblock %}
         </div>
-      {% elif setup_obj %}
-        <div class="banner banner-ok">
-          <strong>Setup complete</strong>
-          <div class="muted">PropertyLedger is ready for Epic 2 workflows.</div>
-        </div>
-      {% endif %}
-      {% if current_role_label %}
-        <div class="banner">
-          <strong>Role</strong>
-          <div class="muted">{{ current_role_label }}</div>
-        </div>
-      {% endif %}
-      {% if messages %}
-        <ul class="messages">
-          {% for message in messages %}
-            <li class="{{ message.tags }}">{{ message }}</li>
-          {% endfor %}
-        </ul>
-      {% endif %}
-      {% block content %}{% endblock %}
-    </main>
+      </main>
+    </div>
   </body>
 </html>

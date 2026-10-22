@@ -17,7 +17,7 @@ from django.urls import reverse
 
 from ledgeros.models import LedgerOSConnectionSettings, LedgerOSSyncRecord, Owner, Property, Tenant, TenantCharge, Unit
 from ledgeros.models import PropertyLedgerAccountMapping, PropertyLedgerSetup
-from ledgeros.roles import ROLE_READ_ONLY_VIEWER, assign_user_role
+from ledgeros.roles import ROLE_BOOKKEEPER, ROLE_READ_ONLY_VIEWER, assign_user_role
 from payments.models import DebtServicePayment, MaintenanceCategory, PaymentWorkflowSettings, SecurityDepositEvent, TenantPayment, Vendor, VendorBill, VendorPayment
 from payments.services import (
     DebtServicePaymentService,
@@ -168,7 +168,7 @@ class PaymentsLandingViewTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, reverse("invoice-list"))
-        self.assertContains(response, reverse("banking-dashboard"))
+        self.assertNotContains(response, reverse("banking-dashboard"))
         self.assertContains(response, "Open invoices")
 
 
@@ -179,6 +179,7 @@ class TenantPaymentViewTests(TestCase):
         self.property = Property.objects.create(name="Property One", primary_owner=self.owner)
         self.tenant = Tenant.objects.create(name="Tenant One")
         self.user = get_user_model().objects.create_user(username="tester", password="password")
+        assign_user_role(self.user, ROLE_BOOKKEEPER)
         self.client.force_login(self.user)
 
     @patch.dict(os.environ, {"LEDGEROS_HMAC_SECRET": "secret"}, clear=False)

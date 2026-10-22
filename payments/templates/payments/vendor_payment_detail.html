@@ -20,7 +20,7 @@
     <p><strong>Notes:</strong> {{ payment.notes|default:"-" }}</p>
     <div style="display:flex; gap:1rem; flex-wrap:wrap;">
       <a class="button" href="{% url 'vendor-payment-list' %}">Back</a>
-      <a class="button" href="{% url 'vendor-payment-edit' payment.pk %}">Edit payment</a>
+      {% if can_bookkeep %}<a class="button" href="{% url 'vendor-payment-edit' payment.pk %}">Edit payment</a>{% endif %}
     </div>
   </div>
   <div class="card">

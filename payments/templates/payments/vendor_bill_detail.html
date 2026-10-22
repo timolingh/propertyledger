@@ -24,7 +24,7 @@
     <p><strong>Notes:</strong> {{ bill.notes|default:"-" }}</p>
     <div style="display:flex; gap:1rem; flex-wrap:wrap;">
       <a class="button" href="{% url 'vendor-bill-list' %}">Back</a>
-      <a class="button" href="{% url 'vendor-bill-edit' bill.pk %}">Edit bill</a>
+      {% if can_bookkeep %}<a class="button" href="{% url 'vendor-bill-edit' bill.pk %}">Edit bill</a>{% endif %}
       {% if can_pay_bills and not payment_blocker %}
         <a class="button primary" href="{% url 'vendor-bill-pay' bill.pk %}">Pay bill</a>
       {% endif %}
@@ -48,11 +48,11 @@
   {% endif %}
   <div class="card">
     <h2>LedgerOS Sync</h2>
-    <form method="post">
+    {% if can_bookkeep %}<form method="post">
       {% csrf_token %}
       <input type="hidden" name="action" value="sync">
       <button type="submit" class="button primary">Sync bill</button>
-    </form>
+    </form>{% endif %}
     {% for entry in sync_log_entries %}
       <div class="card">
         <strong>{{ entry.title }}</strong>

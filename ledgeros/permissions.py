@@ -10,6 +10,7 @@ from ledgeros.roles import ROLE_ADMIN, ROLE_BOOKKEEPER, ROLE_OWNER_VIEWER, ROLE_
 
 class RoleRequiredMixin(LoginRequiredMixin):
     allowed_roles: tuple[str, ...] = ()
+    write_allowed_roles: tuple[str, ...] | None = None
     login_url = settings.LOGIN_URL
 
     def has_role_access(self, user) -> bool:
@@ -18,7 +19,10 @@ class RoleRequiredMixin(LoginRequiredMixin):
         return user_has_any_role(user, self.allowed_roles)
 
     def dispatch(self, request, *args, **kwargs):
-        if request.user.is_authenticated and not self.has_role_access(request.user):
+        allowed = self.has_role_access(request.user)
+        if request.method not in {"GET", "HEAD", "OPTIONS"} and self.write_allowed_roles is not None:
+            allowed = allowed and user_has_any_role(request.user, self.write_allowed_roles)
+        if request.user.is_authenticated and not allowed:
             audit_failure(
                 action="access_denied",
                 record_type=self.__class__.__name__,
@@ -48,6 +52,7 @@ class BookkeepingRoleRequiredMixin(RoleRequiredMixin):
 
 
 class ReportingRoleRequiredMixin(RoleRequiredMixin):
+    write_allowed_roles = (ROLE_ADMIN, ROLE_BOOKKEEPER)
     allowed_roles = (
         ROLE_ADMIN,
         ROLE_PROPERTY_MANAGER,

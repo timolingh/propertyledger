@@ -15,7 +15,7 @@
     <p><strong>Description:</strong> {{ activity.description|default:"-" }}</p>
     <p><strong>Notes:</strong> {{ activity.notes|default:"-" }}</p>
     <div style="display:flex; gap:1rem; flex-wrap:wrap;">
-      <a class="button primary" href="{{ edit_url }}">Edit</a>
+      {% if can_bookkeep %}<a class="button primary" href="{{ edit_url }}">Edit</a>{% endif %}
       <a class="button" href="{{ list_url }}">Back</a>
     </div>
   </div>

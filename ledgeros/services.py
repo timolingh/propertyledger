@@ -113,8 +113,9 @@ class LocalHealthCheckService:
 
 class LedgerOSHealthCheckService:
     @staticmethod
-    def check() -> HealthCheckResult:
-        connection_settings = LedgerOSConnectionSettings.load()
+    def check(*, connection_settings: LedgerOSConnectionSettings | None = None) -> HealthCheckResult:
+        if connection_settings is None:
+            connection_settings = LedgerOSConnectionSettings.load()
         base_url = connection_settings.base_url
         host_header = connection_settings.host_header.strip()
         client_id = connection_settings.client_id
@@ -219,7 +220,7 @@ class LedgerOSHealthCheckService:
             return HealthCheckResult(
                 healthy=False,
                 source="ledgeros",
-                details={"status": "unhealthy", "error": str(exc)},
+                details={"status": "unhealthy", "error": str(exc), **({"http_status": exc.code} if isinstance(exc, HTTPError) else {})},
             )
 
 

@@ -27,6 +27,16 @@ You can use it to:
 
 ## Common tasks
 
+### Workflow home and navigation
+
+After signing in, everyone starts at `/home/`. Choose **Collect Rent / Deposit**, **Get Billed & Pay Vendors**, or the maintenance card. Available links reflect your existing role. The sidebar keeps records, payments, reports and authorized administration pages reachable. Collapse it on desktop, or use **Menu** on mobile; Escape closes the mobile menu and returns focus to its button.
+
+The home shows actual saved receipts awaiting finalization and attempted vendor payments awaiting confirmation, with up to five entries per queue. These are local workflow counts, not accounting balances. Viewers receive read links; accounting actions require a bookkeeper or administrator. An account without an assigned role displays guidance instead of records.
+
+Setup stays at `/` for administrators. The home shows setup and connection status separately. During a connection failure it labels accounting balances unavailable; it does not substitute zero. Open the existing bill or banking screen to read current LedgerOS balances.
+
+This first navigation release does not yet implement independent bill approvals, individual payment authorizations, maintenance requests, or combined rent/deposit receipts. The cards explain those limitations. Existing accounting workflows continue to use their current posting and retry rules.
+
 ### 1. Start with setup
 
 Before entering day-to-day records, make sure the LedgerOS connection, entity, accounting period, and account mappings are configured.

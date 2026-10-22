@@ -1,6 +1,6 @@
 # Workflow revamp: discovery and implementation plan
 
-Date: October 21, 2026. Status: discovery complete; WP0 complete; WP1–WP6 proposed.
+Date: October 21, 2026. Status: discovery complete; WP0 and WP1 complete; WP2–WP6 proposed.
 
 Scope authority: [Workflow Home PRD v1.0](PropertyLedger_Workflow_Home_PRD_v1.0.md), especially approved Q1–Q16 and the implementation gates in §14. This plan preserves those product choices. Historical epics are context, not the current scope.
 
@@ -133,6 +133,12 @@ Paths below are proposed targets; migration filenames are assigned against the a
 WP0 completed October 21, 2026. Added the generated `AlterModelOptions` migration for the existing singular/plural connection-settings labels. Docker `sqlmigrate ledgeros 0009` confirms the operation is a SQL no-op. `make check` passes: no Django system issues and no missing migrations. Docker `python manage.py test ledgeros.tests.test_management_commands --noinput` passes all five tests after applying migrations to a disposable test database. The normal application database was not migrated during this work. No accounting behavior changed.
 
 ### WP1 — Home and navigation (HOME-01–08)
+
+Implemented October 21, 2026: shared authenticated home, responsive sidebar across existing screens, role-aware read/create links, real bounded local receipt/payment-confirmation queues, separate readiness/health messages, and clear gates for later workflows. Home GET is read-only even without singleton setup rows. Reporting-page unsafe methods now require bookkeeping roles, unassigned/inactive accounts fail workflow role checks, and read-only pages hide write actions. Lists without bulk actions no longer show inert bulk controls. Historical landing settings remain intact and read-only; migration bootstrap no longer rewrites them.
+
+Validation: `docker compose -f docker-compose.yml run --rm propertyledger-web python manage.py test --noinput` passed 126 tests in 539.934 seconds. After adding three scenarios for ready setup, read-only detail actions and legacy landing bootstrap, `docker compose -f docker-compose.yml run --rm propertyledger-web python manage.py test ledgeros.tests.test_workflow_home ledgeros.tests.test_health --noinput` passed all 20 focused tests in 10.550 seconds. Both runs destroyed their test databases normally. `make check` passed with no system issues or missing migrations. Docker `findstatic ledgeros/workflows.css ledgeros/navigation.js` and Node `--check` on both JavaScript files passed. Local read-only inventory found zero active non-superusers without recognized workflow roles. [Browser acceptance and screenshots](qa/wp1/README.md) cover desktop/mobile, persisted collapse, focus containment/return, existing record navigation, viewer and outage states using fictional data in a separate disposable database.
+
+WP1 does not implement bill approvals/grants, actor-aware financial service changes, maintenance requests, mixed receipt posting, or complete outage enforcement across existing posting endpoints. Those remain WP2–WP6. Home does not offer bill creation when health fails because the current bill-save path auto-posts rather than saving an offline-only draft. Existing record URLs and accounting behavior otherwise remain intact. No production deployment or live LedgerOS financial acceptance was performed.
 
 | File | Change |
 | --- | --- |

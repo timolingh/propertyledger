@@ -5,11 +5,12 @@
 {% block content %}
   <div class="card">
     <h1>{{ page_title }}</h1>
-    {% if create_available %}
+    {% if can_create_record %}{% if create_available %}
       <a class="button primary" href="{{ create_url }}">{{ create_label }}</a>
     {% else %}
       <p class="muted">{{ create_gate_message }}</p>
       <a class="button primary" href="{{ create_gate_url }}">{{ create_gate_label }}</a>
+    {% endif %}
     {% endif %}
   </div>
   {% if sync_log_entries %}
@@ -34,7 +35,7 @@
     </div>
   {% endif %}
   <div class="card">
-    <form method="post">
+    {% if view.bulk_action_choices %}<form method="post">
       {% csrf_token %}
       <div style="display:flex; gap:1rem; align-items:end; flex-wrap:wrap;">
         <label style="margin-top:0;">
@@ -48,10 +49,11 @@
         </label>
         <button type="submit">Apply</button>
       </div>
+    {% endif %}
       <table>
         <thead>
           <tr>
-            <th>Select</th>
+            {% if view.bulk_action_choices %}<th>Select</th>{% endif %}
             <th>Name</th>
             <th>Summary</th>
             <th>Actions</th>
@@ -60,9 +62,9 @@
         <tbody>
           {% for row in rows %}
             <tr>
-              <td>
+              {% if view.bulk_action_choices %}<td>
                 <input type="checkbox" name="selected_charge_ids" value="{{ row.object.pk }}">
-              </td>
+              </td>{% endif %}
               <td>
                 <strong>{{ row.object }}</strong>
               </td>
@@ -71,7 +73,7 @@
                 {% if row.detail_url %}
                   <a href="{{ row.detail_url }}">View</a>
                 {% endif %}
-                <a href="{{ row.edit_url }}">Edit</a>
+                {% if can_create_record %}<a href="{{ row.edit_url }}">Edit</a>{% endif %}
               </td>
             </tr>
           {% empty %}
@@ -81,6 +83,6 @@
           {% endfor %}
         </tbody>
       </table>
-    </form>
+    {% if view.bulk_action_choices %}</form>{% endif %}
   </div>
 {% endblock %}

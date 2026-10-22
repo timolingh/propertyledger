@@ -18,15 +18,15 @@
     <p><strong>Description:</strong> {{ event.description|default:"-" }}</p>
     <div style="display:flex; gap:1rem; flex-wrap:wrap;">
       <a class="button" href="{% url 'security-deposit-list' %}">Back</a>
-      <a class="button" href="{% url 'security-deposit-edit' event.pk %}">Edit draft</a>
+      {% if can_bookkeep %}<a class="button" href="{% url 'security-deposit-edit' event.pk %}">Edit draft</a>{% endif %}
     </div>
   </div>
   <div class="card">
     <h2>LedgerOS Sync</h2>
-    <form method="post">
+    {% if can_bookkeep %}<form method="post">
       {% csrf_token %}
       <input type="hidden" name="action" value="sync">
       <button type="submit" class="button primary">Sync event</button>
-    </form>
+    </form>{% endif %}
   </div>
 {% endblock %}

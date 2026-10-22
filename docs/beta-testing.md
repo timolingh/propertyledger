@@ -220,6 +220,8 @@ Capture feedback on:
 
 ## Moderator notes
 
+For the WP1 navigation release, start each role at `/home/` after setup. Check the three workflow cards, existing record/report links, desktop collapse and mobile menu. Confirm viewers see read actions and that unassigned users see access guidance. Maintenance requests, independent approvals/payment grants and combined rent/deposit receipts are visibly gated pending later work packages; do not treat those cards as completed financial workflows. See [WP1 browser acceptance](qa/wp1/README.md) for desktop/mobile examples.
+
 - Keep the group moving, but do not rush them past confusion.
 - If a participant pauses, ask what they expected to happen.
 - Do not explain the system too early; let the interface speak first.

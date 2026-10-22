@@ -55,7 +55,8 @@ docker compose -f docker-compose.yml run --rm propertyledger-web python manage.p
 
 ## 6. Open the app
 
-- Main setup page: `http://localhost:8000/`
+- Workflow home after login: `http://localhost:8000/home/`
+- Admin setup page: `http://localhost:8000/`
 - Admin: `http://localhost:8000/admin/`
 
 PropertyLedger uses `propertyledger_sessionid` and `propertyledger_csrftoken`
@@ -72,6 +73,7 @@ After the app starts, confirm:
 3. the setup screen saves your connection settings;
 4. the required account mappings are present;
 5. the setup smoke test passes and is recorded on the setup screen.
+6. sign in with an explicitly assigned PropertyLedger role and confirm the shared home and sidebar appear. Unassigned accounts receive access guidance; Django staff status alone does not assign a workflow role.
 
 ## Typical development commands
 

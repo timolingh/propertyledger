@@ -5,11 +5,12 @@
 {% block content %}
   <div class="card">
     <h1>{{ page_title }}</h1>
-    {% if create_available %}
+    {% if can_bookkeep %}{% if create_available %}
       <a class="button primary" href="{{ create_url }}">{{ create_label }}</a>
     {% else %}
       <p class="muted">{{ create_gate_message }}</p>
       <a class="button primary" href="{{ create_gate_url }}">{{ create_gate_label }}</a>
+    {% endif %}
     {% endif %}
   </div>
   <div class="card">
@@ -79,7 +80,7 @@
               {% if row.detail_url %}
                 <a href="{{ row.detail_url }}">View</a>
               {% endif %}
-              <a href="{{ row.edit_url }}">Edit</a>
+              {% if can_bookkeep %}<a href="{{ row.edit_url }}">Edit</a>{% endif %}
             </td>
           </tr>
         {% empty %}

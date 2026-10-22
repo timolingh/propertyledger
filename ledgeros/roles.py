@@ -218,13 +218,13 @@ def get_user_role_label(user) -> str:
 
 
 def user_has_any_role(user, roles: tuple[str, ...] | list[str] | set[str]) -> bool:
-    if not getattr(user, "is_authenticated", False):
+    if not getattr(user, "is_authenticated", False) or not user.is_active:
         return False
     if user.is_superuser:
         return True
     assigned_roles = set(user.groups.filter(name__in=_role_group_names()).values_list("name", flat=True))
     if not assigned_roles:
-        return True
+        return False
     allowed_group_names = {ROLE_GROUP_NAMES[role] for role in roles}
     return bool(assigned_roles & allowed_group_names)
 

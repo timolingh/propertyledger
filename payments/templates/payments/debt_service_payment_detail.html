@@ -18,16 +18,16 @@
     <p><strong>Memo:</strong> {{ payment.memo|default:"-" }}</p>
     <div style="display:flex; gap:1rem; flex-wrap:wrap;">
       <a class="button" href="{% url 'debt-service-payment-list' %}">Back</a>
-      <a class="button" href="{% url 'debt-service-payment-edit' payment.pk %}">Edit payment</a>
+      {% if can_bookkeep %}<a class="button" href="{% url 'debt-service-payment-edit' payment.pk %}">Edit payment</a>{% endif %}
     </div>
   </div>
   <div class="card">
     <h2>LedgerOS Sync</h2>
-    <form method="post">
+    {% if can_bookkeep %}<form method="post">
       {% csrf_token %}
       <input type="hidden" name="action" value="sync">
       <button type="submit" class="button primary">Sync payment</button>
-    </form>
+    </form>{% endif %}
     {% for entry in sync_log_entries %}
       <div class="card">
         <strong>{{ entry.title }}</strong>
