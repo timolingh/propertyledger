@@ -76,6 +76,7 @@ After the app starts, confirm:
 6. sign in with an explicitly assigned PropertyLedger role and confirm the shared home and sidebar appear. Unassigned accounts receive access guidance; Django staff status alone does not assign a workflow role.
 7. as an administrator, open `/payments/workflow-authorizations/` and explicitly assign the intended bill approvers and vendor-payment users. Migration creates no automatic financial grants.
 8. open `/payments/maintenance/` as an administrator, property manager, or bookkeeper; create a request and confirm it can move from Open to Triaged without LedgerOS connectivity.
+9. open a maintenance request and either create a linked vendor bill as an administrator/bookkeeper or link a compatible existing bill as a property manager. Confirm the maintenance state remains unchanged.
 
 ## Typical development commands
 

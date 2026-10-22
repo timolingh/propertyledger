@@ -2,14 +2,16 @@ from __future__ import annotations
 
 from datetime import date
 from decimal import Decimal
+from uuid import UUID
 
 from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.utils import timezone
 
 from ledgeros.audit import audit_success
-from payments.authorization import require_maintenance_editor
-from payments.models import MaintenanceRequest, MaintenanceRequestEvent
+from payments.approval_services import VendorBillApprovalService
+from payments.authorization import require_bill_editor, require_maintenance_editor
+from payments.models import MaintenanceRequest, MaintenanceRequestEvent, VendorBill
 
 
 class MaintenanceRequestService:
@@ -228,3 +230,92 @@ class MaintenanceRequestService:
         if isinstance(value, (date, Decimal)):
             return str(value)
         return value
+
+
+class MaintenanceBillHandoffService:
+    @classmethod
+    @transaction.atomic
+    def create_bill(
+        cls,
+        *,
+        request,
+        bill: VendorBill,
+        actor,
+        expected_version: int,
+        submission_id,
+    ) -> tuple[VendorBill, bool]:
+        require_bill_editor(actor)
+        try:
+            submission_id = UUID(str(submission_id))
+        except (TypeError, ValueError, AttributeError) as exc:
+            raise ValidationError("The maintenance bill submission identity is invalid.") from exc
+
+        current_request = MaintenanceRequest.objects.select_for_update().get(pk=request.pk)
+        existing = VendorBill.objects.filter(maintenance_submission_id=submission_id).first()
+        if existing:
+            if existing.maintenance_request_id != current_request.pk:
+                raise ValidationError("That bill submission identity belongs to another maintenance request.")
+            return existing, False
+        MaintenanceRequestService._require_version(current_request, expected_version)
+
+        bill.maintenance_request = current_request
+        bill.maintenance_submission_id = submission_id
+        bill = VendorBillApprovalService.save_draft(bill, actor=actor)
+        cls._record_link_event(request=current_request, bill=bill, actor=actor, action="bill_linked")
+        return bill, True
+
+    @classmethod
+    @transaction.atomic
+    def link_bill(cls, *, request, bill: VendorBill, actor, expected_version: int) -> VendorBill:
+        require_maintenance_editor(actor)
+        current_request = MaintenanceRequest.objects.select_for_update().get(pk=request.pk)
+        MaintenanceRequestService._require_version(current_request, expected_version)
+        current_bill = VendorBill.objects.select_for_update().get(pk=bill.pk)
+        if current_bill.maintenance_request_id == current_request.pk:
+            return current_bill
+        if current_bill.maintenance_request_id is not None:
+            raise ValidationError("This vendor bill is already linked to another maintenance request.")
+        current_bill.maintenance_request = current_request
+        current_bill.full_clean()
+        current_bill.save(update_fields=["maintenance_request", "updated_at"])
+        cls._record_link_event(request=current_request, bill=current_bill, actor=actor, action="bill_linked")
+        return current_bill
+
+    @classmethod
+    @transaction.atomic
+    def unlink_bill(cls, *, request, bill: VendorBill, actor, expected_version: int) -> VendorBill:
+        require_maintenance_editor(actor)
+        current_request = MaintenanceRequest.objects.select_for_update().get(pk=request.pk)
+        MaintenanceRequestService._require_version(current_request, expected_version)
+        current_bill = VendorBill.objects.select_for_update().get(pk=bill.pk)
+        if current_bill.maintenance_request_id != current_request.pk:
+            raise ValidationError("This vendor bill is not linked to the selected maintenance request.")
+        current_bill.maintenance_request = None
+        current_bill.full_clean()
+        current_bill.save(update_fields=["maintenance_request", "updated_at"])
+        cls._record_link_event(request=current_request, bill=current_bill, actor=actor, action="bill_unlinked")
+        return current_bill
+
+    @staticmethod
+    def _record_link_event(*, request, bill, actor, action):
+        request.version += 1
+        request.save(update_fields=["version", "updated_at"])
+        MaintenanceRequestService._record_event(
+            request=request,
+            action=action,
+            actor=actor,
+            from_status=request.status,
+            metadata={
+                "bill_id": bill.pk,
+                "vendor_id": bill.vendor_id,
+                "amount": str(bill.amount),
+                "posting_status": bill.status,
+                "approval_status": bill.approval_status,
+            },
+        )
+        audit_success(
+            action=f"maintenance_request.{action}",
+            record=request,
+            user=actor,
+            metadata={"bill_id": bill.pk, "request_version": request.version},
+        )

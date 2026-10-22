@@ -150,6 +150,7 @@ class VendorBillAdmin(admin.ModelAdmin):
     readonly_fields = [
         "status", "sync_record", "approval_status", "created_by", "submitted_by", "submitted_at",
         "submission_version", "approved_fingerprint", "decision_by", "decision_at", "decision_reason",
+        "maintenance_request", "maintenance_submission_id",
     ]
 
     def save_model(self, request, obj, form, change):  # pragma: no cover - admin behavior

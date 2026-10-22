@@ -1,5 +1,6 @@
 """Read-only composition for workflow home; posting belongs to domain services."""
 from django.urls import reverse
+from django.db.models import Q
 
 from ledgeros.models import LedgerOSConnectionSettings, LedgerOSSyncRecord, PropertyLedgerSetup
 from ledgeros.permissions import BookkeepingRoleRequiredMixin, ReportingRoleRequiredMixin
@@ -73,6 +74,31 @@ def workflow_home_context(user):
                     "can_act": can_change_maintenance,
                 }
             )
+            awaiting_bill = MaintenanceRequest.objects.filter(
+                Q(status=MaintenanceRequest.Status.VERIFIED)
+                | Q(
+                    status=MaintenanceRequest.Status.CLOSED,
+                    closure_financial_status=MaintenanceRequest.ClosureFinancialStatus.INVOICE_PENDING,
+                ),
+                vendor_bills__isnull=True,
+            ).select_related("property", "unit", "category")
+            context["work_queues"].append(
+                {
+                    "key": "maintenance_invoices",
+                    "title": "Maintenance awaiting vendor bill",
+                    "count": awaiting_bill.count(),
+                    "items": [
+                        {
+                            "label": f"Request {row.pk} · {row.get_status_display()}",
+                            "detail": f"{row.property} · {row.category}",
+                            "url": reverse("maintenance-request-detail", args=[row.pk]),
+                        }
+                        for row in awaiting_bill[:5]
+                    ],
+                    "url": reverse("maintenance-request-list"),
+                    "can_act": can_change_maintenance,
+                }
+            )
         if can_read:
             maintenance_links.append(_link("View maintenance expenses", "maintenance-expense-summary-report"))
 
@@ -105,6 +131,6 @@ def workflow_home_context(user):
     context["workflow_cards"] = [
         {"number": "01", "title": "Collect Rent / Deposit", "description": "Create invoices and record money received from tenants.", "links": rent_links, "gate": "Combined rent and deposit receipts are not available yet. Record them separately using the existing workflows."},
         {"number": "02", "title": "Get Billed & Pay Vendors", "description": "Submit vendor invoices for independent approval, then record authorized payments.", "links": vendor_links, "gate": "Approval, LedgerOS posting, and payable balance are shown as separate states."},
-        {"number": "03", "title": "Log Maintenance Request", "description": "Track work through verified completion, independently of vendor billing.", "links": maintenance_links, "gate": "Photo uploads await private durable storage. Vendor bill handoff is delivered in WP4."},
+        {"number": "03", "title": "Log Maintenance Request", "description": "Track work through verified completion, with independently controlled vendor bills.", "links": maintenance_links, "gate": "Photo uploads await private durable storage. Bill approval, posting, and payment remain separate financial states."},
     ]
     return context

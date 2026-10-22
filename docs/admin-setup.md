@@ -191,6 +191,8 @@ Maintenance lifecycle authority comes from the existing workflow roles; there is
 
 Open the queue at `http://localhost:8000/payments/maintenance/`. Maintenance data is local and remains writable during a LedgerOS outage. It does not post bills or journals. Photo uploads are intentionally unavailable until the deployment has private durable storage, backups, access policy, and validated JPEG/PNG processing. Do not expose a public media route as a substitute.
 
+Admins and bookkeepers can create a vendor bill from a maintenance request. Property managers can link and unlink compatible existing bills but cannot use that handoff to create, approve, post, or pay one. The linked bill must share the request property and, for a unit-specific request, its unit. These changes are audited and remain independent of maintenance closure.
+
 ## Beta demo example
 
 When you are preparing the beta demo, use these seeded records:

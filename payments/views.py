@@ -985,7 +985,7 @@ class VendorBillDetailView(ReportingRoleRequiredMixin, PaymentsAppContextMixin, 
         return super().dispatch(request, *args, **kwargs)
 
     def get_queryset(self):
-        return VendorBill.objects.select_related("vendor", "property", "unit", "maintenance_category", "sync_record")
+        return VendorBill.objects.select_related("vendor", "property", "unit", "maintenance_category", "maintenance_request", "sync_record")
 
     def post(self, request, *args, **kwargs):
         self.object = self.get_object()

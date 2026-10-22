@@ -417,6 +417,8 @@ class MaintenanceRequestEvent(models.Model):
         CLOSE = "close", "Closed"
         REOPEN = "reopen", "Reopened"
         CANCEL = "cancel", "Cancelled"
+        BILL_LINKED = "bill_linked", "Vendor bill linked"
+        BILL_UNLINKED = "bill_unlinked", "Vendor bill unlinked"
 
     request = models.ForeignKey(
         MaintenanceRequest,
@@ -517,6 +519,14 @@ class VendorBill(TimestampedModel):
         blank=True,
         null=True,
     )
+    maintenance_request = models.ForeignKey(
+        MaintenanceRequest,
+        on_delete=models.PROTECT,
+        related_name="vendor_bills",
+        blank=True,
+        null=True,
+    )
+    maintenance_submission_id = models.UUIDField(blank=True, null=True, unique=True, editable=False)
     repair_notes = models.TextField(blank=True, default="")
     tenant_chargeable = models.BooleanField(default=False)
     notes = models.TextField(blank=True, default="")
@@ -576,8 +586,17 @@ class VendorBill(TimestampedModel):
 
     def clean(self):
         super().clean()
+        errors = {}
         if self.unit_id and self.unit.property_id != self.property_id:
-            raise ValidationError({"unit": "Unit must belong to the selected property."})
+            errors["unit"] = "Unit must belong to the selected property."
+        if self.maintenance_request_id:
+            request = self.maintenance_request
+            if request.property_id != self.property_id:
+                errors["maintenance_request"] = "Maintenance request and bill must belong to the same property."
+            elif request.unit_id and request.unit_id != self.unit_id:
+                errors["unit"] = "Bill unit must match the maintenance request unit."
+        if errors:
+            raise ValidationError(errors)
 
 
 class VendorBillApprovalEvent(models.Model):

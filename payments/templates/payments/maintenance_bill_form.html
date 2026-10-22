@@ -1,0 +1,21 @@
+{% extends "ledgeros/base.html" %}
+
+{% block title %}Create vendor bill from maintenance | PropertyLedger{% endblock %}
+
+{% block content %}
+  <div class="card">
+    <p class="eyebrow">Maintenance request #{{ maintenance_request.pk }}</p>
+    <h1>Create linked vendor bill</h1>
+    <p>Review the prefilled maintenance context and invoice details. Saving creates one local draft; it does not post or pay the bill.</p>
+    <form method="post">
+      {% csrf_token %}
+      <input type="hidden" name="handoff_token" value="{{ handoff_token }}">
+      {{ form.as_p }}
+      <div class="actions">
+        <button type="submit" name="action" value="draft">Save linked draft</button>
+        <button type="submit" name="action" value="submit" class="button primary">Save and submit for approval</button>
+        <a class="button" href="{% url 'maintenance-request-detail' maintenance_request.pk %}">Cancel</a>
+      </div>
+    </form>
+  </div>
+{% endblock %}

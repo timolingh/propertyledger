@@ -1,6 +1,6 @@
 # Workflow revamp: discovery and implementation plan
 
-Date: October 21, 2026. Status: discovery complete; WP0 through WP3 complete; WP4–WP6 proposed.
+Date: October 21, 2026. Status: discovery complete; WP0 through WP4 complete; WP5–WP6 proposed.
 
 Scope authority: [Workflow Home PRD v1.0](PropertyLedger_Workflow_Home_PRD_v1.0.md), especially approved Q1–Q16 and the implementation gates in §14. This plan preserves those product choices. Historical epics are context, not the current scope.
 
@@ -187,7 +187,7 @@ Validation: `make check` passed with no system or migration issues. The full Doc
 
 Implemented October 21, 2026: additive maintenance request and immutable event models; required and optional context validation; explicit open, triage, assignment, progress, hold/resume, verification, closure, cancellation, and reasoned reopening transitions; actor attribution, row locks, optimistic versions, admin protections, role-aware request pages, shared navigation, and a real active-maintenance home queue. Maintenance remains local during LedgerOS outages and has no accounting side effects. Closure records invoice pending versus no external cost independently of vendor payment.
 
-Migration `payments.0007_maintenance_request_workflow` creates no requests and changes no bills, payments, sync records, or journals. Photo upload controls remain absent because this deployment has no configured private durable storage or image decoder. Request-to-bill linking remains WP4.
+Migration `payments.0007_maintenance_request_workflow` creates no requests and changes no bills, payments, sync records, or journals. Photo upload controls remain absent because this deployment has no configured private durable storage or image decoder.
 
 Validation: `make check` passed with no system or migration issues. The focused maintenance and shared-home suite passed all 25 tests. The full Docker suite passed all 153 tests in 43.308 seconds and destroyed its test database normally. No LedgerOS mutation or live financial acceptance was required because WP3 is a local operational workflow.
 
@@ -203,6 +203,10 @@ Validation: `make check` passed with no system or migration issues. The focused 
 | Attachment support | Deferred: configure durable private storage, content validation, protected downloads and a decoder dependency before exposing photos. |
 
 ### WP4 — Request-to-AP handoff (MAINT-04–06)
+
+Implemented October 21, 2026: a nullable protected request link on vendor bills, one-request/many-bill relationships, actor-attributed link/unlink history, property/unit validation, manager link authority, bill-editor-only creation, safe request prefill, signed UUID replay protection, reciprocal detail links, batched payable states, and a real verified/closed work-awaiting-invoice queue. Bill handoff works at any request state and never changes maintenance closure, approval, posting, payment, sync records, or journals.
+
+Migration `payments.0008_maintenance_bill_handoff` adds nullable link and submission UUID fields and extends maintenance event choices. It creates no bills, invents no links, and changes no accounting data. `make check` passed with no system or migration issues. Focused WP3/WP4 validation passed all 20 tests, and the final full Docker suite passed all 162 tests in 46.052 seconds before destroying its test database normally.
 
 | File | Change |
 | --- | --- |

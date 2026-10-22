@@ -2,6 +2,10 @@ from django import forms
 
 from ledgeros.models import Property, Tenant, Unit
 from payments.models import MaintenanceCategory, MaintenanceRequest, MaintenanceRequestEvent, Vendor
+from payments.models import VendorBill
+
+
+MAINTENANCE_BILL_TOKEN_SALT = "payments.maintenance-bill-handoff"
 
 
 class MaintenanceRequestForm(forms.ModelForm):
@@ -51,3 +55,19 @@ class MaintenanceTransitionForm(forms.Form):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.fields["assigned_vendor"].queryset = Vendor.objects.filter(is_active=True)
+
+
+class MaintenanceBillLinkForm(forms.Form):
+    version = forms.IntegerField(widget=forms.HiddenInput)
+    bill = forms.ModelChoiceField(queryset=VendorBill.objects.none())
+
+    def __init__(self, *args, maintenance_request: MaintenanceRequest, **kwargs):
+        super().__init__(*args, **kwargs)
+        queryset = VendorBill.objects.filter(
+            maintenance_request__isnull=True,
+            property=maintenance_request.property,
+        ).select_related("vendor", "property", "unit")
+        if maintenance_request.unit_id:
+            queryset = queryset.filter(unit=maintenance_request.unit)
+        self.fields["bill"].queryset = queryset.order_by("-bill_date", "-id")
+        self.fields["version"].initial = maintenance_request.version

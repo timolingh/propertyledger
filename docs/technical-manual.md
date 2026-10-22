@@ -97,7 +97,15 @@ The canonical path is `Open → Triaged → Assigned → In progress → Verifie
 
 All mutations use `MaintenanceRequestService`, which checks the admin/property-manager/bookkeeper role from current database state, locks the row, and checks the submitted version before writing. Each create, edit, and transition increments the optimistic version and writes an immutable `MaintenanceRequestEvent` plus the shared audit log. Read-only viewers may use the request list and detail pages; owner viewers gain no maintenance scope. Admin lifecycle fields are read-only and admin saves use the same service.
 
-Maintenance writes do not call LedgerOS and remain available during an outage. They create no invoice, bill, payment, journal, balance, owner-statement line, tenant-ledger entry, or report total. WP4 will add the separately audited request-to-bill handoff. Photo upload fields and controls remain absent until private durable storage, backup/access policy, JPEG/PNG decoding and re-encoding, metadata stripping, and size limits are configured and tested.
+Maintenance lifecycle writes do not call LedgerOS and remain available during an outage. They create no invoice, payment, journal, balance, owner-statement line, tenant-ledger entry, or report total. Photo upload fields and controls remain absent until private durable storage, backup/access policy, JPEG/PNG decoding and re-encoding, metadata stripping, and size limits are configured and tested.
+
+### Maintenance bill handoff (WP4)
+
+`VendorBill.maintenance_request` is an optional protected many-to-one link: one request may have multiple vendors and bills, while each bill belongs to at most one request. The service requires matching properties and, for a unit-specific request, an exact bill unit match. Linking and unlinking lock the request and bill, check the request version, increment that version, and append an actor-attributed maintenance event. Existing posted bills may be linked explicitly without changing their accounting fields, sync record, journal identity, approval, or payment state.
+
+Admins, property managers, and bookkeepers may link a compatible existing bill. Creating a new bill still requires the established admin/bookkeeper bill-editor role. The maintenance bill form prefills property, unit, assigned vendor, category, repair description, and bill date for review. GET creates no record. Its signed token binds the request, version, and UUID; the UUID is stored on the new bill before any later posting and repeated form submission returns the same bill. Creation uses `VendorBillApprovalService.save_draft`, and optional submission uses the normal WP2 approval service. It never posts or pays automatically.
+
+The maintenance detail batches linked bills through `BillPaymentStatusService` and displays maintenance status separately from bill approval, LedgerOS posting, and current payable state. Bills can be created or linked before or after verification and closure. Link changes never reopen or close maintenance, and bill credits, reversals, approval, posting, or payment do not mutate the operational lifecycle. The home queue for maintenance awaiting a vendor bill includes verified requests and closed requests marked invoice pending with no linked bill; no-cost closures are excluded.
 
 ### Setup and onboarding
 

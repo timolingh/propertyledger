@@ -132,7 +132,11 @@ Move work through **Open → Triaged → Assigned → In progress → Verified �
 
 Closing maintenance does not wait for an invoice or payment. If work returns, reopen the closed request with a reason; it returns to Triaged while the prior closure remains in history. Read-only viewers can review requests but cannot change them. Owner viewers do not receive maintenance access.
 
-Maintenance requests save locally during a LedgerOS outage and do not create accounting entries. Vendor bill linking arrives in WP4. Photo uploads are unavailable until the deployment has approved private durable storage and image validation.
+Maintenance requests save locally during a LedgerOS outage and do not create accounting entries. Photo uploads are unavailable until the deployment has approved private durable storage and image validation.
+
+When an invoice arrives, open the maintenance request. Admins and bookkeepers can choose **Create vendor bill**; the form prefills safe request context for review and creates nothing until submitted. Admins, property managers, and bookkeepers can instead link a compatible existing bill. Property and unit must match. Repeated submission reuses the first bill rather than creating a duplicate.
+
+One request can show multiple vendor bills. Each row displays approval, posting, and payment separately. Bills can be created or linked before work is verified or after it is closed. Linking a bill does not change maintenance status, and closing maintenance does not approve, post, or pay a bill. Use the vendor bill page for those financial actions.
 
 ### 7. Track deposits
 

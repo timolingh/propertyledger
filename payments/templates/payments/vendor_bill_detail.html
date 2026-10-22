@@ -13,6 +13,7 @@
     <p><strong>Amount:</strong> {{ bill.amount }}</p>
     <p><strong>Expense category:</strong> {{ bill.get_expense_category_display }}</p>
     <p><strong>Maintenance category:</strong> {{ bill.maintenance_category|default:"-" }}</p>
+    <p><strong>Maintenance request:</strong> {% if bill.maintenance_request %}<a href="{% url 'maintenance-request-detail' bill.maintenance_request.pk %}">Request {{ bill.maintenance_request.pk }}</a>{% else %}—{% endif %}</p>
     <p><strong>Tenant chargeable:</strong> {{ bill.tenant_chargeable|yesno:"Yes,No" }}</p>
     <p><strong>Bill posting status:</strong> {{ bill.get_status_display }}</p>
     <p><strong>Approval status:</strong> {{ bill.get_approval_status_display }}</p>

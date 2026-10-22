@@ -60,7 +60,34 @@
   <div class="card">
     <h2>Financial status</h2>
     {% if maintenance_request.closure_financial_status %}<p><strong>{{ maintenance_request.get_closure_financial_status_display }}</strong></p>{% else %}<p class="muted">No closure invoice outcome has been recorded.</p>{% endif %}
-    <p class="muted">Vendor bill linking is delivered in WP4. Maintenance status remains independent of approval, posting, and payment.</p>
+    <p class="muted">Maintenance status remains independent of bill approval, posting, and payment.</p>
+    {% if can_change_maintenance %}
+      <div class="actions">
+        {% if can_create_bill %}<a class="button primary" href="{% url 'maintenance-bill-create' maintenance_request.pk %}">Create vendor bill</a>{% endif %}
+      </div>
+      <form method="post" action="{% url 'maintenance-bill-link' maintenance_request.pk %}" class="card nested">
+        {% csrf_token %}
+        <h3>Link an existing bill</h3>
+        {{ bill_link_form.as_p }}
+        <button type="submit">Link bill</button>
+      </form>
+    {% endif %}
+    <table>
+      <thead><tr><th>Bill</th><th>Vendor</th><th>Amount</th><th>Approval</th><th>Posting</th><th>Payment</th><th>Action</th></tr></thead>
+      <tbody>
+        {% for row in linked_bill_rows %}
+          <tr>
+            <td><a href="{% url 'vendor-bill-detail' row.bill.pk %}">Bill {{ row.bill.pk }}</a></td>
+            <td>{{ row.bill.vendor }}</td>
+            <td>{{ row.bill.amount }}</td>
+            <td>{{ row.bill.get_approval_status_display }}</td>
+            <td>{{ row.bill.get_status_display }}</td>
+            <td>{{ row.payment_status.label }}{% if row.payment_status.balance != None %}<br><span class="muted">Balance {{ row.payment_status.balance }}</span>{% endif %}</td>
+            <td>{% if can_change_maintenance %}<form method="post" action="{% url 'maintenance-bill-unlink' maintenance_request.pk row.bill.pk %}">{% csrf_token %}<input type="hidden" name="version" value="{{ maintenance_request.version }}"><button type="submit">Unlink</button></form>{% else %}—{% endif %}</td>
+          </tr>
+        {% empty %}<tr><td colspan="7" class="muted">No vendor bills are linked.</td></tr>{% endfor %}
+      </tbody>
+    </table>
   </div>
 
   <div class="card">
