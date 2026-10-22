@@ -136,7 +136,7 @@ class WorkflowHomeTests(TestCase):
             self.assertNotContains(response, "$0")
             self.assertContains(response, f'href="{reverse("vendor-bill-create")}"')
             self.assertContains(response, "Combined rent and deposit receipts are not available yet")
-            self.assertContains(response, "Maintenance requests are not available yet")
+        self.assertContains(response, "Photo uploads await private durable storage")
 
     def test_read_only_post_attempts_are_denied_before_accounting_services(self):
         for role in (ROLE_PROPERTY_MANAGER, ROLE_OWNER_VIEWER, ROLE_READ_ONLY_VIEWER):

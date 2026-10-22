@@ -1,5 +1,11 @@
 from django.urls import path
 
+from payments.maintenance_views import (
+    MaintenanceRequestCreateView,
+    MaintenanceRequestDetailView,
+    MaintenanceRequestListView,
+    MaintenanceRequestUpdateView,
+)
 from payments.views import (
     DebtServicePaymentCreateView,
     DebtServicePaymentDetailView,
@@ -46,6 +52,10 @@ urlpatterns = [
     path("maintenance-categories/", MaintenanceCategoryListView.as_view(), name="maintenance-category-list"),
     path("maintenance-categories/add/", MaintenanceCategoryCreateView.as_view(), name="maintenance-category-create"),
     path("maintenance-categories/<int:pk>/edit/", MaintenanceCategoryUpdateView.as_view(), name="maintenance-category-edit"),
+    path("maintenance/", MaintenanceRequestListView.as_view(), name="maintenance-request-list"),
+    path("maintenance/add/", MaintenanceRequestCreateView.as_view(), name="maintenance-request-create"),
+    path("maintenance/<int:pk>/", MaintenanceRequestDetailView.as_view(), name="maintenance-request-detail"),
+    path("maintenance/<int:pk>/edit/", MaintenanceRequestUpdateView.as_view(), name="maintenance-request-edit"),
     path("vendor-bills/", VendorBillListView.as_view(), name="vendor-bill-list"),
     path("vendor-bills/approvals/", VendorBillApprovalQueueView.as_view(), name="vendor-bill-approval-queue"),
     path("vendor-bills/add/", VendorBillCreateView.as_view(), name="vendor-bill-create"),

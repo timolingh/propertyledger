@@ -40,7 +40,7 @@ def navigation_context(request):
     groups = []
     if request.user.is_authenticated:
         definitions = (
-            ("Workflows", (("Home", "app-home"), ("Collect rent / deposit", "invoice-list"), ("Vendor payables", "vendor-bill-list"))),
+            ("Workflows", (("Home", "app-home"), ("Collect rent / deposit", "invoice-list"), ("Vendor payables", "vendor-bill-list"), ("Maintenance", "maintenance-request-list"))),
             ("Records", (("Owners", "owner-list"), ("Properties", "property-list"), ("Units", "unit-list"), ("Tenants", "tenant-list"), ("Leases", "lease-list"), ("Vendors", "vendor-list"))),
             ("Accounting & monitoring", (("Invoices", "charge-list"), ("Payments overview", "payments-home"), ("Tenant receipts", "tenant-payment-list"), ("Security deposits", "security-deposit-list"), ("Vendor payments", "vendor-payment-list"), ("Debt service", "debt-service-payment-list"), ("Maintenance categories", "maintenance-category-list"), ("Banking", "banking-dashboard"), ("Reports", "reports-home"), ("Owner activity", "owner-activity-list"), ("Owner statements", "owner-statement"))),
             ("Administration", (("Setup", "ledgeros-setup"), ("Workflow authorizations", "workflow-authorizations"), ("Audit log", "audit-log"))),

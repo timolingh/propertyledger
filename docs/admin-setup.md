@@ -185,6 +185,12 @@ Assign bill approval and vendor-payment authority independently. A user needs an
 
 After migration, existing posted bills display `Legacy / approval not recorded`, and no production user receives an automatic grant. Submit and approve a legacy bill prospectively before its next payment; do not recreate or repost the historical bill.
 
+## Step 8: Enable maintenance roles
+
+Maintenance lifecycle authority comes from the existing workflow roles; there is no separate financial grant. Admins, property managers, and bookkeepers can create and transition requests. Read-only viewers can review request lists and history. Owner viewers and unassigned users have no maintenance access.
+
+Open the queue at `http://localhost:8000/payments/maintenance/`. Maintenance data is local and remains writable during a LedgerOS outage. It does not post bills or journals. Photo uploads are intentionally unavailable until the deployment has private durable storage, backups, access policy, and validated JPEG/PNG processing. Do not expose a public media route as a substitute.
+
 ## Beta demo example
 
 When you are preparing the beta demo, use these seeded records:
@@ -221,6 +227,7 @@ You are ready to start feature testing only after:
 - the required account mappings are present;
 - the LedgerOS health check passes;
 - the setup smoke test passes.
-- the intended approvers and vendor-payment users have explicit workflow authorizations.
+- the intended approvers and vendor-payment users have explicit workflow authorizations;
+- maintenance staff have Admin, Property manager, or Bookkeeper roles and can reach the maintenance queue.
 
-At that point, PropertyLedger is ready for property, payments, and reporting workflows.
+At that point, PropertyLedger is ready for property, payments, maintenance, and reporting workflows.

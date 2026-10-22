@@ -1,6 +1,6 @@
 # Workflow revamp: discovery and implementation plan
 
-Date: October 21, 2026. Status: discovery complete; WP0 through WP2 complete; WP3–WP6 proposed.
+Date: October 21, 2026. Status: discovery complete; WP0 through WP3 complete; WP4–WP6 proposed.
 
 Scope authority: [Workflow Home PRD v1.0](PropertyLedger_Workflow_Home_PRD_v1.0.md), especially approved Q1–Q16 and the implementation gates in §14. This plan preserves those product choices. Historical epics are context, not the current scope.
 
@@ -185,6 +185,12 @@ Validation: `make check` passed with no system or migration issues. The full Doc
 
 ### WP3 — Maintenance lifecycle (MAINT-01–03, 07–08)
 
+Implemented October 21, 2026: additive maintenance request and immutable event models; required and optional context validation; explicit open, triage, assignment, progress, hold/resume, verification, closure, cancellation, and reasoned reopening transitions; actor attribution, row locks, optimistic versions, admin protections, role-aware request pages, shared navigation, and a real active-maintenance home queue. Maintenance remains local during LedgerOS outages and has no accounting side effects. Closure records invoice pending versus no external cost independently of vendor payment.
+
+Migration `payments.0007_maintenance_request_workflow` creates no requests and changes no bills, payments, sync records, or journals. Photo upload controls remain absent because this deployment has no configured private durable storage or image decoder. Request-to-bill linking remains WP4.
+
+Validation: `make check` passed with no system or migration issues. The focused maintenance and shared-home suite passed all 25 tests. The full Docker suite passed all 153 tests in 43.308 seconds and destroyed its test database normally. No LedgerOS mutation or live financial acceptance was required because WP3 is a local operational workflow.
+
 | File | Change |
 | --- | --- |
 | `payments/tests/test_maintenance_workflow.py` (new) | Required/scope fields, role matrix, transitions/concurrency, verified closure, no-cost closure, reasoned reopening and outage-safe writes. |
@@ -194,7 +200,7 @@ Validation: `make check` passed with no system or migration issues. The full Doc
 | `payments/templates/payments/maintenance_list.html`, `maintenance_form.html`, `maintenance_detail.html` (new) | Queue, creation, progress, verification/closure/reopening; separate financial summary. |
 | `payments/admin.py` | Requests/history with service-backed mutations; no editable lifecycle bypass. |
 | `ledgeros/roles.py`, `payments/authorization.py` | Explicit maintenance authority matrix. |
-| `propertyledger/settings.py`, `requirements.txt`, `docker-compose.yml`, private attachment handler/tests (conditional) | Configure durable private storage, content validation, protected downloads and decoder dependency before exposing photos. |
+| Attachment support | Deferred: configure durable private storage, content validation, protected downloads and a decoder dependency before exposing photos. |
 
 ### WP4 — Request-to-AP handoff (MAINT-04–06)
 

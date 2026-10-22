@@ -31,11 +31,11 @@ You can use it to:
 
 After signing in, everyone starts at `/home/`. Choose **Collect Rent / Deposit**, **Get Billed & Pay Vendors**, or the maintenance card. Available links reflect your existing role. The sidebar keeps records, payments, reports and authorized administration pages reachable. Collapse it on desktop, or use **Menu** on mobile; Escape closes the mobile menu and returns focus to its button.
 
-The home shows actual saved receipts awaiting finalization and attempted vendor payments awaiting confirmation, with up to five entries per queue. These are local workflow counts, not accounting balances. Viewers receive read links; accounting actions require a bookkeeper or administrator. An account without an assigned role displays guidance instead of records.
+The home shows actual saved receipts awaiting finalization, attempted vendor payments awaiting confirmation, and active maintenance requests, with up to five entries per queue. These are local workflow counts, not accounting balances. Viewers receive read links; accounting actions require a bookkeeper or administrator. An account without an assigned role displays guidance instead of records.
 
 Setup stays at `/` for administrators. The home shows setup and connection status separately. During a connection failure it labels accounting balances unavailable; it does not substitute zero. Open the existing bill or banking screen to read current LedgerOS balances.
 
-Vendor bills now use independent approval and individual payment authorizations. Maintenance requests and combined rent/deposit receipts remain gated for later work packages. Existing accounting workflows continue to use their current posting and retry rules.
+Vendor bills use independent approval and individual payment authorizations. Maintenance requests use a separate local operational lifecycle. Combined rent/deposit receipts remain gated for a later work package. Existing accounting workflows continue to use their current posting and retry rules.
 
 ### 1. Start with setup
 
@@ -124,11 +124,21 @@ users can review bills and payment records.
 Bills that are unsynced, voided, fully settled, unavailable, or awaiting
 reconciliation cannot start a new payment. The page explains the reason.
 
-### 6. Track deposits
+### 6. Track maintenance work
+
+Open **Maintenance** from the sidebar or the home card. Administrators, property managers, and bookkeepers can create requests. Property, description, category, and priority are required. Unit, tenant, vendor, target completion date, and estimated cost are optional. If you select a tenant, that tenant must have a lease for the selected property and unit.
+
+Move work through **Open → Triaged → Assigned → In progress → Verified → Closed**. A vendor is required before assignment. Work may be placed on hold with a reason and resumed to its prior state. Verify completed work before closing it. At closure, record whether a vendor invoice is still pending or the work had no external cost, and add a closure note.
+
+Closing maintenance does not wait for an invoice or payment. If work returns, reopen the closed request with a reason; it returns to Triaged while the prior closure remains in history. Read-only viewers can review requests but cannot change them. Owner viewers do not receive maintenance access.
+
+Maintenance requests save locally during a LedgerOS outage and do not create accounting entries. Vendor bill linking arrives in WP4. Photo uploads are unavailable until the deployment has approved private durable storage and image validation.
+
+### 7. Track deposits
 
 Security deposit activity is recorded as events and the balance is derived from those events.
 
-### 7. Review reports and owner statements
+### 8. Review reports and owner statements
 
 Use reports to review:
 

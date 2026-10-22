@@ -1,0 +1,75 @@
+{% extends "ledgeros/base.html" %}
+
+{% block title %}Maintenance request {{ maintenance_request.pk }} | PropertyLedger{% endblock %}
+
+{% block content %}
+  <div class="card">
+    <p class="eyebrow">Maintenance request #{{ maintenance_request.pk }}</p>
+    <div class="section-heading"><h1>{{ maintenance_request.get_status_display }}</h1>{% if can_change_maintenance and maintenance_request.status != 'closed' and maintenance_request.status != 'cancelled' %}<a class="button" href="{% url 'maintenance-request-edit' maintenance_request.pk %}">Edit details</a>{% endif %}</div>
+    <p>{{ maintenance_request.description|linebreaksbr }}</p>
+    <table>
+      <tbody>
+        <tr><th>Property</th><td>{{ maintenance_request.property }}</td></tr>
+        <tr><th>Unit</th><td>{{ maintenance_request.unit|default:"Property-wide" }}</td></tr>
+        <tr><th>Tenant</th><td>{{ maintenance_request.tenant|default:"—" }}</td></tr>
+        <tr><th>Category</th><td>{{ maintenance_request.category }}</td></tr>
+        <tr><th>Priority</th><td>{{ maintenance_request.get_priority_display }}</td></tr>
+        <tr><th>Assigned vendor</th><td>{{ maintenance_request.assigned_vendor|default:"Unassigned" }}</td></tr>
+        <tr><th>Target completion</th><td>{{ maintenance_request.target_completion_date|default:"—" }}</td></tr>
+        <tr><th>Estimated cost</th><td>{% if maintenance_request.estimated_cost != None %}${{ maintenance_request.estimated_cost }}{% else %}—{% endif %}</td></tr>
+        <tr><th>Created by</th><td>{{ maintenance_request.created_by|default:"Unknown" }} · {{ maintenance_request.created_at }}</td></tr>
+        {% if maintenance_request.verified_at %}<tr><th>Verified</th><td>{{ maintenance_request.verified_by|default:"Unknown" }} · {{ maintenance_request.verified_at }}</td></tr>{% endif %}
+        {% if maintenance_request.closed_at %}<tr><th>Closed</th><td>{{ maintenance_request.closed_by|default:"Unknown" }} · {{ maintenance_request.closed_at }}<br>{{ maintenance_request.get_closure_financial_status_display }} · {{ maintenance_request.closure_notes }}</td></tr>{% endif %}
+      </tbody>
+    </table>
+  </div>
+
+  <div class="card">
+    <h2>Operational actions</h2>
+    {% if can_change_maintenance and available_actions %}
+      {% for action, label in available_actions %}
+        <form method="post" class="card nested">
+          {% csrf_token %}
+          <input type="hidden" name="version" value="{{ maintenance_request.version }}">
+          <input type="hidden" name="action" value="{{ action }}">
+          {% if action == 'assign' %}
+            <label for="vendor-{{ action }}">Vendor</label>
+            <select id="vendor-{{ action }}" name="assigned_vendor" required>
+              <option value="">Select vendor</option>
+              {% for vendor in active_vendors %}<option value="{{ vendor.pk }}"{% if maintenance_request.assigned_vendor_id == vendor.pk %} selected{% endif %}>{{ vendor }}</option>{% endfor %}
+            </select>
+          {% endif %}
+          {% if action == 'close' %}
+            <label for="closure-outcome">Invoice outcome</label>
+            <select id="closure-outcome" name="closure_financial_status" required>
+              <option value="">Select closure outcome</option>
+              {% for value, choice_label in closure_status_choices %}<option value="{{ value }}">{{ choice_label }}</option>{% endfor %}
+            </select>
+          {% endif %}
+          {% if action == 'hold' or action == 'verify' or action == 'close' or action == 'reopen' or action == 'cancel' %}
+            <label for="reason-{{ action }}">{% if action == 'close' %}Closure note{% else %}Reason / note{% endif %}</label>
+            <textarea id="reason-{{ action }}" name="reason" rows="3"{% if action != 'verify' %} required{% endif %}></textarea>
+          {% endif %}
+          <button type="submit"{% if action == 'cancel' %} class="button"{% else %} class="button primary"{% endif %}>{{ label }}</button>
+        </form>
+      {% endfor %}
+    {% elif maintenance_request.status == 'cancelled' %}<p class="muted">This request is cancelled.</p>
+    {% elif not can_change_maintenance %}<p class="muted">You have read-only access to this request.</p>{% endif %}
+  </div>
+
+  <div class="card">
+    <h2>Financial status</h2>
+    {% if maintenance_request.closure_financial_status %}<p><strong>{{ maintenance_request.get_closure_financial_status_display }}</strong></p>{% else %}<p class="muted">No closure invoice outcome has been recorded.</p>{% endif %}
+    <p class="muted">Vendor bill linking is delivered in WP4. Maintenance status remains independent of approval, posting, and payment.</p>
+  </div>
+
+  <div class="card">
+    <h2>History</h2>
+    <table>
+      <thead><tr><th>When</th><th>Action</th><th>State</th><th>Actor</th><th>Reason</th></tr></thead>
+      <tbody>
+        {% for event in events %}<tr><td>{{ event.created_at }}</td><td>{{ event.get_action_display }}</td><td>{% if event.from_status %}{{ event.get_from_status_display }} → {% endif %}{{ event.get_to_status_display }}</td><td>{{ event.actor|default:"Unknown" }}</td><td>{{ event.reason|default:"—" }}</td></tr>{% endfor %}
+      </tbody>
+    </table>
+  </div>
+{% endblock %}

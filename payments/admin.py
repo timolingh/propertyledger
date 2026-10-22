@@ -1,9 +1,12 @@
 from django.contrib import admin
 
 from payments.forms import DebtServicePaymentForm, MaintenanceCategoryForm, TenantPaymentForm, VendorBillForm, VendorForm, VendorPaymentForm
+from payments.maintenance_forms import MaintenanceRequestForm
 from payments.models import (
     DebtServicePayment,
     MaintenanceCategory,
+    MaintenanceRequest,
+    MaintenanceRequestEvent,
     PaymentWorkflowSettings,
     SecurityDepositEvent,
     TenantPayment,
@@ -15,6 +18,7 @@ from payments.models import (
     WorkflowAuthorization,
 )
 from payments.approval_services import VendorBillApprovalService
+from payments.maintenance_services import MaintenanceRequestService
 from payments.services import VendorPaymentService, VendorService
 
 
@@ -83,6 +87,58 @@ class MaintenanceCategoryAdmin(admin.ModelAdmin):
     list_display = ["name", "is_active"]
     list_filter = ["is_active"]
     search_fields = ["name", "description"]
+
+
+@admin.register(MaintenanceRequest)
+class MaintenanceRequestAdmin(admin.ModelAdmin):
+    form = MaintenanceRequestForm
+    list_display = ["id", "property", "unit", "category", "priority", "status", "assigned_vendor", "target_completion_date"]
+    list_filter = ["status", "priority", "category", "property"]
+    search_fields = ["description", "property__name", "unit__name", "tenant__name", "assigned_vendor__name"]
+    readonly_fields = [
+        "status", "version", "source", "source_reference", "hold_from_status",
+        "closure_financial_status", "closure_notes", "reopen_count", "created_by",
+        "verified_by", "verified_at", "closed_by", "closed_at", "created_at", "updated_at",
+    ]
+
+    def save_model(self, request, obj, form, change):  # pragma: no cover - admin behavior
+        if change:
+            saved = MaintenanceRequestService.update(
+                request=obj,
+                actor=request.user,
+                expected_version=form.cleaned_data.get("version", obj.version) if form else obj.version,
+            )
+        else:
+            saved = MaintenanceRequestService.create(
+                actor=request.user,
+                property=obj.property,
+                unit=obj.unit,
+                tenant=obj.tenant,
+                category=obj.category,
+                priority=obj.priority,
+                description=obj.description,
+                assigned_vendor=obj.assigned_vendor,
+                target_completion_date=obj.target_completion_date,
+                estimated_cost=obj.estimated_cost,
+                source=obj.source,
+                source_reference=obj.source_reference,
+            )
+        obj.__dict__.update(saved.__dict__)
+
+
+@admin.register(MaintenanceRequestEvent)
+class MaintenanceRequestEventAdmin(admin.ModelAdmin):
+    list_display = ["request", "action", "from_status", "to_status", "actor", "request_version", "created_at"]
+    readonly_fields = ["request", "action", "from_status", "to_status", "actor", "reason", "request_version", "metadata", "created_at"]
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
 
 
 @admin.register(VendorBill)

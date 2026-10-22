@@ -222,7 +222,7 @@ Capture feedback on:
 
 ## Moderator notes
 
-Start each role at `/home/` after setup. Check the three workflow cards, existing record/report links, desktop collapse and mobile menu. Confirm viewers see read actions and that unassigned users see access guidance. Exercise the separate bill submitter, approver, and payer capabilities with the seeded users. Maintenance requests and combined rent/deposit receipts remain visibly gated pending later work packages. See [WP1 browser acceptance](qa/wp1/README.md) for desktop/mobile examples.
+Start each role at `/home/` after setup. Check the three workflow cards, existing record/report links, desktop collapse and mobile menu. Confirm read-only viewers can review maintenance while owner viewers and unassigned users cannot. Exercise request creation, hold/resume, verified closure with each invoice outcome, and reasoned reopening. Confirm those actions still work with LedgerOS unavailable and create no accounting records. Exercise the separate bill submitter, approver, and payer capabilities with the seeded users. Request-to-bill linking, maintenance photos, and combined rent/deposit receipts remain visibly gated pending later work packages. See [WP1 browser acceptance](qa/wp1/README.md) for desktop/mobile examples.
 
 - Keep the group moving, but do not rush them past confusion.
 - If a participant pauses, ask what they expected to happen.

@@ -79,7 +79,7 @@ Key rules:
 
 `GET /home/` renders `WorkflowHomeView` for every authenticated user, rather than redirecting by role. Login still targets `/home/`; `/` remains the existing admin-only Setup route. `get_home_redirect_url` now returns this shared home. Historical `RoleLandingPage` rows remain read-only in admin and are no longer created or rewritten by `post_migrate` or used for navigation.
 
-`propertyledger/workflows.py` reads setup/configuration without singleton `.load()` helpers, checks LedgerOS health once with explicitly supplied configuration, and composes local queues. Home GET creates no setup rows, sync records, payments or accounting requests. Home POST is unsupported. Receipt queues exclude posted/voided records and successful parent syncs; payment-confirmation queues include attempted, unconfirmed vendor payments only. Counts cover the full role-authorized query, while displayed rows are limited to five. No payable balances, approval counts or maintenance request counts are inferred.
+`propertyledger/workflows.py` reads setup/configuration without singleton `.load()` helpers, checks LedgerOS health once with explicitly supplied configuration, and composes local queues. Home GET creates no setup rows, sync records, payments or accounting requests. Home POST is unsupported. Receipt queues exclude posted/voided records and successful parent syncs; payment-confirmation queues include attempted, unconfirmed vendor payments only. WP3 adds a local active-maintenance queue that excludes closed and cancelled requests. Counts cover each full role-authorized query, while displayed rows are limited to five. No payable balances are inferred.
 
 The shared navigation context checks the destination views' role policies. Users without recognized roles have no workflow access; inactive users fail role checks. Reporting views separately enforce the capability required by unsafe HTTP methods, so viewer access to a detail page does not authorize posting. Write controls are hidden on read-only pages. WP2 adds current-database checks for individually assigned bill-approval and vendor-payment capabilities.
 
@@ -88,6 +88,16 @@ Home distinguishes missing configuration, denied LedgerOS access and outages; ra
 `ledgeros/static/ledgeros/workflows.css` and `navigation.js` provide the shared responsive sidebar. Desktop collapse is stored in browser local storage, with a fallback when storage is disabled. The mobile drawer supports inert background/closed navigation, focus containment, Escape and focus return; without JavaScript, mobile navigation remains expanded. Production deployments must run `collectstatic` and serve `STATIC_ROOT` through their static-file hosting configuration; Django's local debug server serves these assets during development.
 
 Browser acceptance artifacts and repeatable fixture commands are in [WP1 QA](qa/wp1/README.md). The existing workflow PRD and [implementation plan](workflow-implementation-plan.md) define later work packages.
+
+### Maintenance lifecycle (WP3)
+
+`MaintenanceRequest` is a local operational record. Its required fields are property, description, category, and priority; unit, tenant, assigned vendor, target date, and nonnegative estimated cost are optional. A unit must belong to the selected property. When a tenant is selected, a lease must associate that tenant with the selected property and optional unit. Source metadata and creator attribution leave a future tenant-origin path without granting tenant access now.
+
+The canonical path is `Open → Triaged → Assigned → In progress → Verified → Closed`. Triaged, assigned, or in-progress work can be put on hold and resumes to its prior state. Active work can be cancelled with a reason. Verification records its actor and time. Closure is allowed only after verification and requires a note plus either `Vendor invoice pending` or `No external cost`; no bill or payment is required. Reopening requires a reason, returns the request to Triaged, increments the reopen count, and preserves the prior closure event.
+
+All mutations use `MaintenanceRequestService`, which checks the admin/property-manager/bookkeeper role from current database state, locks the row, and checks the submitted version before writing. Each create, edit, and transition increments the optimistic version and writes an immutable `MaintenanceRequestEvent` plus the shared audit log. Read-only viewers may use the request list and detail pages; owner viewers gain no maintenance scope. Admin lifecycle fields are read-only and admin saves use the same service.
+
+Maintenance writes do not call LedgerOS and remain available during an outage. They create no invoice, bill, payment, journal, balance, owner-statement line, tenant-ledger entry, or report total. WP4 will add the separately audited request-to-bill handoff. Photo upload fields and controls remain absent until private durable storage, backup/access policy, JPEG/PNG decoding and re-encoding, metadata stripping, and size limits are configured and tested.
 
 ### Setup and onboarding
 

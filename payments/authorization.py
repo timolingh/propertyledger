@@ -6,6 +6,7 @@ from ledgeros.roles import (
     ROLE_ADMIN,
     ROLE_BOOKKEEPER,
     ROLE_PROPERTY_MANAGER,
+    ROLE_READ_ONLY_VIEWER,
     user_has_any_role,
 )
 from payments.models import WorkflowAuthorization
@@ -13,6 +14,8 @@ from payments.models import WorkflowAuthorization
 
 WORKFLOW_FINANCIAL_ROLES = (ROLE_ADMIN, ROLE_BOOKKEEPER, ROLE_PROPERTY_MANAGER)
 BILL_EDITOR_ROLES = (ROLE_ADMIN, ROLE_BOOKKEEPER)
+MAINTENANCE_EDITOR_ROLES = (ROLE_ADMIN, ROLE_PROPERTY_MANAGER, ROLE_BOOKKEEPER)
+MAINTENANCE_VIEWER_ROLES = (*MAINTENANCE_EDITOR_ROLES, ROLE_READ_ONLY_VIEWER)
 
 
 def _has_grant(user, field: str) -> bool:
@@ -50,4 +53,9 @@ def require_vendor_payer(user) -> None:
 def require_grant_administrator(user) -> None:
     if not user_has_any_role(user, (ROLE_ADMIN,)):
         raise PermissionDenied("Only PropertyLedger administrators can change workflow authorizations.")
+
+
+def require_maintenance_editor(user) -> None:
+    if not user_has_any_role(user, MAINTENANCE_EDITOR_ROLES):
+        raise PermissionDenied("You are not authorized to change maintenance requests.")
 

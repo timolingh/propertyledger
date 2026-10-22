@@ -270,6 +270,181 @@ class MaintenanceCategory(TimestampedModel):
         return self.name
 
 
+class MaintenanceRequest(TimestampedModel):
+    class Priority(models.TextChoices):
+        LOW = "low", "Low"
+        NORMAL = "normal", "Normal"
+        URGENT = "urgent", "Urgent"
+        EMERGENCY = "emergency", "Emergency"
+
+    class Status(models.TextChoices):
+        OPEN = "open", "Open"
+        TRIAGED = "triaged", "Triaged"
+        ASSIGNED = "assigned", "Assigned"
+        IN_PROGRESS = "in_progress", "In progress"
+        ON_HOLD = "on_hold", "On hold"
+        VERIFIED = "verified", "Verified"
+        CLOSED = "closed", "Closed"
+        CANCELLED = "cancelled", "Cancelled"
+
+    class Source(models.TextChoices):
+        INTERNAL = "internal", "Internal staff"
+        IMPORT = "import", "Imported"
+        API = "api", "API"
+
+    class ClosureFinancialStatus(models.TextChoices):
+        INVOICE_PENDING = "invoice_pending", "Vendor invoice pending"
+        NO_EXTERNAL_COST = "no_external_cost", "No external cost"
+
+    property = models.ForeignKey(
+        Property,
+        on_delete=models.PROTECT,
+        related_name="maintenance_requests",
+    )
+    unit = models.ForeignKey(
+        Unit,
+        on_delete=models.PROTECT,
+        related_name="maintenance_requests",
+        blank=True,
+        null=True,
+    )
+    tenant = models.ForeignKey(
+        Tenant,
+        on_delete=models.PROTECT,
+        related_name="maintenance_requests",
+        blank=True,
+        null=True,
+    )
+    category = models.ForeignKey(
+        MaintenanceCategory,
+        on_delete=models.PROTECT,
+        related_name="maintenance_requests",
+    )
+    assigned_vendor = models.ForeignKey(
+        "Vendor",
+        on_delete=models.PROTECT,
+        related_name="maintenance_requests",
+        blank=True,
+        null=True,
+    )
+    priority = models.CharField(max_length=16, choices=Priority.choices, default=Priority.NORMAL)
+    description = models.TextField()
+    target_completion_date = models.DateField(blank=True, null=True)
+    estimated_cost = models.DecimalField(max_digits=12, decimal_places=2, blank=True, null=True)
+    source = models.CharField(max_length=16, choices=Source.choices, default=Source.INTERNAL)
+    source_reference = models.CharField(max_length=255, blank=True, default="")
+    status = models.CharField(max_length=20, choices=Status.choices, default=Status.OPEN)
+    version = models.PositiveIntegerField(default=1)
+    hold_from_status = models.CharField(max_length=20, choices=Status.choices, blank=True, default="")
+    closure_financial_status = models.CharField(
+        max_length=24,
+        choices=ClosureFinancialStatus.choices,
+        blank=True,
+        default="",
+    )
+    closure_notes = models.TextField(blank=True, default="")
+    reopen_count = models.PositiveIntegerField(default=0)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        blank=True,
+        null=True,
+        related_name="created_maintenance_requests",
+    )
+    verified_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        blank=True,
+        null=True,
+        related_name="verified_maintenance_requests",
+    )
+    verified_at = models.DateTimeField(blank=True, null=True)
+    closed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        blank=True,
+        null=True,
+        related_name="closed_maintenance_requests",
+    )
+    closed_at = models.DateTimeField(blank=True, null=True)
+
+    class Meta:
+        ordering = ["-created_at", "-id"]
+        indexes = [
+            models.Index(fields=["status", "priority"], name="maint_req_status_priority"),
+            models.Index(fields=["property", "status"], name="maint_req_property_status"),
+        ]
+        constraints = [
+            models.CheckConstraint(
+                check=models.Q(estimated_cost__isnull=True) | models.Q(estimated_cost__gte=0),
+                name="maintenance_estimated_cost_nonnegative",
+            ),
+            models.CheckConstraint(check=models.Q(version__gte=1), name="maintenance_version_positive"),
+        ]
+
+    def __str__(self) -> str:
+        return f"Maintenance request {self.pk or 'new'} · {self.property}"
+
+    def clean(self):
+        super().clean()
+        errors = {}
+        if not self.description or not self.description.strip():
+            errors["description"] = "Description is required."
+        if self.estimated_cost is not None and self.estimated_cost < Decimal("0.00"):
+            errors["estimated_cost"] = "Estimated cost cannot be negative."
+        if self.unit_id and self.property_id and self.unit.property_id != self.property_id:
+            errors["unit"] = "Unit must belong to the selected property."
+        if self.tenant_id and self.property_id:
+            leases = Lease.objects.filter(tenant_id=self.tenant_id, unit__property_id=self.property_id)
+            if self.unit_id:
+                leases = leases.filter(unit_id=self.unit_id)
+            if not leases.exists():
+                errors["tenant"] = "Tenant must have a lease associated with the selected property and unit."
+        if errors:
+            raise ValidationError(errors)
+
+
+class MaintenanceRequestEvent(models.Model):
+    class Action(models.TextChoices):
+        CREATED = "created", "Created"
+        UPDATED = "updated", "Updated"
+        TRIAGE = "triage", "Triaged"
+        ASSIGN = "assign", "Assigned"
+        START = "start", "Started"
+        HOLD = "hold", "Put on hold"
+        RESUME = "resume", "Resumed"
+        VERIFY = "verify", "Verified"
+        CLOSE = "close", "Closed"
+        REOPEN = "reopen", "Reopened"
+        CANCEL = "cancel", "Cancelled"
+
+    request = models.ForeignKey(
+        MaintenanceRequest,
+        on_delete=models.PROTECT,
+        related_name="events",
+    )
+    action = models.CharField(max_length=16, choices=Action.choices)
+    from_status = models.CharField(max_length=20, choices=MaintenanceRequest.Status.choices, blank=True, default="")
+    to_status = models.CharField(max_length=20, choices=MaintenanceRequest.Status.choices)
+    actor = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        blank=True,
+        null=True,
+        related_name="maintenance_request_events",
+    )
+    reason = models.TextField(blank=True, default="")
+    request_version = models.PositiveIntegerField()
+    metadata = models.JSONField(default=dict, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["created_at", "id"]
+
+    def __str__(self) -> str:
+        return f"Request {self.request_id}: {self.get_action_display()}"
+
+
 class WorkflowAuthorization(TimestampedModel):
     user = models.OneToOneField(
         settings.AUTH_USER_MODEL,
