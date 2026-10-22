@@ -79,6 +79,8 @@ Where to get the LedgerOS values:
 
 ## Included docs
 
+- `docs/PropertyLedger_Workflow_Home_PRD_v1.0.md` — approved workflow revamp requirements and accounting-contract gates.
+- `docs/workflow-implementation-plan.md` — checkout findings, proposed implementation decisions, file-by-file work packages, dependencies, and verification results.
 - `docs/technical-manual.md` — architecture, API, sync, configuration, and testing reference.
 - `docs/user-manual.md` — day-to-day product usage guide for property managers and bookkeepers.
 - `docs/admin-setup.md` — admin setup checklist for connection settings, selected books, and account mappings.
