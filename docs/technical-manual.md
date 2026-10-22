@@ -85,6 +85,10 @@ The shared navigation context checks the destination views' role policies. Users
 
 Home distinguishes missing configuration, denied LedgerOS access and outages; raw credentials or upstream response bodies are not rendered there. Health is readiness information, not proof that a financial action is authorized or posted. Existing posting/financial semantics remain unchanged.
 
+All UI paths that create LedgerOS accounting effects call `LedgerOSWriteReadinessService.require()` immediately before the domain service. Its health request is capped at five seconds even if a larger timeout is configured. Setup, configuration, permission and availability failures have different operator messages. A failed preflight creates no sync attempt; an outage during the subsequent request is still recorded by the existing adapter against its stable idempotency key. PropertyLedger does not queue financial writes offline.
+
+Before release or rollback, run `python manage.py inventory_workflow_release --json`. The command only reads data and counts unapproved legacy bills, attempted vendor payments, journal-less legacy deposit events and parent-only legacy receipts. Rollback must first disable financial writes at the deployment boundary. Keep the additive migrations and every local/sync/audit row in place; use a forward fix or read-only application version rather than reversing accounting migrations.
+
 `ledgeros/static/ledgeros/workflows.css` and `navigation.js` provide the shared responsive sidebar. Desktop collapse is stored in browser local storage, with a fallback when storage is disabled. The mobile drawer supports inert background/closed navigation, focus containment, Escape and focus return; without JavaScript, mobile navigation remains expanded. Production deployments must run `collectstatic` and serve `STATIC_ROOT` through their static-file hosting configuration; Django's local debug server serves these assets during development.
 
 Browser acceptance artifacts and repeatable fixture commands are in [WP1 QA](qa/wp1/README.md). The existing workflow PRD and [implementation plan](workflow-implementation-plan.md) define later work packages.

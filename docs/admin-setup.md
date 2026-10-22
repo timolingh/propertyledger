@@ -234,3 +234,6 @@ You are ready to start feature testing only after:
 - maintenance staff have Admin, Property manager, or Bookkeeper roles and can reach the maintenance queue.
 
 At that point, PropertyLedger is ready for property, payments, maintenance, and reporting workflows.
+## Release and rollback check
+
+Run `make release-check` from the repository root before enabling financial writes. Review `python manage.py inventory_workflow_release --json` for legacy and in-flight rows, verify the designated bill approver and payer grants, and run setup smoke against the intended LedgerOS books and account mappings. For rollback, disable financial writes first. Preserve database rows and additive migrations, including sync IDs, frozen request payloads, approvals and receipt components.

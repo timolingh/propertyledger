@@ -2,10 +2,10 @@
 from django.urls import reverse
 from django.db.models import Q
 
-from ledgeros.models import LedgerOSConnectionSettings, LedgerOSSyncRecord, PropertyLedgerSetup
+from ledgeros.models import LedgerOSSyncRecord, PropertyLedgerSetup
 from ledgeros.permissions import BookkeepingRoleRequiredMixin, ReportingRoleRequiredMixin
 from ledgeros.roles import user_has_any_role
-from ledgeros.services import LedgerOSHealthCheckService
+from ledgeros.services import LedgerOSWriteReadinessService
 from payments.authorization import MAINTENANCE_EDITOR_ROLES, MAINTENANCE_VIEWER_ROLES, can_approve_vendor_bills, can_pay_vendor_bills
 from payments.models import MaintenanceRequest, TenantPayment, VendorBill, VendorPayment
 
@@ -26,18 +26,9 @@ def workflow_home_context(user):
     if can_read:
         setup = PropertyLedgerSetup.objects.prefetch_related("account_mappings").filter(pk=1).first()
         ready = bool(setup and setup.setup_status == PropertyLedgerSetup.Status.COMPLETE and not setup.setup_completion_errors())
-        settings = LedgerOSConnectionSettings.objects.filter(pk=1).first() or LedgerOSConnectionSettings()
-        # Pass an unsaved default when missing; never create singleton rows on GET.
-        health = LedgerOSHealthCheckService.check(connection_settings=settings)
-        error = health.details.get("error")
-        if health.healthy:
-            status, message = "available", "LedgerOS connected"
-        elif error == "missing_configuration":
-            status, message = "configuration", "LedgerOS configuration needed"
-        elif health.details.get("http_status") in (401, 403):
-            status, message = "permission", "LedgerOS access denied"
-        else:
-            status, message = "unavailable", "LedgerOS unavailable"
+        readiness = LedgerOSWriteReadinessService.check()
+        status = "available" if readiness.ready else readiness.status
+        message = readiness.message
         context.update(home_setup_complete=ready, connection_status=status, connection_message=message)
         if can_write and ready:
             rent_links.extend((_link("Create charge / invoice", "charge-create", primary=True), _link("Record rent / deposit receipt", "tenant-payment-create")))
@@ -129,7 +120,7 @@ def workflow_home_context(user):
             can_act = can_approve if key == "approvals" else (can_pay if key == "payments" else can_write)
             context["work_queues"].append({"key": key, "title": title, "count": count, "items": items, "url": reverse(list_route), "can_act": can_act})
     context["workflow_cards"] = [
-        {"number": "01", "title": "Collect Rent / Deposit", "description": "Create invoices and record money received from tenants.", "links": rent_links, "gate": "Combined rent and deposit receipts are not available yet. Record them separately using the existing workflows."},
+        {"number": "01", "title": "Collect Rent / Deposit", "description": "Create invoices and record money received from tenants.", "links": rent_links, "gate": "A single receipt can include rent allocations and a security-deposit component; each component keeps its own posting status."},
         {"number": "02", "title": "Get Billed & Pay Vendors", "description": "Submit vendor invoices for independent approval, then record authorized payments.", "links": vendor_links, "gate": "Approval, LedgerOS posting, and payable balance are shown as separate states."},
         {"number": "03", "title": "Log Maintenance Request", "description": "Track work through verified completion, with independently controlled vendor bills.", "links": maintenance_links, "gate": "Photo uploads await private durable storage. Bill approval, posting, and payment remain separate financial states."},
     ]

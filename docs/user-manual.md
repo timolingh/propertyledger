@@ -183,3 +183,7 @@ Rules of thumb:
 - [Quick Start Guide](./quick-start.md)
 - [Technical Manual](./technical-manual.md)
 
+# Working during a LedgerOS outage
+
+The header and workflow home distinguish incomplete PropertyLedger setup, incomplete LedgerOS configuration, denied access, and a service outage. You may continue local maintenance work and save receipt or vendor-bill drafts. Posting allocations, finalizing receipts, posting bills, paying vendors, and other accounting actions remain disabled until LedgerOS is ready. Accounting-derived amounts appear as **Unavailable**, never as zero. After recovery, retry the same saved record so PropertyLedger reuses its accounting identity; do not create a replacement record.
+

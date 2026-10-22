@@ -42,6 +42,52 @@ class HealthCheckResult:
     details: dict[str, Any]
 
 
+@dataclass(frozen=True)
+class LedgerOSWriteReadinessResult:
+    ready: bool
+    status: str
+    message: str
+    health: HealthCheckResult | None = None
+
+
+class LedgerOSWriteReadinessService:
+    """One bounded, read-only gate for operations that create accounting entries."""
+
+    MESSAGES = {
+        "ready": "LedgerOS connected",
+        "setup": "PropertyLedger setup is incomplete. Accounting writes are disabled.",
+        "configuration": "LedgerOS configuration is incomplete. Accounting writes are disabled.",
+        "permission": "LedgerOS denied access. Check the configured credentials and permissions.",
+        "unavailable": "LedgerOS is unavailable. Your local records are preserved; retry after service recovers.",
+    }
+
+    @classmethod
+    def classify(cls, health: HealthCheckResult) -> LedgerOSWriteReadinessResult:
+        if health.healthy:
+            return LedgerOSWriteReadinessResult(True, "ready", cls.MESSAGES["ready"], health)
+        if health.details.get("error") == "missing_configuration":
+            status = "configuration"
+        elif health.details.get("http_status") in (401, 403):
+            status = "permission"
+        else:
+            status = "unavailable"
+        return LedgerOSWriteReadinessResult(False, status, cls.MESSAGES[status], health)
+
+    @classmethod
+    def check(cls) -> LedgerOSWriteReadinessResult:
+        setup = PropertyLedgerSetup.objects.prefetch_related("account_mappings").filter(pk=1).first()
+        if not setup or setup.setup_status != PropertyLedgerSetup.Status.COMPLETE or setup.setup_completion_errors():
+            return LedgerOSWriteReadinessResult(False, "setup", cls.MESSAGES["setup"])
+        connection_settings = LedgerOSConnectionSettings.objects.filter(pk=1).first() or LedgerOSConnectionSettings()
+        return cls.classify(LedgerOSHealthCheckService.check(connection_settings=connection_settings))
+
+    @classmethod
+    def require(cls) -> None:
+        result = cls.check()
+        if not result.ready:
+            raise ValidationError(result.message)
+
+
 class SetupSmokeService:
     @staticmethod
     def run_and_record() -> HealthCheckResult:
@@ -121,7 +167,9 @@ class LedgerOSHealthCheckService:
         client_id = connection_settings.client_id
         secret_env_var = connection_settings.hmac_secret_env_var or "LEDGEROS_HMAC_SECRET"
         health_path = connection_settings.health_path
-        timeout = connection_settings.timeout_seconds
+        # A readiness probe runs in the request path, so a bad configured value
+        # must never leave a financial action hanging indefinitely.
+        timeout = max(0.1, min(float(connection_settings.timeout_seconds), 5.0))
         api_key = os.environ.get(
             connection_settings.api_key_env_var or "LEDGEROS_API_KEY",
             "",

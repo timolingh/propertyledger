@@ -19,6 +19,9 @@ from payments.tests.test_payments_workflow import _FakeResponse, _configure_ledg
 @patch.dict(os.environ, {"LEDGEROS_HMAC_SECRET": "secret"})
 class BillPaymentFlowTests(TestCase):
     def setUp(self):
+        readiness = patch("payments.views.LedgerOSWriteReadinessService.require")
+        readiness.start()
+        self.addCleanup(readiness.stop)
         _configure_ledgeros_settings()
         _configure_epic5_mappings()
         self.user = get_user_model().objects.create_user("bill-payer")

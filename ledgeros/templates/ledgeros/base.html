@@ -28,7 +28,7 @@
       <header class="app-header">
         <button type="button" id="sidebar-open" class="navigation-control mobile-control" aria-controls="app-sidebar" aria-expanded="false">Menu</button>
         <a class="header-home" href="{% url 'app-home' %}">Home</a>
-        {% if connection_message %}<span class="header-status{% if connection_status == 'unavailable' %} status-bad{% endif %}">{{ connection_message }}</span>{% endif %}
+        {% if connection_message %}<span class="header-status{% if connection_status != 'available' %} status-bad{% endif %}">{{ connection_message }}</span>{% endif %}
         <div class="header-user">{% if user.is_authenticated %}<span>{{ user.get_username }} <span class="muted">· {{ navigation_role_label }}</span></span><form class="logout-form" method="post" action="{% url 'logout' %}">{% csrf_token %}<button class="logout-button" type="submit">Logout</button></form>{% else %}<a href="{% url 'login' %}">Login</a>{% endif %}</div>
       </header>
       <main>
@@ -38,6 +38,12 @@
             <strong>Setup incomplete</strong>
             <div class="muted">Connection settings, selected LedgerOS books, and account mappings are separate setup steps.</div>
             {% if can_configure %}<a href="{% url 'ledgeros-setup' %}">Review setup</a>{% else %}<p class="muted">Ask an administrator to complete setup.</p>{% endif %}
+          </div>
+        {% endif %}
+        {% if connection_message and connection_status != 'available' and connection_status != 'setup' %}
+          <div class="banner banner-bad" role="status">
+            <strong>{{ connection_message }}</strong>
+            <div class="muted">Local maintenance and draft entry remain available. Posting, payment, and finalization stay disabled until readiness is restored.</div>
           </div>
         {% endif %}
         {% if messages %}<ul class="messages" aria-label="Messages">{% for message in messages %}<li class="{{ message.tags }}">{{ message }}</li>{% endfor %}</ul>{% endif %}

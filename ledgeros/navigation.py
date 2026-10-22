@@ -2,7 +2,8 @@ from __future__ import annotations
 
 from django.urls import resolve, reverse
 
-from ledgeros.models import RoleLandingPage
+from ledgeros.models import LedgerOSConnectionSettings, PropertyLedgerSetup, RoleLandingPage
+from ledgeros.services import HealthCheckResult, LedgerOSWriteReadinessService
 from ledgeros.roles import ROLE_ADMIN, ROLE_GROUP_NAMES, ROLE_BOOKKEEPER, ROLE_OWNER_VIEWER, ROLE_PROPERTY_MANAGER, ROLE_READ_ONLY_VIEWER, get_user_role_label, user_has_any_role
 
 DEFAULT_ROLE_LANDING_PAGES = {
@@ -72,4 +73,21 @@ def navigation_context(request):
     if create_route:
         create_view = resolve(reverse(create_route)).func.view_class
         can_create_record = user_has_any_role(request.user, create_view.allowed_roles)
-    return {"navigation_groups": groups, "navigation_role_label": get_user_role_label(request.user), "can_configure": user_has_any_role(request.user, (ROLE_ADMIN,)), "can_bookkeep": user_has_any_role(request.user, BookkeepingRoleRequiredMixin.allowed_roles), "can_create_record": can_create_record}
+    connection_status = ""
+    connection_message = ""
+    if request.user.is_authenticated:
+        setup = PropertyLedgerSetup.objects.filter(pk=1).first()
+        settings = LedgerOSConnectionSettings.objects.filter(pk=1).first()
+        if not setup or setup.setup_status != PropertyLedgerSetup.Status.COMPLETE:
+            connection_status = "setup"
+            connection_message = LedgerOSWriteReadinessService.MESSAGES["setup"]
+        elif not settings or not settings.base_url or not settings.client_id:
+            connection_status = "configuration"
+            connection_message = LedgerOSWriteReadinessService.MESSAGES["configuration"]
+        elif setup.last_ledgeros_health_check_healthy is False:
+            recorded = HealthCheckResult(False, "ledgeros", setup.last_ledgeros_health_check_payload or {})
+            readiness = LedgerOSWriteReadinessService.classify(recorded)
+            connection_status, connection_message = readiness.status, readiness.message
+        elif setup.last_ledgeros_health_check_healthy is True:
+            connection_status, connection_message = "available", LedgerOSWriteReadinessService.MESSAGES["ready"]
+    return {"navigation_groups": groups, "navigation_role_label": get_user_role_label(request.user), "can_configure": user_has_any_role(request.user, (ROLE_ADMIN,)), "can_bookkeep": user_has_any_role(request.user, BookkeepingRoleRequiredMixin.allowed_roles), "can_create_record": can_create_record, "connection_status": connection_status, "connection_message": connection_message}

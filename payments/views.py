@@ -21,6 +21,7 @@ from ledgeros.audit import audit_success
 from ledgeros.roles import user_has_any_role
 from ledgeros.permissions import AdminRoleRequiredMixin, BookkeepingRoleRequiredMixin, ReportingRoleRequiredMixin
 from ledgeros.models import LedgerOSSyncRecord, Property, TenantCharge
+from ledgeros.services import LedgerOSWriteReadinessService
 from ledgeros.views import LedgerOSAppContextMixin, LedgerOSCrudArchiveView
 from payments.forms import (
     BILL_PAYMENT_TOKEN_SALT,
@@ -320,6 +321,7 @@ class TenantInvoiceDetailView(ReportingRoleRequiredMixin, PaymentsAppContextMixi
         form = InvoicePaymentForm(request.POST)
         if form.is_valid():
             try:
+                LedgerOSWriteReadinessService.require()
                 payment = TenantPaymentService.record_payment_for_charge(
                     charge=self.object,
                     payment_date=form.cleaned_data["payment_date"],
@@ -410,6 +412,7 @@ class TenantPaymentListView(ReportingRoleRequiredMixin, PaymentsAppContextMixin,
             return HttpResponseRedirect(reverse("tenant-payment-list"))
         if action == "allocate":
             try:
+                LedgerOSWriteReadinessService.require()
                 TenantPaymentService.allocate_payment_and_sync_applications(payment)
             except ValidationError as exc:
                 messages.error(request, "; ".join(exc.messages))
@@ -433,6 +436,7 @@ class TenantPaymentListView(ReportingRoleRequiredMixin, PaymentsAppContextMixin,
             return HttpResponseRedirect(reverse("tenant-payment-detail", args=[payment.pk]))
         if action == "sync":
             try:
+                LedgerOSWriteReadinessService.require()
                 TenantPaymentService.sync_payment(payment)
             except ValidationError as exc:
                 messages.error(request, "; ".join(exc.messages))
@@ -526,6 +530,7 @@ class TenantPaymentDetailView(ReportingRoleRequiredMixin, PaymentsAppContextMixi
         action = request.POST.get("action", "").strip()
         if action == "allocate":
             try:
+                LedgerOSWriteReadinessService.require()
                 TenantPaymentService.allocate_payment_and_sync_applications(self.object)
             except ValidationError as exc:
                 messages.error(request, "; ".join(exc.messages))
@@ -548,6 +553,7 @@ class TenantPaymentDetailView(ReportingRoleRequiredMixin, PaymentsAppContextMixi
                     messages.success(request, "Payment allocations posted to LedgerOS.")
         elif action == "sync":
             try:
+                LedgerOSWriteReadinessService.require()
                 TenantPaymentService.sync_payment(self.object)
             except ValidationError as exc:
                 messages.error(request, "; ".join(exc.messages))
@@ -660,6 +666,7 @@ class SecurityDepositEventListView(ReportingRoleRequiredMixin, PaymentsAppContex
             return HttpResponseRedirect(reverse("security-deposit-list"))
         if action == "sync":
             try:
+                LedgerOSWriteReadinessService.require()
                 TenantPaymentService.sync_security_deposit_event(event)
             except ValidationError as exc:
                 messages.error(request, "; ".join(exc.messages))
@@ -734,6 +741,7 @@ class SecurityDepositEventDetailView(ReportingRoleRequiredMixin, PaymentsAppCont
         action = request.POST.get("action", "").strip()
         if action == "sync":
             try:
+                LedgerOSWriteReadinessService.require()
                 TenantPaymentService.sync_security_deposit_event(self.object)
             except ValidationError as exc:
                 messages.error(request, "; ".join(exc.messages))
@@ -1052,6 +1060,7 @@ class VendorBillDetailView(ReportingRoleRequiredMixin, PaymentsAppContextMixin, 
                 )
                 messages.success(request, "Vendor bill rejected.")
             elif action == "sync":
+                LedgerOSWriteReadinessService.require()
                 VendorBillService.sync_bill(self.object, actor=request.user)
                 self.object.refresh_from_db()
                 sync_status = self.object.sync_record.status if self.object.sync_record else ""
@@ -1239,6 +1248,7 @@ class VendorBillPayView(ReportingRoleRequiredMixin, PaymentsAppContextMixin, For
 
     def form_valid(self, form):
         try:
+            LedgerOSWriteReadinessService.require()
             payment = VendorPaymentService.pay_bill(bill=self.bill,
                 submission_id=form.cleaned_data["submission_token"],
                 details={field: form.cleaned_data[field] for field in VendorPaymentService.BILL_PAYMENT_FIELDS},
@@ -1276,6 +1286,7 @@ class VendorPaymentCreateView(PaymentsCrudFormView, CreateView):
     def form_valid(self, form):
         self.object = form.save(commit=False)
         try:
+            LedgerOSWriteReadinessService.require()
             VendorPaymentService.save_and_sync_payment(self.object, actor=self.request.user)
         except ValidationError as exc:
             form.add_error(None, "; ".join(exc.messages))
@@ -1300,6 +1311,7 @@ class VendorPaymentUpdateView(PaymentsCrudFormView, UpdateView):
     def form_valid(self, form):
         self.object = form.save(commit=False)
         try:
+            LedgerOSWriteReadinessService.require()
             VendorPaymentService.save_and_sync_payment(self.object, actor=self.request.user)
         except ValidationError as exc:
             form.add_error(None, "; ".join(exc.messages))
@@ -1334,6 +1346,7 @@ class VendorPaymentDetailView(ReportingRoleRequiredMixin, PaymentsAppContextMixi
         action = request.POST.get("action", "").strip()
         if action == "sync":
             try:
+                LedgerOSWriteReadinessService.require()
                 VendorPaymentService.sync_payment(self.object, actor=request.user)
             except ValidationError as exc:
                 messages.error(request, "; ".join(exc.messages))
@@ -1431,7 +1444,12 @@ class DebtServicePaymentCreateView(PaymentsCrudFormView, CreateView):
 
     def form_valid(self, form):
         self.object = form.save(commit=False)
-        DebtServicePaymentService.save_and_sync_payment(self.object)
+        try:
+            LedgerOSWriteReadinessService.require()
+            DebtServicePaymentService.save_and_sync_payment(self.object)
+        except ValidationError as exc:
+            form.add_error(None, "; ".join(exc.messages))
+            return self.form_invalid(form)
         audit_success(
             action="debt_service_payment_created",
             record=self.object,
@@ -1451,7 +1469,12 @@ class DebtServicePaymentUpdateView(PaymentsCrudFormView, UpdateView):
 
     def form_valid(self, form):
         self.object = form.save(commit=False)
-        DebtServicePaymentService.save_and_sync_payment(self.object)
+        try:
+            LedgerOSWriteReadinessService.require()
+            DebtServicePaymentService.save_and_sync_payment(self.object)
+        except ValidationError as exc:
+            form.add_error(None, "; ".join(exc.messages))
+            return self.form_invalid(form)
         audit_success(
             action="debt_service_payment_updated",
             record=self.object,
@@ -1476,6 +1499,7 @@ class DebtServicePaymentDetailView(ReportingRoleRequiredMixin, PaymentsAppContex
         action = request.POST.get("action", "").strip()
         if action == "sync":
             try:
+                LedgerOSWriteReadinessService.require()
                 DebtServicePaymentService.sync_payment(self.object)
             except ValidationError as exc:
                 messages.error(request, "; ".join(exc.messages))

@@ -237,6 +237,12 @@ The live acceptance case produced Cash `+2,000.00`, AR `-1,500.00`, and deposit 
 
 ### WP6 — Integration, documentation and release (OPS-01–04 and all acceptance scenarios)
 
+Implemented October 21, 2026: all accounting mutations now share a bounded live-readiness gate that distinguishes incomplete local setup, missing LedgerOS configuration, denied credentials and service outages. Local receipt drafts, vendor-bill drafts and maintenance lifecycle work remain available. Finalization, allocation posting, bill posting, vendor payment, debt-service posting, charge approval posting and owner-activity posting fail before mutation when readiness is absent. The global shell reports the last recorded condition, while the workflow home performs the live read-only probe. Recovery reuses the preserved local object and existing component identities; there is no offline posting queue.
+
+`inventory_workflow_release --json` provides the non-mutating legacy/in-flight inventory required before rollout or rollback. `make release-check` runs system validation, migration drift, the complete test suite and that inventory. Rollback requires disabling financial writes first and retaining all additive schema, audit, sync, frozen-payload and component rows.
+
+Validation: the final Docker suite passed all 172 tests in 47.685 seconds and destroyed its test database normally. Django system checks passed, `makemigrations --check --dry-run` reported no changes, both workflow static assets resolved through `findstatic`, and the local read-only inventory reported two legacy bills without recorded approval with zero other flagged categories. Existing WP1 browser evidence covers desktop/mobile layout, keyboard focus, viewer permissions and outage presentation; WP6 changes retain the shared shell and add server-side outage enforcement.
+
 | File | Change |
 | --- | --- |
 | `payments/tests/test_workflow_outages.py` (new), home/approval/maintenance/receipt tests | Realistic unavailable/permission/setup distinctions; service outage and recovery; denial of unsafe finalization/payment. |

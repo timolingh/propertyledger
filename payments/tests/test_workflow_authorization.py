@@ -21,6 +21,9 @@ from payments.tests.test_payments_workflow import _configure_epic5_mappings, _co
 
 class WorkflowAuthorizationTests(TestCase):
     def setUp(self):
+        readiness = patch("payments.views.LedgerOSWriteReadinessService.require")
+        readiness.start()
+        self.addCleanup(readiness.stop)
         _configure_ledgeros_settings()
         _configure_epic5_mappings()
         users = get_user_model().objects

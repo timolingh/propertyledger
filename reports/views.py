@@ -12,6 +12,7 @@ from django.urls import reverse, reverse_lazy
 from django.views.generic import CreateView, DetailView, ListView, TemplateView, UpdateView
 
 from ledgeros.audit import audit_success
+from ledgeros.services import LedgerOSWriteReadinessService
 from ledgeros.permissions import BookkeepingRoleRequiredMixin, ReportingRoleRequiredMixin
 from ledgeros.models import Owner, Property
 from payments.models import VendorBill
@@ -127,6 +128,7 @@ class OwnerContributionDistributionCreateView(BookkeepingRoleRequiredMixin, Repo
             OwnerContributionDistribution.Status.POSTED,
         }:
             try:
+                LedgerOSWriteReadinessService.require()
                 OwnerActivityService.sync_activity(self.object)
             except ValidationError as exc:
                 messages.error(self.request, "; ".join(exc.messages))
@@ -158,6 +160,7 @@ class OwnerContributionDistributionUpdateView(BookkeepingRoleRequiredMixin, Repo
             OwnerContributionDistribution.Status.POSTED,
         } and self.object.is_editable_after_sync:
             try:
+                LedgerOSWriteReadinessService.require()
                 OwnerActivityService.sync_activity(self.object)
             except ValidationError as exc:
                 messages.error(self.request, "; ".join(exc.messages))

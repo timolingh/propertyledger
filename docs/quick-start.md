@@ -110,3 +110,6 @@ shows Unavailable if the upstream bill-read API cannot be reached.
 
 - [Technical Manual](./technical-manual.md)
 - [User Manual](./user-manual.md)
+## Release validation
+
+Run `make release-check` for Django checks, migration drift, all tests, and the read-only compatibility inventory. A LedgerOS outage still permits local maintenance and draft entry, but accounting posting is blocked. Restore the service and retry the same record; never create a replacement merely because a request timed out.

@@ -58,7 +58,7 @@ class WorkflowHomeTests(TestCase):
         writes = [q["sql"] for q in queries if q["sql"].lstrip().split()[0].upper() in {"INSERT", "UPDATE", "DELETE"}]
         self.assertEqual(writes, [])
         posting_transport.assert_not_called()
-        self.probe.assert_called_once()
+        self.probe.assert_not_called()
         self.assertFalse(PropertyLedgerSetup.objects.exists())
         self.assertFalse(LedgerOSConnectionSettings.objects.exists())
         self.assertContains(response, "Setup incomplete")
@@ -128,14 +128,14 @@ class WorkflowHomeTests(TestCase):
                 ledgeros_account_name=key,
                 ledgeros_account_type=sorted(PropertyLedgerAccountMapping.ACCOUNT_TYPE_HINTS[key])[0],
             )
-        for details, text in (({"error": "missing_configuration"}, "LedgerOS configuration needed"), ({"error": "connection failed"}, "LedgerOS unavailable"), ({"http_status": 403}, "LedgerOS access denied")):
+        for details, text in (({"error": "missing_configuration"}, "LedgerOS configuration is incomplete"), ({"error": "connection failed"}, "LedgerOS is unavailable"), ({"http_status": 403}, "LedgerOS denied access")):
             self.probe.return_value = HealthCheckResult(healthy=False, source="ledgeros", details=details)
             response = self.client.get(reverse("app-home"))
             self.assertContains(response, text)
             self.assertContains(response, "Unavailable")
             self.assertNotContains(response, "$0")
             self.assertContains(response, f'href="{reverse("vendor-bill-create")}"')
-            self.assertContains(response, "Combined rent and deposit receipts are not available yet")
+            self.assertContains(response, "A single receipt can include rent allocations and a security-deposit component")
         self.assertContains(response, "Photo uploads await private durable storage")
 
     def test_read_only_post_attempts_are_denied_before_accounting_services(self):

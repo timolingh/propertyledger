@@ -175,6 +175,9 @@ class PaymentsLandingViewTests(TestCase):
 
 class TenantPaymentViewTests(TestCase):
     def setUp(self):
+        readiness = patch("payments.views.LedgerOSWriteReadinessService.require")
+        readiness.start()
+        self.addCleanup(readiness.stop)
         _configure_ledgeros_settings()
         self.owner = Owner.objects.create(name="Owner One")
         self.property = Property.objects.create(name="Property One", primary_owner=self.owner)

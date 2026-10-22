@@ -50,6 +50,7 @@ from ledgeros.serializers import LedgerOSSyncEventSerializer
 from ledgeros.services import (
     LedgerOSCustomerSyncService,
     LedgerOSHealthCheckService,
+    LedgerOSWriteReadinessService,
     LocalHealthCheckService,
     SetupSmokeService,
     TenantChargeService,
@@ -383,6 +384,12 @@ class LedgerOSCrudFormView(RoleRequiredMixin, LedgerOSAppContextMixin):
         return context
 
     def form_valid(self, form):
+        if form.cleaned_data.get("status") == TenantCharge.Status.APPROVED:
+            try:
+                LedgerOSWriteReadinessService.require()
+            except ValidationError as exc:
+                _add_form_error_from_exception(form, exc)
+                return self.form_invalid(form)
         self.object = form.save()
         audit_success(
             action=self.audit_action or f"{self.model.__name__.lower()}_saved",
@@ -1184,6 +1191,12 @@ class TenantChargeCreateView(LedgerOSCrudFormView, CreateView):
         }
 
     def form_valid(self, form):
+        if form.cleaned_data.get("status") == TenantCharge.Status.APPROVED:
+            try:
+                LedgerOSWriteReadinessService.require()
+            except ValidationError as exc:
+                _add_form_error_from_exception(form, exc)
+                return self.form_invalid(form)
         self.object = form.save()
         if self.object.status == TenantCharge.Status.APPROVED:
             TenantChargeService.approve_charge(self.object)
