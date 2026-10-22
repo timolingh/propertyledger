@@ -20,11 +20,40 @@ ledgeros_selection_shell_command="$(cat <<'PY'
 import json
 from datetime import date
 
-from apps.accounting.models import AccountingPeriod
-from apps.accounting.services import create_accounting_period
+from apps.accounting.models import Account, AccountingPeriod
+from apps.accounting.services import create_accounting_period, save_account
 from apps.accounting.services.entities import get_default_entity
 
 entity = get_default_entity()
+deposit_liability = Account.objects.filter(
+    entity=entity,
+    account_code="2200",
+).first()
+expected_deposit_liability = {
+    "name": "Tenant Security Deposits",
+    "type": Account.AccountType.LIABILITY,
+    "normal_balance": Account.NormalBalance.CREDIT,
+    "is_active": True,
+}
+
+if deposit_liability is None:
+    deposit_liability = save_account(
+        entity=entity,
+        account_code="2200",
+        **expected_deposit_liability,
+    )
+else:
+    conflicts = {
+        field: {"expected": expected, "actual": getattr(deposit_liability, field)}
+        for field, expected in expected_deposit_liability.items()
+        if getattr(deposit_liability, field) != expected
+    }
+    if conflicts:
+        raise RuntimeError(
+            "LedgerOS account 2200 conflicts with the required tenant security "
+            f"deposit liability settings: {conflicts}"
+        )
+
 period = AccountingPeriod.objects.filter(
     entity=entity,
     status=AccountingPeriod.Status.OPEN,
@@ -66,6 +95,33 @@ docker compose -f docker-compose.yml run --rm \
   propertyledger-web python manage.py bootstrap_ledgeros_setup_selection
 docker compose -f docker-compose.yml run --rm propertyledger-web python manage.py bootstrap_ledgeros_connection_settings
 docker compose -f docker-compose.yml run --rm propertyledger-web python manage.py bootstrap_ledgeros_account_mappings
+propertyledger_mapping_check_command="$(cat <<'PY'
+from ledgeros.models import PropertyLedgerAccountMapping
+
+mapping = PropertyLedgerAccountMapping.objects.get(
+    mapping_key=PropertyLedgerAccountMapping.MappingKey.TENANT_SECURITY_DEPOSITS_LIABILITY,
+)
+expected = {
+    "ledgeros_account_id": "2200",
+    "ledgeros_account_type": "liability",
+    "is_enabled": True,
+}
+conflicts = {
+    field: {"expected": value, "actual": getattr(mapping, field)}
+    for field, value in expected.items()
+    if getattr(mapping, field) != value
+}
+if conflicts:
+    raise RuntimeError(
+        "PropertyLedger's tenant security deposit mapping does not match the "
+        f"provisioned LedgerOS account: {conflicts}"
+    )
+
+print("Tenant security deposit liability mapping verified against LedgerOS account 2200.")
+PY
+)"
+docker compose -f docker-compose.yml run --rm propertyledger-web \
+  python manage.py shell -c "$propertyledger_mapping_check_command"
 docker compose -f docker-compose.yml run --rm propertyledger-web python manage.py bootstrap_payment_workflow_settings
 docker compose -f docker-compose.yml run --rm propertyledger-web python manage.py seed_beta_demo_data
 

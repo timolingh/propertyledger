@@ -24,6 +24,7 @@ bash scripts/beta-seed.sh
 
 These scripts reset and seed the demo data, but they do not leave the web apps running.
 The seed step also copies the selected LedgerOS entity and accounting period into PropertyLedger so the setup screen is already populated for the session.
+It provisions LedgerOS account `2200` as the active, credit-normal tenant security deposit liability and verifies that PropertyLedger's required deposit mapping uses that account.
 If LedgerOS web is not running yet, the seed script will warn and continue instead of failing, then you can run `make smoke` after both web stacks are up.
 
 Start the two stacks separately:

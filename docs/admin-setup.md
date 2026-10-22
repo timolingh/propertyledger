@@ -119,6 +119,7 @@ If those fields are blank, the setup is not complete.
 Use the values from LedgerOS admin or the beta bootstrap flow and make sure they are copied into PropertyLedger.
 
 For the beta demo, the seed script should already populate these values.
+It also provisions LedgerOS account `2200` as the active, credit-normal tenant security deposit liability and verifies the corresponding PropertyLedger mapping. If an existing `2200` account has conflicting settings, seeding stops instead of changing its accounting treatment.
 If LedgerOS web is not running yet, the seed script will warn and continue instead of failing, then you can run `make smoke` after both web stacks are up.
 
 ## Step 5: Configure account mappings
