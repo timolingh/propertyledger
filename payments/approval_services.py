@@ -64,6 +64,7 @@ class WorkflowAuthorizationService:
 
 class VendorBillApprovalService:
     FINANCIAL_FIELDS = (
+        "vendor_invoice_number",
         "vendor_id",
         "property_id",
         "unit_id",
@@ -76,6 +77,7 @@ class VendorBillApprovalService:
         "tenant_chargeable",
     )
     EDITABLE_FIELDS = (
+        "vendor_invoice_number",
         "vendor_id",
         "property_id",
         "unit_id",
@@ -94,6 +96,9 @@ class VendorBillApprovalService:
         values = {}
         for field in VendorBillApprovalService.FINANCIAL_FIELDS:
             value = getattr(bill, field)
+            # Preserve existing approvals for bills predating invoice references.
+            if field == "vendor_invoice_number" and not value:
+                continue
             if hasattr(value, "isoformat"):
                 value = value.isoformat()
             elif value is not None:
@@ -129,6 +134,8 @@ class VendorBillApprovalService:
     @transaction.atomic
     def save_draft(bill: VendorBill, *, actor) -> VendorBill:
         require_bill_editor(actor)
+        if not bill.pk:
+            bill.apply_date_defaults()
         bill.full_clean()
         if not bill.pk:
             bill.created_by = actor

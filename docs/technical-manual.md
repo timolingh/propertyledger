@@ -205,6 +205,10 @@ change after exact replay.
 
 ### Vendor bill approval and payment authority (WP2)
 
+Vendors have optional calendar-day payment terms (0, 15, or 30 days). New bill dates default to `timezone.localdate`; missing due dates default to bill date plus vendor terms, or zero days when unset. The bill form and draft service apply defaults while preserving explicit dates. Existing bill dates are not recalculated when vendor terms change. The normal and maintenance handoff forms share date suggestions and preserve manually overridden due dates.
+
+`VendorBill.vendor_invoice_number` is an optional supplier reference, included in approval checks and locked after posting. Empty references are omitted from the approval fingerprint to preserve existing approvals. New bill requests send nonempty values as LedgerOS `supplier_invoice_number`, separately from the stable `vendor-bill:<id>` external reference. Deploy LedgerOS with migration `0012_bill_supplier_invoice_number` before this client update. Blank numbers preserve the previous request shape. Previously attempted bills whose stored hash matches the old payload retry without the new field; other changed retry payloads are rejected before replacing sync identity. Successfully posted bills are not reposted or automatically backfilled. Journals, balances, and historical retry identities remain unchanged.
+
 Vendor bill approval is independent of LedgerOS posting status. New bills follow:
 
 ```text

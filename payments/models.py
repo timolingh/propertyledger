@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import builtins
+from datetime import timedelta
 from decimal import Decimal
 
 from django.conf import settings
 from django.db import models
 from django.core.exceptions import ValidationError
+from django.utils import timezone
 
 from ledgeros.models import LedgerOSSyncRecord, Property, Tenant, Unit, Lease, TenantCharge, TimestampedModel
 from ledgeros.models import PropertyLedgerAccountMapping, PropertyLedgerSetup
@@ -292,7 +294,13 @@ class SecurityDepositEvent(models.Model):
 
 
 class Vendor(TimestampedModel):
+    class PaymentTerms(models.IntegerChoices):
+        UPON_RECEIPT = 0, "Upon receipt"
+        NET_15 = 15, "15 days"
+        NET_30 = 30, "30 days"
+
     name = models.CharField(max_length=255)
+    payment_terms = models.PositiveSmallIntegerField(choices=PaymentTerms.choices, blank=True, null=True)
     email = models.EmailField(blank=True, default="")
     phone = models.CharField(max_length=50, blank=True, default="")
     is_active = models.BooleanField(default=True)
@@ -570,7 +578,8 @@ class VendorBill(TimestampedModel):
         blank=True,
         null=True,
     )
-    bill_date = models.DateField()
+    vendor_invoice_number = models.CharField(max_length=255, blank=True, default="")
+    bill_date = models.DateField(default=timezone.localdate)
     due_date = models.DateField(blank=True, null=True)
     amount = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal("0.00"))
     expense_category = models.CharField(max_length=64, choices=ExpenseCategory.choices)
@@ -634,6 +643,12 @@ class VendorBill(TimestampedModel):
 
     class Meta:
         ordering = ["-bill_date", "-id"]
+
+    def apply_date_defaults(self):
+        if not self.bill_date:
+            self.bill_date = timezone.localdate()
+        if self.due_date is None:
+            self.due_date = self.bill_date + timedelta(days=self.vendor.payment_terms or 0)
 
     def __str__(self) -> str:
         return f"{self.vendor} bill on {self.bill_date.isoformat()}"

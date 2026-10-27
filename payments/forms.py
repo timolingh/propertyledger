@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 from uuid import UUID
+from datetime import timedelta
 from decimal import Decimal
 
 from django import forms
 from django.contrib.auth import get_user_model
 from django.core import signing
 from django.core.exceptions import ValidationError
+from django.utils import timezone
 
 from ledgeros.models import Lease, Property, PropertyLedgerAccountMapping, PropertyLedgerSetup, Tenant, TenantCharge, Unit
 from ledgeros.roles import ROLE_ADMIN, ROLE_BOOKKEEPER, ROLE_GROUP_NAMES, ROLE_PROPERTY_MANAGER
@@ -38,7 +40,7 @@ class _SyncEditableModelForm(forms.ModelForm):
 class VendorForm(forms.ModelForm):
     class Meta:
         model = Vendor
-        fields = ["name", "email", "phone", "is_active", "notes"]
+        fields = ["name", "email", "phone", "payment_terms", "is_active", "notes"]
 
 
 class MaintenanceCategoryForm(forms.ModelForm):
@@ -170,13 +172,25 @@ class SecurityDepositEventForm(forms.ModelForm):
                     self.fields[name].disabled = True
 
 
+class VendorTermsSelect(forms.Select):
+    def create_option(self, name, value, label, selected, index, subindex=None, attrs=None):
+        option = super().create_option(name, value, label, selected, index, subindex, attrs)
+        if hasattr(value, "instance"):
+            option["attrs"]["data-payment-days"] = value.instance.payment_terms or 0
+        return option
+
+
 class VendorBillForm(_SyncEditableModelForm):
     editable_after_sync_fields = ("notes",)
+
+    class Media:
+        js = ("payments/vendor_bill_dates.js",)
 
     class Meta:
         model = VendorBill
         fields = [
             "vendor",
+            "vendor_invoice_number",
             "property",
             "unit",
             "bill_date",
@@ -189,6 +203,7 @@ class VendorBillForm(_SyncEditableModelForm):
             "notes",
         ]
         widgets = {
+            "vendor": VendorTermsSelect,
             "bill_date": forms.DateInput(attrs={"type": "date"}),
             "due_date": forms.DateInput(attrs={"type": "date"}),
         }
@@ -199,7 +214,23 @@ class VendorBillForm(_SyncEditableModelForm):
         self.fields["property"].queryset = Property.objects.filter(status=Property.Status.ACTIVE)
         self.fields["unit"].queryset = Unit.objects.select_related("property").all()
         self.fields["maintenance_category"].queryset = MaintenanceCategory.objects.filter(is_active=True)
+        if not self.instance.pk and not self.is_bound:
+            bill_date = self.initial.setdefault("bill_date", timezone.localdate())
+            vendor = self.initial.get("vendor")
+            if vendor and not isinstance(vendor, Vendor):
+                vendor = Vendor.objects.filter(pk=vendor).first()
+            self.initial.setdefault("due_date", bill_date + timedelta(days=(vendor.payment_terms or 0) if vendor else 0))
+        self.fields["due_date"].widget.attrs["data-auto-default"] = (
+            "true" if not self.instance.pk and not self.is_bound else "false"
+        )
+        self.fields["due_date"].help_text = "Defaults from the vendor's payment terms. You can change either date."
         self._apply_sync_edit_restrictions()
+
+    def clean(self):
+        cleaned = super().clean()
+        if not self.instance.pk and not cleaned.get("due_date") and cleaned.get("bill_date") and cleaned.get("vendor"):
+            cleaned["due_date"] = cleaned["bill_date"] + timedelta(days=cleaned["vendor"].payment_terms or 0)
+        return cleaned
 
 
 class VendorBillDecisionForm(forms.Form):

@@ -440,7 +440,7 @@ class LedgerOSVendorBillService:
         elif bill.tenant_chargeable:
             description_parts.append("tenant chargeable")
 
-        return {
+        payload = {
             "vendor_code": LedgerOSVendorBillService._vendor_code(bill.vendor),
             "external_bill_number": LedgerOSVendorBillService._external_bill_number(bill),
             "bill_date": bill.bill_date.isoformat(),
@@ -454,6 +454,19 @@ class LedgerOSVendorBillService:
                 }
             ],
         }
+
+        if bill.vendor_invoice_number:
+            payload["supplier_invoice_number"] = bill.vendor_invoice_number
+        if bill.sync_record and bill.sync_record.attempt_count:
+            expected_hash = bill.sync_record.request_hash
+            if TenantPaymentService._sync_record_payload(payload) != expected_hash:
+                # Bills attempted before supplier references were supported must
+                # replay their original request, even if they have a local number.
+                legacy_payload = {key: value for key, value in payload.items() if key != "supplier_invoice_number"}
+                if TenantPaymentService._sync_record_payload(legacy_payload) == expected_hash:
+                    return legacy_payload
+                raise ValidationError("This bill's posting details changed after an attempt. Reconcile the original request before retrying.")
+        return payload
 
     @staticmethod
     def submit_bill(*, bill: VendorBill, idempotency_key: str) -> SyncResult:
