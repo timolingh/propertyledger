@@ -108,7 +108,7 @@ class SecurityDepositEventAdmin(admin.ModelAdmin):
 @admin.register(Vendor)
 class VendorAdmin(admin.ModelAdmin):
     form = VendorForm
-    list_display = ["name", "email", "phone", "is_active"]
+    list_display = ["name", "email", "phone", "payment_terms", "is_active"]
     list_filter = ["is_active"]
     search_fields = ["name", "email", "phone"]
 
@@ -179,9 +179,9 @@ class MaintenanceRequestEventAdmin(admin.ModelAdmin):
 @admin.register(VendorBill)
 class VendorBillAdmin(admin.ModelAdmin):
     form = VendorBillForm
-    list_display = ["vendor", "property", "unit", "bill_date", "amount", "approval_status", "status"]
+    list_display = ["vendor", "vendor_invoice_number", "property", "unit", "bill_date", "amount", "approval_status", "status"]
     list_filter = ["approval_status", "status", "expense_category", "property"]
-    search_fields = ["vendor__name", "property__name", "unit__name", "repair_notes", "notes"]
+    search_fields = ["vendor__name", "vendor_invoice_number", "property__name", "unit__name", "repair_notes", "notes"]
     readonly_fields = [
         "status", "sync_record", "approval_status", "created_by", "submitted_by", "submitted_at",
         "submission_version", "approved_fingerprint", "decision_by", "decision_at", "decision_reason",

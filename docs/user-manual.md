@@ -82,6 +82,10 @@ failure rather than creating a replacement.
 
 Use vendor records for payees and vendor bills for expenses.
 
+Set a vendor's payment terms to **15 days**, **30 days**, or **Upon receipt**. New bills default to today's bill date and a due date calculated from that date using the vendor's terms; unset terms mean the same day. On new bill forms, changing the vendor or bill date updates the suggested due date until you enter your own due date. Both dates remain editable before posting. Existing bills keep their saved dates when vendor terms change.
+
+Enter the supplier's reference in **Vendor invoice number** (optional). It appears on the bill detail page and is sent to LedgerOS when a new bill is posted. Changing it on an approved, unposted bill requires approval again. Previously posted bills are not automatically updated in LedgerOS.
+
 You can also record vendor payments and debt-service payments when those workflows apply.
 
 New vendor bills are saved locally first. Choose **Save draft** while entering or correcting a bill, or **Save and submit for approval** when it is ready for review. The submitter cannot approve the same bill. A separately authorized approver opens the approval queue, reviews the bill, and approves or rejects it. Rejected bills can be corrected and resubmitted.

@@ -3,6 +3,7 @@
 {% block title %}{{ page_title }} | PropertyLedger{% endblock %}
 
 {% block content %}
+  {{ form.media }}
   <div class="card">
     <h1>{{ page_title }}</h1>
     {% if create_available %}
