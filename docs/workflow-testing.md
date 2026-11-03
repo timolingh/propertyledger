@@ -100,6 +100,18 @@ Expected accounting result: none until the bill is separately approved and poste
 
 Expected accounting behavior: approval itself creates no ledger entry. Bill posting records the expense/payable once. Payments reduce the payable without changing the original expense, owner expense total, or tenant ledger. Every retry retains the same local payment and idempotency identity.
 
+### Withdraw an approved bill before posting
+
+While creating the test bill below, open bill entry from the bill list and choose **Save and submit for approval**. Confirm the list returns with a success message that can be closed with its red X and disappears automatically after 10 seconds. Repeat from a maintenance request and confirm it returns to the request with the linked submitted bill. An invalid form should retain its original return page after correction; **Save draft** should continue to open bill detail.
+
+Before continuing, test approved-bill withdrawal on a separate unposted bill:
+
+1. As `beta-bookkeeper`, save and submit a new bill. As `beta-manager`, approve it.
+2. As the submitter, open the bill and choose **Withdraw approved bill** with a reason. Confirm a blank reason is rejected, then enter a reason and withdraw.
+3. Confirm Withdrawn status, preserved approval and withdrawal history, and no posting/payment action. No sync record, LedgerOS bill, journal, balance, or report change should result.
+4. Resubmit the same bill and independently approve it again. Confirm posting becomes available again.
+5. Confirm another bookkeeper cannot withdraw this bill; an administrator can withdraw an eligible bill submitted by someone else. Once a bill has a posting attempt (including failure/timeout), approved withdrawal must be unavailable. Recover that attempt on the same bill.
+
 ## 5. Combined rent and security-deposit receipt
 
 Sign in as `beta-bookkeeper`.

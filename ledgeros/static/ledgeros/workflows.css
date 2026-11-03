@@ -69,7 +69,10 @@ h3 { font-size: 1rem; margin: 0; }
 .banner-bad { background: #fff6ed; border-color: #e8d0b7; }
 .messages { list-style: none; padding: 0; margin: 0 0 1rem; }
 .messages li { border-radius: .5rem; border: 1px solid var(--border); padding: .75rem 1rem; margin-bottom: .5rem; background: white; overflow-wrap: anywhere; }
-.messages .success { background: #eef7f1; border-color: #c3e0cd; }
+.messages .success { background: #eef7f1; border-color: #c3e0cd; display: flex; align-items: center; gap: 1rem; }
+.messages .success > span { flex: 1; }
+.message-dismiss { display: inline-flex; align-items: center; justify-content: center; flex: 0 0 1.25rem; width: 1.25rem; height: 1.25rem; margin: 0; padding: 0; border: 1px solid #b42318; border-radius: 50%; color: #b42318; font-size: 1rem; line-height: 1; }
+.message-dismiss:hover { color: #8a1c13; border-color: #b42318; background: #fff1f1; }
 .messages .warning { background: #fff6e8; border-color: #ecd8ab; }
 .messages .error { background: #fff1f1; border-color: #efc2c2; }
 .status-ok { color: var(--accent); }

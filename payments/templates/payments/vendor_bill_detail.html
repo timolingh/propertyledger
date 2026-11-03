@@ -35,7 +35,17 @@
         <form method="post">{% csrf_token %}<input type="hidden" name="action" value="submit"><button type="submit">Submit for approval</button></form>
       {% endif %}
       {% if can_withdraw_bill %}
-        <form method="post">{% csrf_token %}<input type="hidden" name="action" value="withdraw"><button type="submit">Withdraw submission</button></form>
+        <form method="post">
+          {% csrf_token %}
+          <input type="hidden" name="action" value="withdraw">
+          {% if bill.approval_status == 'approved' %}
+            <label for="withdrawal-reason">Withdrawal reason (required)</label>
+            <input type="text" id="withdrawal-reason" name="reason" required>
+            <button type="submit">Withdraw approved bill</button>
+          {% else %}
+            <button type="submit">Withdraw submission</button>
+          {% endif %}
+        </form>
       {% endif %}
       {% if can_pay_bills and not payment_blocker %}
         <a class="button primary" href="{% url 'vendor-bill-pay' bill.pk %}">Pay bill</a>

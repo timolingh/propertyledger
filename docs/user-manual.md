@@ -90,7 +90,11 @@ You can also record vendor payments and debt-service payments when those workflo
 
 New vendor bills are saved locally first. Choose **Save draft** while entering or correcting a bill, or **Save and submit for approval** when it is ready for review. The submitter cannot approve the same bill. A separately authorized approver opens the approval queue, reviews the bill, and approves or rejects it. Rejected bills can be corrected and resubmitted.
 
+When creating a bill, **Save and submit for approval** returns you to the page where you opened the form, with a success message that disappears after 10 seconds or when you select its red X. This also applies to bills created from maintenance. If the referring page is unavailable, the return destination is the vendor-bill list, or the maintenance request for a linked bill. **Save draft** opens the bill detail page.
+
 Approval does not post the bill. After approval, an administrator or bookkeeper explicitly chooses **Post approved bill**. The bill must be both approved and successfully posted before a new payment can begin. Approval status, posting status, and payment status appear separately.
+
+Before any LedgerOS posting attempt, the original submitter (with an admin or bookkeeper role) or an administrator can choose **Withdraw approved bill** on the bill detail page. Enter a required withdrawal reason. The bill becomes Withdrawn, retains its approval history, and must be resubmitted and independently approved before posting or payment. Once posting has started, including a failed or timed-out attempt, approved-bill withdrawal is unavailable; recover the existing posting attempt using its original identity.
 
 Payment-authorized users open an approved posted bill and choose **Pay bill**. Bill approvers do not automatically have payment authority, and payment-authorized users do not automatically receive approval authority. Administrators configure both grants separately under **Workflow authorizations**.
 

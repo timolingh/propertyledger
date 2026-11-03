@@ -7,6 +7,7 @@
     <title>{% block title %}PropertyLedger{% endblock %}</title>
     <link rel="stylesheet" href="{% static 'ledgeros/workflows.css' %}">
     <script src="{% static 'ledgeros/navigation.js' %}" defer></script>
+    <script src="{% static 'ledgeros/messages.js' %}" defer></script>
   </head>
   <body>
     <a class="skip-link" href="#main-content">Skip to content</a>
@@ -46,7 +47,7 @@
             <div class="muted">Local maintenance and draft entry remain available. Posting, payment, and finalization stay disabled until readiness is restored.</div>
           </div>
         {% endif %}
-        {% if messages %}<ul class="messages" aria-label="Messages">{% for message in messages %}<li class="{{ message.tags }}">{{ message }}</li>{% endfor %}</ul>{% endif %}
+        {% if messages %}<ul class="messages" aria-label="Messages">{% for message in messages %}<li class="{{ message.tags }}" role="status"><span>{{ message }}</span>{% if message.level == DEFAULT_MESSAGE_LEVELS.SUCCESS %}<button type="button" class="message-dismiss" data-dismiss-message aria-label="Dismiss message" hidden><span aria-hidden="true">×</span></button>{% endif %}</li>{% endfor %}</ul>{% endif %}
         {% block content %}{% endblock %}
         </div>
       </main>

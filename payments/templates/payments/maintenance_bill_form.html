@@ -10,6 +10,7 @@
     <p>Review the prefilled maintenance context and invoice details. Saving creates one local draft; it does not post or pay the bill.</p>
     <form method="post">
       {% csrf_token %}
+      <input type="hidden" name="return_url" value="{{ bill_return_url }}">
       <input type="hidden" name="handoff_token" value="{{ handoff_token }}">
       {{ form.as_p }}
       <div class="actions">

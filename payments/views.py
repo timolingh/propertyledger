@@ -49,6 +49,7 @@ from payments.models import (
     WorkflowAuthorization,
 )
 from payments.approval_services import VendorBillApprovalService, WorkflowAuthorizationService
+from payments.bill_navigation import BillCreationReturnMixin
 from payments.authorization import (
     WORKFLOW_FINANCIAL_ROLES,
     can_approve_vendor_bills,
@@ -962,7 +963,7 @@ class VendorBillListView(ReportingRoleRequiredMixin, PaymentsCrudListView):
         return context
 
 
-class VendorBillCreateView(PaymentsCrudFormView, CreateView):
+class VendorBillCreateView(BillCreationReturnMixin, PaymentsCrudFormView, CreateView):
     model = VendorBill
     form_class = VendorBillForm
     page_title = "Add vendor bill"
@@ -986,7 +987,8 @@ class VendorBillCreateView(PaymentsCrudFormView, CreateView):
         self.object = VendorBillApprovalService.save_draft(self.object, actor=self.request.user)
         if self.request.POST.get("action") == "submit":
             self.object = VendorBillApprovalService.submit(self.object, actor=self.request.user)
-            messages.success(self.request, "Vendor bill submitted for independent approval.")
+            messages.success(self.request, "Vendor bill created and submitted for independent approval.")
+            return HttpResponseRedirect(self.get_bill_return_url())
         else:
             messages.success(self.request, "Vendor bill saved as a draft.")
         return HttpResponseRedirect(reverse("vendor-bill-detail", args=[self.object.pk]))
@@ -1048,7 +1050,7 @@ class VendorBillDetailView(ReportingRoleRequiredMixin, PaymentsAppContextMixin, 
                 VendorBillApprovalService.withdraw(
                     self.object, actor=request.user, reason=request.POST.get("reason", "")
                 )
-                messages.success(request, "Vendor bill withdrawn from approval.")
+                messages.success(request, "Vendor bill withdrawn. Resubmit it for independent approval before posting or payment.")
             elif action == "approve":
                 VendorBillApprovalService.approve(
                     self.object, actor=request.user, reason=request.POST.get("reason", "")
@@ -1101,7 +1103,8 @@ class VendorBillDetailView(ReportingRoleRequiredMixin, PaymentsAppContextMixin, 
             and bill.approval_status != VendorBill.ApprovalStatus.SUBMITTED
         )
         context["can_withdraw_bill"] = (
-            bill.approval_status == VendorBill.ApprovalStatus.SUBMITTED
+            user_has_any_role(self.request.user, BookkeepingRoleRequiredMixin.allowed_roles)
+            and not VendorBillApprovalService.withdrawal_blocker(bill)
             and (
                 bill.submitted_by_id == self.request.user.pk
                 or user_has_any_role(self.request.user, AdminRoleRequiredMixin.allowed_roles)
