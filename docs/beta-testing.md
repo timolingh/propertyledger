@@ -69,6 +69,8 @@ The session should use these specific records:
 
 The seed assigns independent workflow capabilities for the demo: `beta-manager` can approve vendor bills, `beta-bookkeeper` can record approved vendor payments, and `beta-admin` receives both grants for administrative testing. The Ace Plumbing bill is approved, the Bright Electric bill awaits approval, and the GreenLine Landscaping bill remains a draft.
 
+Seeded vendors are local records and are not automatically synced to LedgerOS. Before posting a vendor's bill, sign in as `beta-bookkeeper` or `beta-admin`, open **Vendors**, choose **Edit** for that vendor, and choose **Save vendor** without changing any fields. Continue only after the message **Vendor saved and provisioned in LedgerOS.** If provisioning fails or remains pending, resolve the reported setup/connectivity issue and save the same vendor again. Repeat for each vendor whose bills you will post; a healthy setup smoke check and local bill approval do not replace vendor provisioning. See [Bill approval, posting, and payment](./workflow-testing.md#4-bill-approval-posting-and-payment) for the full sequence.
+
 Representative records participants should encounter:
 
 - unit `101` with tenant `Avery Jordan`, rent `1450.00`, deposit `1450.00`

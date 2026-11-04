@@ -40,11 +40,12 @@ Use `Cedar Grove Apartments`, owned by `Cedar Grove Holdings LLC`.
 
 | Scenario | Seeded record | Initial state |
 | --- | --- | --- |
+| Vendor provisioning | Ace Plumbing, Bright Electric, GreenLine Landscaping | Local vendor records; fresh seeding does not sync them to LedgerOS |
 | Rent and deposit | `BETA-MIXED-RECEIPT` for Avery Jordan, unit 101 | Draft receipt for `1950.00`: rent `1450.00`, deposit `500.00`; no allocations posted |
 | Maintenance lifecycle | `BETA-MAINT-OPEN` | Urgent leaking sink request, Open |
 | Hold and resume | `BETA-MAINT-HOLD` | Hallway light request, On hold while awaiting access |
 | Maintenance-to-AP | `BETA-MAINT-INVOICE-PENDING` | Closed and verified; vendor invoice pending; no linked bill |
-| Approved payable | Ace Plumbing bill for `240.00` | Approved locally; LedgerOS posting remains separate |
+| Approved payable | Ace Plumbing bill for `240.00` | Approved locally; sync the vendor before posting the bill to LedgerOS |
 | Approval queue | Bright Electric bill for `180.00` | Submitted by the bookkeeper; awaiting independent approval |
 | Draft payable | GreenLine Landscaping bill for `315.00` | Draft |
 
@@ -92,11 +93,14 @@ Expected accounting result: none until the bill is separately approved and poste
 
 1. Sign in as `beta-manager` and open the approval queue.
 2. Approve the submitted Bright Electric `180.00` bill. Confirm the original bookkeeper submitter cannot approve it.
-3. Sign in as `beta-bookkeeper`. Open the approved Ace Plumbing `240.00` bill.
-4. Post the bill to LedgerOS and confirm the local state shows a successful bill resource/reference.
-5. Start payment from that bill, record a partial payment of `100.00`, and confirm the remaining payable is `140.00`.
-6. Submit the same payment again only as a replay check. Confirm one local payment and one LedgerOS accounting effect.
-7. Record the remaining `140.00`. Confirm the bill is fully paid and a new payment action is no longer offered.
+3. Sign in as `beta-bookkeeper`. Open **Vendors**, choose **Edit** for **Ace Plumbing**, and choose **Save vendor**. No field changes are required. Saving provisions the vendor in LedgerOS when setup and connectivity are ready. Confirm the message **Vendor saved and provisioned in LedgerOS.** If provisioning fails or remains pending, resolve the reported setup/connectivity issue and save the same vendor again before continuing.
+4. Open the approved Ace Plumbing `240.00` bill.
+5. Post the bill to LedgerOS and confirm the local state shows a successful bill resource/reference.
+6. Start payment from that bill, record a partial payment of `100.00`, and confirm the remaining payable is `140.00`.
+7. Submit the same payment again only as a replay check. Confirm one local payment and one LedgerOS accounting effect.
+8. Record the remaining `140.00`. Confirm the bill is fully paid and a new payment action is no longer offered.
+
+The seed creates vendors locally without provisioning them in LedgerOS. Setup smoke passing and a bill's local approval do not imply its vendor is synced. Repeat the vendor Edit/Save step for Bright Electric or GreenLine Landscaping before posting their bills. Vendor provisioning does not post a bill or payment.
 
 Expected accounting behavior: approval itself creates no ledger entry. Bill posting records the expense/payable once. Payments reduce the payable without changing the original expense, owner expense total, or tenant ledger. Every retry retains the same local payment and idempotency identity.
 
