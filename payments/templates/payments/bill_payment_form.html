@@ -12,6 +12,20 @@
     {% if payment_blocker %}<p>{{ payment_blocker }}</p>{% endif %}
     <form method="post">
       {% csrf_token %}
+      {% if form.errors %}
+        <div class="banner banner-bad" role="alert" tabindex="-1" data-payment-errors aria-labelledby="payment-error-heading">
+          <h2 id="payment-error-heading">Payment could not be completed</h2>
+          <p>Review the errors below, correct the payment details, and submit this form again.</p>
+          <ul>
+            {% for error in form.non_field_errors %}<li>{{ error }}</li>{% endfor %}
+            {% for field in form %}
+              {% for error in field.errors %}
+                <li>{% if not field.is_hidden %}<a href="#{{ field.id_for_label }}">{{ field.label }}</a>: {% endif %}{{ error }}</li>
+              {% endfor %}
+            {% endfor %}
+          </ul>
+        </div>
+      {% endif %}
       {{ form.as_p }}
       {% if not payment_blocker %}<button type="submit" class="button primary">Post payment</button>{% endif %}
       <a class="button" href="{% url 'vendor-bill-detail' bill.pk %}">Back to bill</a>

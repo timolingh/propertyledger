@@ -1,4 +1,5 @@
 (() => {
+  document.querySelector('[data-payment-errors]')?.focus();
   document.querySelectorAll('[data-dismiss-message]').forEach((button) => {
     button.hidden = false;
     const dismiss = () => {

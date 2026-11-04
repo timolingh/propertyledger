@@ -325,6 +325,8 @@ class BillPaymentForm(VendorPaymentForm):
         self.user = user
         kwargs["instance"] = VendorPayment(vendor=bill.vendor, vendor_bill=bill)
         super().__init__(*args, **kwargs)
+        if not self.is_bound and not self.initial.get("bank_account_name"):
+            self.initial["bank_account_name"] = self.fields["bank_account_name"].initial
         self.fields["amount"].min_value = Decimal("0.01")
         mapping = PropertyLedgerSetup.load().account_mappings.filter(
             mapping_key=PropertyLedgerAccountMapping.MappingKey.CREDIT_CARD_LIABILITY, is_enabled=True,

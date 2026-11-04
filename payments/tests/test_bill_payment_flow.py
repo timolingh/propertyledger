@@ -11,6 +11,7 @@ from django.urls import reverse
 
 from ledgeros.models import LedgerOSSyncRecord, Owner, Property
 from ledgeros.roles import ROLE_ADMIN, ROLE_BOOKKEEPER, ROLE_READ_ONLY_VIEWER, assign_user_role
+from ledgeros.services import HealthCheckResult
 from payments.approval_services import VendorBillApprovalService, WorkflowAuthorizationService
 from payments.models import Vendor, VendorBill, VendorPayment
 from payments.tests.test_payments_workflow import _FakeResponse, _configure_ledgeros_settings, _configure_epic5_mappings
@@ -19,6 +20,10 @@ from payments.tests.test_payments_workflow import _FakeResponse, _configure_ledg
 @patch.dict(os.environ, {"LEDGEROS_HMAC_SECRET": "secret"})
 class BillPaymentFlowTests(TestCase):
     def setUp(self):
+        health = patch("ledgeros.views.LedgerOSHealthCheckService.check",
+                       return_value=HealthCheckResult(True, "ledgeros", {}))
+        health.start()
+        self.addCleanup(health.stop)
         readiness = patch("payments.views.LedgerOSWriteReadinessService.require")
         readiness.start()
         self.addCleanup(readiness.stop)
@@ -63,7 +68,8 @@ class BillPaymentFlowTests(TestCase):
         self.assertEqual(response.status_code, 200)
         return {"submission_token": response.context["form"]["submission_token"].value(),
                 "payment_date": "2026-05-02", "amount": amount, "payment_method": "ach_manual",
-                "bank_account_name": "Operating Bank", "credit_card_account_name": "", "memo": "Payment", "notes": ""}
+                "bank_account_name": response.context["form"]["bank_account_name"].value(),
+                "credit_card_account_name": "", "memo": "Payment", "notes": ""}
 
     def posted(self):
         return _FakeResponse(status=201, payload=json.dumps({"payment": {"id": 22},
@@ -77,6 +83,7 @@ class BillPaymentFlowTests(TestCase):
         response = self.client.get(self.pay_url)
         form = response.context["form"]
         self.assertEqual(form.initial["amount"], Decimal("100.00"))
+        self.assertEqual(form["bank_account_name"].value(), "Operating Bank")
         self.assertNotIn("vendor", form.fields)
         self.assertNotIn("vendor_bill", form.fields)
         self.assertNotIn("is_credit_card_payoff", form.fields)
@@ -153,6 +160,25 @@ class BillPaymentFlowTests(TestCase):
         response = self.client.post(self.pay_url, data)
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "outstanding balance")
+        self.assertContains(response, 'data-payment-errors')
+        self.assertContains(response, "Payment could not be completed")
+        transport.assert_not_called()
+        self.assertFalse(VendorPayment.objects.exists())
+
+    @patch("payments.services.urlopen")
+    def test_invalid_payment_fields_show_summary_and_preserve_reviewed_values(self, transport):
+        data = self.data("40.00")
+        data["bank_account_name"] = ""
+        response = self.client.post(self.pay_url, data)
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'data-payment-errors')
+        self.assertContains(response, 'role="alert"')
+        self.assertContains(response, "Payment could not be completed")
+        self.assertContains(response, 'href="#id_bank_account_name"')
+        self.assertContains(response, "Bank account is required")
+        self.assertEqual(response.context["form"]["amount"].value(), "40.00")
+        self.assertEqual(response.context["form"]["bank_account_name"].value(), "")
+        self.assertEqual(response.context["form"]["submission_token"].value(), data["submission_token"])
         transport.assert_not_called()
         self.assertFalse(VendorPayment.objects.exists())
 

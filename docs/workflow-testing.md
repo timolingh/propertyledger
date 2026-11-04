@@ -96,7 +96,7 @@ Expected accounting result: none until the bill is separately approved and poste
 3. Sign in as `beta-bookkeeper`. Open **Vendors**, choose **Edit** for **Ace Plumbing**, and choose **Save vendor**. No field changes are required. Saving provisions the vendor in LedgerOS when setup and connectivity are ready. Confirm the message **Vendor saved and provisioned in LedgerOS.** If provisioning fails or remains pending, resolve the reported setup/connectivity issue and save the same vendor again before continuing.
 4. Open the approved Ace Plumbing `240.00` bill.
 5. Post the bill to LedgerOS and confirm the local state shows a successful bill resource/reference.
-6. Start payment from that bill, record a partial payment of `100.00`, and confirm the remaining payable is `140.00`.
+6. Choose **Pay bill** on that bill, enter `100.00`, review the payment date, choose the payment method, and retain the configured **Operating Bank** account for non-card payments. Choose **Post payment**. Confirm **Payment posted to LedgerOS.** and a remaining payable of `140.00`. If the form returns with **Payment could not be completed**, read the error summary, correct the indicated fields, and submit the same form again. The balance remains `240.00` until LedgerOS confirms the payment.
 7. Submit the same payment again only as a replay check. Confirm one local payment and one LedgerOS accounting effect.
 8. Record the remaining `140.00`. Confirm the bill is fully paid and a new payment action is no longer offered.
 
