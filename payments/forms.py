@@ -10,6 +10,7 @@ from django.core import signing
 from django.core.exceptions import ValidationError
 from django.utils import timezone
 
+from ledgeros.form_relationships import configure_property_autofill
 from ledgeros.models import Lease, Property, PropertyLedgerAccountMapping, PropertyLedgerSetup, Tenant, TenantCharge, Unit
 from ledgeros.roles import ROLE_ADMIN, ROLE_BOOKKEEPER, ROLE_GROUP_NAMES, ROLE_PROPERTY_MANAGER
 from payments.models import (
@@ -100,6 +101,7 @@ class TenantPaymentForm(forms.ModelForm):
             for name in self.fields:
                 if name != "notes":
                     self.fields[name].disabled = True
+        configure_property_autofill(self)
 
     def clean(self):
         cleaned = super().clean()
@@ -170,6 +172,7 @@ class SecurityDepositEventForm(forms.ModelForm):
             for name in self.fields:
                 if name != "notes":
                     self.fields[name].disabled = True
+        configure_property_autofill(self)
 
 
 class VendorTermsSelect(forms.Select):
@@ -225,6 +228,7 @@ class VendorBillForm(_SyncEditableModelForm):
         )
         self.fields["due_date"].help_text = "Defaults from the vendor's payment terms. You can change either date."
         self._apply_sync_edit_restrictions()
+        configure_property_autofill(self)
 
     def clean(self):
         cleaned = super().clean()
