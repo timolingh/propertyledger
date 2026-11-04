@@ -28,7 +28,7 @@
     {% if bill_payment_status.error %}<p class="muted">{{ bill_payment_status.error }}</p>{% endif %}
     <p><strong>Repair notes:</strong> {{ bill.repair_notes|default:"-" }}</p>
     <p><strong>Notes:</strong> {{ bill.notes|default:"-" }}</p>
-    <div style="display:flex; gap:1rem; flex-wrap:wrap;">
+    <div class="vendor-bill-actions">
       <a class="button" href="{% url 'vendor-bill-list' %}">Back</a>
       {% if can_edit_bill %}<a class="button" href="{% url 'vendor-bill-edit' bill.pk %}">Edit bill</a>{% endif %}
       {% if can_submit_bill %}
