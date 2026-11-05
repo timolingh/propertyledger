@@ -13,7 +13,7 @@ from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
-from django.core.exceptions import ValidationError
+from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import connection
 from django.db import transaction
 from django.utils import timezone
@@ -274,6 +274,48 @@ class LedgerOSHealthCheckService:
 
 class LedgerOSCustomerSyncService:
     CUSTOMER_PATH = "/api/v1/customers/"
+    PROVISION_PATH = "/api/v1/customers/provision/"
+
+    @staticmethod
+    def tenant_provisioning_payload(tenant: Tenant) -> dict[str, Any]:
+        # A review page must not create setup rows or make external requests.
+        mapping = PropertyLedgerAccountMapping.objects.filter(
+            setup_id=1,
+            mapping_key=PropertyLedgerAccountMapping.MappingKey.ACCOUNTS_RECEIVABLE,
+            is_enabled=True,
+        ).first()
+        if mapping is None or not mapping.ledgeros_account_id.strip():
+            raise ValidationError("Configure the accounts-receivable mapping before provisioning a customer.")
+        return {"customer_code": f"tenant-{tenant.pk}", "name": tenant.name.strip(),
+                "default_ar_account_code": mapping.ledgeros_account_id.strip()}
+
+    @classmethod
+    def provision_tenant(cls, *, tenant: Tenant, actor, reviewed_payload: dict[str, Any]) -> None:
+        from ledgeros.audit import audit_failure, audit_success
+        from ledgeros.roles import ROLE_ADMIN, ROLE_PROPERTY_MANAGER, user_has_any_role
+
+        if not user_has_any_role(actor, (ROLE_ADMIN, ROLE_PROPERTY_MANAGER)):
+            raise PermissionDenied("Only administrators and property managers can provision tenant customers.")
+        tenant = Tenant.objects.get(pk=tenant.pk)
+        payload = cls.tenant_provisioning_payload(tenant)
+        if payload != reviewed_payload:
+            raise ValidationError("Review the current tenant and AR account before provisioning.")
+        try:
+            LedgerOSWriteReadinessService.require()
+            _, response = cls.create_customer(
+                customer_code=payload["customer_code"], name=payload["name"], provision_only=True,
+                default_ar_account_code=payload["default_ar_account_code"],
+            )
+            customer = response.get("customer", {})
+            if (not isinstance(customer, dict) or not customer.get("id")
+                    or any(customer.get(key) != value for key, value in payload.items())
+                    or customer.get("status") != "active"):
+                raise ValidationError("LedgerOS did not confirm the reviewed customer. Provisioning could not be verified.")
+        except (ValidationError, RuntimeError):
+            audit_failure(action="tenant_customer_provision_failed", record_type="Tenant", record_id=str(tenant.pk), user=actor)
+            raise
+        audit_success(action="tenant_customer_provisioned", record=tenant, user=actor,
+                      metadata={"customer_code": payload["customer_code"], "ledgeros_customer_id": str(customer["id"])})
 
     @staticmethod
     def _format_http_error(exc: HTTPError) -> str:
@@ -336,7 +378,8 @@ class LedgerOSCustomerSyncService:
         }
 
     @staticmethod
-    def create_customer(*, customer_code: str, name: str) -> tuple[int, dict[str, Any]]:
+    def create_customer(*, customer_code: str, name: str, provision_only: bool = False,
+                        default_ar_account_code: str | None = None) -> tuple[int, dict[str, Any]]:
         connection_settings = LedgerOSConnectionSettings.load()
         base_url = connection_settings.base_url
         host_header = connection_settings.host_header.strip()
@@ -364,20 +407,24 @@ class LedgerOSCustomerSyncService:
         payload = LedgerOSCustomerSyncService._build_customer_payload(
             customer_code=customer_code,
             name=name,
-        )
+        ) if default_ar_account_code is None else {
+            "customer_code": customer_code, "name": name, "default_ar_account_code": default_ar_account_code,
+        }
+        path = LedgerOSCustomerSyncService.PROVISION_PATH if provision_only else LedgerOSCustomerSyncService.CUSTOMER_PATH
+        event_type = "customer.provision_requested" if provision_only else "customer.upsert_requested"
         body = LedgerOSCustomerSyncService._canonical_json_bytes(payload)
         timestamp = str(int(time.time()))
         nonce = uuid.uuid4().hex
         signed = sign_api_request(
             method="POST",
-            path=LedgerOSCustomerSyncService.CUSTOMER_PATH,
+            path=path,
             body=body,
             timestamp=timestamp,
             nonce=nonce,
             client_id=client_id,
             secret=secret,
         )
-        url = f"{base_url.rstrip('/')}{LedgerOSCustomerSyncService.CUSTOMER_PATH}"
+        url = f"{base_url.rstrip('/')}{path}"
         headers = {
             "Content-Type": "application/json",
             "X-LedgerOS-Client-Id": client_id,
@@ -387,7 +434,7 @@ class LedgerOSCustomerSyncService:
             "Idempotency-Key": build_idempotency_key(
                 local_object_type="customer",
                 local_object_id=customer_code,
-                source_event_type="customer.upsert_requested",
+                source_event_type=event_type,
                 external_id=customer_code,
                 request_body=payload,
             ),
@@ -416,6 +463,10 @@ class LedgerOSCustomerSyncService:
                     raise RuntimeError("LedgerOS customer response must be a JSON object.")
                 return response.status, response_payload
         except HTTPError as exc:
+            if provision_only and exc.code in {404, 405}:
+                raise RuntimeError(
+                    "Explicit customer provisioning is unavailable in this LedgerOS version. Update LedgerOS before retrying."
+                ) from exc
             raise RuntimeError(LedgerOSCustomerSyncService._format_http_error(exc)) from exc
         except (URLError, TimeoutError, OSError, ValueError) as exc:
             raise RuntimeError(str(exc)) from exc

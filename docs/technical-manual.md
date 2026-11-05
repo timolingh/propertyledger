@@ -124,11 +124,60 @@ The maintenance detail batches linked bills through `BillPaymentStatusService` a
 - Create and archive owners, properties, units, tenants, and leases.
 - Respect dependency order when creating records.
 
+### Explicit customer provisioning
+
+`GET /tenants/<id>/provision/` reviews the tenant's existing
+`tenant-<id>` code, name, and enabled AR mapping without provisioning, creating
+setup rows, or making external requests. The signed review binds tenant, user,
+name, and AR account for one hour; changed review data must be reviewed again.
+Only Admin and Property manager roles may submit the CSRF-protected POST.
+`LedgerOSCustomerSyncService.provision_tenant` rechecks role and current data,
+requires write readiness, calls the signed adapter, verifies the returned
+customer ID/code/name/AR/active status, and records actor-attributed success or
+failure in the audit log. Tenant edits and invoice approval never call it.
+
+The adapter uses `POST /api/v1/customers/provision/`, not the existing upsert
+route. LedgerOS must deploy the strict endpoint first; no migration is needed.
+The existing `customers` scope and `customer.upsert_requested` permission apply.
+The strict request identity is `customer.provision_requested`; retries use a
+stable key derived from the reviewed payload. The server creates a missing
+customer or verifies an exact match without modifying it. Name, status, or AR
+conflicts are rejected, including drift discovered on replay. Older LedgerOS
+versions return an error; the client never falls back to upsert. Existing tenant
+creation retains its previous upsert behavior.
+
+This action creates no invoice, payment, journal, or tenant-charge sync record
+and changes no balances, tenant ledger, owner statement, or report total.
+Invoice list/detail/edit pages explain a missing-customer failure and link
+users with tenant-management authority to the review action. Bookkeepers receive
+instructions to ask an Admin or Property manager. Recovery retries the original
+invoice with its existing external reference, sync record, and idempotency key. The recovery warning describes the stored failed attempt, not a current LedgerOS customer lookup. Provisioning leaves that failure intact and never retries the invoice; users with invoice-write authority get an invoice-detail retry link. A successful explicit retry removes the recovery guidance.
+Matching by name or linking differently coded customers is deferred for explicit
+mapping review; provisioning never guesses a match.
+
 ### Tenant charges
 
 - Generate recurring base rent from active leases.
 - Create manual tenant charges.
 - Approve/sync charges through the service layer.
+
+Invoice detail and edit pages share a **LedgerOS Sync** section with an explicit
+**Approve and post to LedgerOS** button, status, error/response history, and
+confirmed-result messages, following the vendor payment detail pattern.
+`POST /charges/<id>/` with `action=sync` requires Admin/Bookkeeper authority,
+CSRF, and live readiness. It locks and reloads the saved invoice, calls the
+existing `TenantChargeService.approve_charge` path, and returns to detail.
+Request fields cannot alter invoice accounting data. An already posted or voided
+invoice cannot be posted through this action, and repeated successful button
+submissions make no further posting request. Failed retries reuse the existing
+sync record and idempotency key. The payload remains the existing invoice API
+contract: debit AR / credit revenue once; no customer provisioning runs.
+
+The Edit screen's separate POST uses the saved invoice, not unsaved form fields,
+and displays a save-first notice with saved amount/due date. Existing create,
+edit-save status handling and bulk posting remain unchanged. The detail page
+shows payment entry only to bookkeeping users after confirmed invoice posting.
+No migrations or LedgerOS API changes are needed for these invoice controls.
 
 ### Payments and deposits
 

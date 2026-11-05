@@ -55,6 +55,10 @@ That order matters because later records depend on earlier ones.
 
 Creating a tenant also provisions its customer in LedgerOS. After both succeed, the tenant list displays **Tenant created and provisioned in LedgerOS.** If provisioning fails, the form displays the error and the tenant is not saved. Editing an existing tenant saves local changes only and does not provision or sync its LedgerOS customer.
 
+For an existing tenant that has no LedgerOS customer, an Admin or Property manager can open **Tenants → View → Provision in LedgerOS**. Review the displayed name, customer code, and default AR account, then choose **Provision in LedgerOS** to submit. The action creates a missing customer or verifies an existing exact match. A different name, AR account, or inactive LedgerOS customer produces a conflict without overwriting it; ask an administrator to review the mapping. The review page shows that the LedgerOS customer must be Active; it never reactivates an inactive LedgerOS customer. Successful provisioning shows **Tenant customer provisioned in LedgerOS.** It posts no invoice, payment, or journal. Repeat the same action after a timeout; it reuses its request identity.
+
+An invoice that fails with **Unknown customer** shows recovery guidance. Bookkeepers must ask an Admin or Property manager to provision the tenant customer. After confirmed provisioning, open the same invoice and choose **Approve and post to LedgerOS** in its **LedgerOS Sync** section. Provisioning does not retry the invoice or clear its previous failure; the warning describes the last failed attempt, not a fresh customer-status check. The list's **Review invoice and post** link opens the invoice for an explicit retry.
+
 On maintenance, vendor-bill, and security-deposit forms, selecting a unit fills in its property. Selecting a tenant on maintenance, security-deposit, or receipt forms fills in the property and, where present, the unit from an active lease. If the tenant has multiple active units, choose the applicable unit; the form does not guess. Tenants without an active lease require manual selection. Saved form values remain unchanged until you change a selection.
 
 On the Properties, Units, Tenants, and Leases lists, choose **View** to review a record without opening an editing form. Choose **Edit** when you want to make changes. Detail pages also provide an Edit link and a Back to list link.
@@ -69,6 +73,8 @@ Examples:
 - utility reimbursement;
 - late fee;
 - other manual charge.
+
+Open an existing invoice with **View** or **Edit** to see the **LedgerOS Sync** section, matching the vendor payment detail workflow. Bookkeepers and Admins can choose **Approve and post to LedgerOS** to post or retry the saved invoice. On Edit, save any changes first: the separate posting button uses the saved amount and due date displayed beside it. Success shows **Invoice posted to LedgerOS.** Failures show an error and the sync history on the same invoice. Already posted and voided invoices have no posting button; viewers cannot post. The detail page offers **Record payment** after confirmed posting. The list's bulk action remains available.
 
 ### 4. Record tenant payments
 

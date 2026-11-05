@@ -1,0 +1,5 @@
+{% extends "ledgeros/crud_form.html" %}
+
+{% block after_form %}
+  {% include "ledgeros/invoice_sync.html" %}
+{% endblock %}

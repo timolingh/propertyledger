@@ -5,6 +5,7 @@ import json
 from typing import Any
 
 from django.contrib import messages
+from django.core import signing
 from django.core.exceptions import ValidationError
 from django.http import HttpResponseRedirect
 from django.urls import reverse, reverse_lazy
@@ -14,7 +15,7 @@ from rest_framework import generics
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from ledgeros.audit import audit_success
+from ledgeros.audit import audit_failure, audit_success
 from ledgeros.models import AuditLog
 from ledgeros.permissions import (
     AdminRoleRequiredMixin,
@@ -23,7 +24,7 @@ from ledgeros.permissions import (
     ReportingRoleRequiredMixin,
     RoleRequiredMixin,
 )
-from ledgeros.roles import get_user_role_label
+from ledgeros.roles import get_user_role_label, user_has_any_role
 from ledgeros.forms import (
     LeaseForm,
     LedgerOSConnectionSettingsForm,
@@ -56,6 +57,49 @@ from ledgeros.services import (
     TenantChargeService,
 )
 from payments.models import DebtServicePayment, SecurityDepositEvent, TenantPayment, VendorBill, VendorPayment
+
+
+def _tenant_customer_recovery(charge: TenantCharge, user) -> dict[str, str] | None:
+    record = charge.sync_record
+    if (not charge.tenant_id or record is None or record.status != LedgerOSSyncRecord.Status.FAILED
+            or "customer_code" not in (record.last_error or "") or "Unknown customer" not in (record.last_error or "")):
+        return None
+    can_provision = user_has_any_role(user, PropertyManagementRoleRequiredMixin.allowed_roles)
+    return {
+        "message": (
+            f"The last invoice sync failed because LedgerOS did not recognize the customer for {charge.tenant.name}. "
+            "If the customer has since been provisioned, retry this invoice. "
+        ) + (
+            "Otherwise, provision the tenant customer first."
+            if can_provision else
+            "Ask an administrator or property manager to provision the tenant customer if provisioning is still needed."
+        ),
+        "url": reverse("tenant-provision", args=[charge.tenant_id]) if can_provision else "",
+        "retry_url": reverse("charge-detail", args=[charge.pk]) if user_has_any_role(user, BookkeepingRoleRequiredMixin.allowed_roles) else "",
+    }
+
+
+def _invoice_sync_context(invoice: TenantCharge, user) -> dict[str, Any]:
+    record = invoice.sync_record
+    can_write = user_has_any_role(user, BookkeepingRoleRequiredMixin.allowed_roles)
+    confirmed = bool(record and record.status == LedgerOSSyncRecord.Status.SUCCEEDED)
+    finalized = invoice.status in {TenantCharge.Status.SYNCED, TenantCharge.Status.VOIDED}
+    return {
+        "invoice": invoice,
+        "can_edit_invoice": can_write,
+        "can_sync_invoice": can_write and not finalized and not confirmed,
+        "can_record_invoice_payment": can_write and invoice.status == TenantCharge.Status.SYNCED and confirmed,
+        "invoice_sync_url": reverse("charge-detail", args=[invoice.pk]),
+        "customer_recovery": _tenant_customer_recovery(invoice, user),
+        "invoice_sync_entries": [{
+            "title": f"Invoice {invoice.pk} sync status",
+            "status": record.get_status_display(),
+            "updated_at": record.updated_at,
+            "error": record.last_error,
+            "response_text": json.dumps(record.response_payload, indent=2, sort_keys=True)
+            if record.response_payload is not None else "",
+        }] if record else [],
+    }
 
 
 def _add_form_error_from_exception(form, exc: Exception) -> None:
@@ -645,10 +689,60 @@ class TenantDetailView(PropertyRecordDetailView):
     page_title = "Tenant details"
     record_name = "tenant"
 
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context["provision_url"] = reverse("tenant-provision", args=[self.object.pk])
+        return context
+
     def get_details(self):
         obj = self.object
         return [("Name", obj.name), ("Email", obj.email), ("Phone", obj.phone),
                 ("Status", "Active" if obj.is_active else "Inactive"), ("Notes", obj.notes)]
+
+
+class TenantProvisionView(PropertyManagementRoleRequiredMixin, DetailView):
+    model = Tenant
+    template_name = "ledgeros/tenant_provision.html"
+    context_object_name = "tenant"
+    allowed_roles = PropertyManagementRoleRequiredMixin.allowed_roles
+    review_salt = "tenant-customer-provision"
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        setup = PropertyLedgerSetup.objects.filter(pk=1).first()
+        context["setup_obj"] = setup
+        context["setup_is_complete"] = bool(setup and not setup.setup_completion_errors())
+        try:
+            payload = LedgerOSCustomerSyncService.tenant_provisioning_payload(self.object)
+        except ValidationError as exc:
+            context["provision_error"] = "; ".join(exc.messages)
+        else:
+            context["provision_payload"] = payload
+            context["review_token"] = signing.dumps(
+                {"tenant_id": self.object.pk, "user_id": self.request.user.pk, "payload": payload},
+                salt=self.review_salt,
+            )
+        return context
+
+    def post(self, request, *args, **kwargs):
+        self.object = self.get_object()
+        try:
+            if request.POST.get("action") != "provision":
+                raise ValidationError("Choose Provision in LedgerOS after reviewing the customer details.")
+            try:
+                reviewed = signing.loads(request.POST.get("review_token", ""), salt=self.review_salt, max_age=3600)
+            except signing.BadSignature as exc:
+                raise ValidationError("Review the current tenant and AR account before provisioning.") from exc
+            if reviewed.get("tenant_id") != self.object.pk or reviewed.get("user_id") != request.user.pk:
+                raise ValidationError("Review the current tenant and AR account before provisioning.")
+            LedgerOSCustomerSyncService.provision_tenant(
+                tenant=self.object, actor=request.user, reviewed_payload=reviewed.get("payload"),
+            )
+        except (ValidationError, RuntimeError) as exc:
+            error = "; ".join(exc.messages) if isinstance(exc, ValidationError) else str(exc)
+            return self.render_to_response(self.get_context_data(submission_error=error))
+        messages.success(request, "Tenant customer provisioned in LedgerOS. You can now retry the original invoice.")
+        return HttpResponseRedirect(reverse("tenant-detail", args=[self.object.pk]))
 
 
 class LeaseDetailView(PropertyRecordDetailView):
@@ -1013,7 +1107,7 @@ class TenantChargeListView(LedgerOSCrudListView):
     create_url_name = "charge-create"
     create_label = "Add invoice"
     bulk_action_choices = [
-        ("approve", "Approve selected"),
+        ("approve", "Approve and post to LedgerOS"),
         ("archive", "Archive selected"),
     ]
     allowed_roles = BookkeepingRoleRequiredMixin.allowed_roles
@@ -1135,6 +1229,7 @@ class TenantChargeListView(LedgerOSCrudListView):
         context["sync_log_entries"] = [
             {
                 "title": f"Charge {charge.pk} sync failed",
+                "customer_recovery": _tenant_customer_recovery(charge, self.request.user),
                 "object": charge,
                 "status": charge.sync_record.status if charge.sync_record else "",
                 "error": charge.sync_record.last_error if charge.sync_record else "",
@@ -1164,9 +1259,44 @@ class TenantChargeDetailView(ReportingRoleRequiredMixin, LedgerOSAppContextMixin
             "payment_applications__sync_record",
         )
 
+    def post(self, request, *args, **kwargs):
+        self.object = self.get_object()
+        destination = reverse("charge-detail", args=[self.object.pk])
+        if request.POST.get("action") != "sync":
+            messages.error(request, "Choose a valid invoice action.")
+            return HttpResponseRedirect(destination)
+        try:
+            # Serialize repeated submissions before checking or posting the saved invoice.
+            with transaction.atomic():
+                self.object = TenantCharge.objects.select_for_update().get(pk=self.object.pk)
+                if self.object.status == TenantCharge.Status.VOIDED:
+                    raise ValidationError("Voided invoices cannot be posted.")
+                record = self.object.sync_record
+                if (self.object.status == TenantCharge.Status.SYNCED
+                        or record and record.status == LedgerOSSyncRecord.Status.SUCCEEDED):
+                    messages.info(request, "This invoice is already posted to LedgerOS.")
+                    return HttpResponseRedirect(destination)
+                LedgerOSWriteReadinessService.require()
+                TenantChargeService.approve_charge(self.object)
+        except ValidationError as exc:
+            messages.error(request, "; ".join(exc.messages))
+        else:
+            self.object.refresh_from_db()
+            record = self.object.sync_record
+            if (self.object.status == TenantCharge.Status.SYNCED
+                    and record and record.status == LedgerOSSyncRecord.Status.SUCCEEDED):
+                audit_success(action="tenant_charge_approved", record=self.object, user=request.user, source="ui")
+                messages.success(request, "Invoice posted to LedgerOS.")
+            else:
+                audit_failure(action="tenant_charge_sync_failed", record_type="TenantCharge",
+                              record_id=str(self.object.pk), user=request.user, source="ui")
+                messages.error(request, "Invoice sync failed." + (f" {record.last_error}" if record and record.last_error else ""))
+        return HttpResponseRedirect(destination)
+
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         invoice = self.object
+        context.update(_invoice_sync_context(invoice, self.request.user))
         context["payment_applications"] = invoice.payment_applications.select_related("payment", "sync_record").all()
         context["payment_history_url"] = reverse("tenant-payment-list")
         context["payments_url"] = reverse("invoice-list")
@@ -1224,24 +1354,15 @@ class TenantChargeUpdateView(LedgerOSCrudFormView, UpdateView):
     page_action = "Save invoice"
     list_url_name = "charge-list"
     allowed_roles = BookkeepingRoleRequiredMixin.allowed_roles
+    template_name = "ledgeros/charge_form.html"
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        if getattr(self, "object", None) and self.object.sync_record:
-            context["sync_log_entries"] = [
-                {
-                    "title": f"Charge {self.object.pk} sync status",
-                    "object": self.object,
-                    "status": self.object.sync_record.status,
-                    "error": self.object.sync_record.last_error or "",
-                    "response_text": (
-                        json.dumps(self.object.sync_record.response_payload, indent=2, sort_keys=True)
-                        if self.object.sync_record.response_payload is not None
-                        else ""
-                    ),
-                    "updated_at": self.object.sync_record.updated_at,
-                }
-            ]
+        # A bound edit form may contain unsaved values; the separate post action
+        # always reviews and submits the version saved in the database.
+        saved_invoice = TenantCharge.objects.select_related("sync_record", "tenant").get(pk=self.object.pk)
+        context.update(_invoice_sync_context(saved_invoice, self.request.user))
+        context["invoice_sync_saved_only"] = True
         return context
 
     def form_valid(self, form):

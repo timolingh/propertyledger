@@ -1,0 +1,24 @@
+<div class="card">
+  <h2>LedgerOS Sync</h2>
+  <p><strong>Invoice status:</strong> {{ invoice.get_status_display }}</p>
+  {% include "ledgeros/customer_provisioning_help.html" with recovery=customer_recovery suppress_retry_link=True only %}
+  {% if can_sync_invoice %}
+    <p>Approve this invoice and post it to LedgerOS. If an earlier attempt failed, this action retries the same invoice.</p>
+    {% if invoice_sync_saved_only %}<p class="muted">Save any edits before posting. This action posts the saved invoice: {{ invoice.amount }} due {{ invoice.due_date }}.</p>{% endif %}
+    <form method="post" action="{{ invoice_sync_url }}">
+      {% csrf_token %}
+      <input type="hidden" name="action" value="sync">
+      <button type="submit" class="button primary">Approve and post to LedgerOS</button>
+    </form>
+  {% endif %}
+  {% for entry in invoice_sync_entries %}
+    <div class="card">
+      <strong>{{ entry.title }}</strong>
+      <div class="muted">{{ entry.updated_at }} | {{ entry.status }}</div>
+      {% if entry.error %}<pre>{{ entry.error }}</pre>{% endif %}
+      {% if entry.response_text %}<pre>{{ entry.response_text }}</pre>{% endif %}
+    </div>
+  {% empty %}
+    <p class="muted">No sync record yet.</p>
+  {% endfor %}
+</div>

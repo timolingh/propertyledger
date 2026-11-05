@@ -8,6 +8,7 @@
     <p>{{ object }}</p>
     <a class="button" href="{{ list_url }}">Back to list</a>
     <a class="button" href="{{ edit_url }}">Edit</a>
+    {% if provision_url %}<a class="button" href="{{ provision_url }}">Provision in LedgerOS</a>{% endif %}
   </div>
   <div class="card">
     <table>

@@ -119,13 +119,20 @@ Before continuing, test approved-bill withdrawal on a separate unposted bill:
 
 ## 5. Combined rent and security-deposit receipt
 
-**Prerequisite: provision the tenant in LedgerOS separately.** The seed creates Avery Jordan locally but does not provision a LedgerOS customer. Before posting rent, explicitly provision or verify the matching customer with code `tenant-<Avery's local tenant ID>` and the configured accounts-receivable account. Charge approval does not create or update customers, and editing/saving an existing tenant does not provision one either. A healthy setup smoke check does not confirm that the customer exists.
+**Prerequisite: explicitly provision the tenant customer.** The seed creates Avery Jordan locally but does not provision a LedgerOS customer. A healthy setup smoke check does not confirm that the customer exists.
 
-If posting fails with `customer_code: Unknown customer.`, complete that separate provisioning step, then select the same failed charge and choose **Approve selected** again. Keep the existing charge and receipt so their sync identities are preserved; do not reseed or create replacements to work around this error.
+1. Sign in as `beta-admin` or `beta-manager` and open **Tenants**.
+2. Choose **View** for Avery Jordan, then **Provision in LedgerOS**.
+3. Review the tenant name, customer code, and default AR account. Choose **Provision in LedgerOS** on the review page to submit the request.
+4. Confirm **Tenant customer provisioned in LedgerOS.** This creates a missing customer or verifies an exact match; it does not update a conflicting customer or post an invoice, receipt, or journal. If a conflict is reported, have an administrator review the customer mapping before continuing.
+
+This requires LedgerOS's strict `/api/v1/customers/provision/` endpoint. Deploy the matching LedgerOS change before testing; there is no fallback to customer upsert. No migration is required. An unavailable endpoint, missing permission, or failed provisioning blocks this scenario until resolved.
+
+If posting previously failed with `customer_code: Unknown customer.`, the invoice's sync log provides recovery guidance. Admins and property managers can follow **Review tenant provisioning**; bookkeepers must ask one of those users to perform provisioning. After confirmed provisioning, open the same failed invoice with **View** and choose **Approve and post to LedgerOS** in **LedgerOS Sync**. Provisioning does not retry the invoice, so its historical failure warning remains until a successful retry. The warning describes the last attempt rather than the current LedgerOS customer state; **Review invoice and post** in the list opens that invoice for an explicit retry. Keep the original charge and receipt so their sync identities are preserved. **Save tenant** only saves local edits; neither tenant edits nor charge approval run provisioning.
 
 Sign in as `beta-bookkeeper`.
 
-1. Open Avery Jordan's current `1450.00` base-rent charge and approve/post it to LedgerOS.
+1. Open Avery Jordan's current `1450.00` base-rent charge with **View**. In **LedgerOS Sync**, choose **Approve and post to LedgerOS** and confirm **Invoice posted to LedgerOS.** The Edit screen offers the same action for the saved invoice; save edits first. Confirm a failed attempt shows its error and retains the action for retry, while a successfully posted invoice shows its sync reference and no posting button.
 2. Open tenant receipts and select `BETA-MIXED-RECEIPT`.
 3. Confirm total `1950.00`, rent portion `1450.00`, and deposit portion `500.00` tied to Avery's unit 101 lease.
 4. Auto-allocate the rent portion and review the component status before finalization.

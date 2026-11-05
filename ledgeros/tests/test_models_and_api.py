@@ -651,7 +651,7 @@ class PropertyLedgerCrudViewTests(TestCase):
         charge_list_response = self.client.get(reverse("charge-list"))
         self.assertEqual(charge_list_response.status_code, 200)
         self.assertContains(charge_list_response, 'name="selected_charge_ids"')
-        self.assertContains(charge_list_response, "Approve selected")
+        self.assertContains(charge_list_response, "Approve and post to LedgerOS")
         self.assertContains(charge_list_response, "Archive selected")
 
         approve_response = self.client.post(

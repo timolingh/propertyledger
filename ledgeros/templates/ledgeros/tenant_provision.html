@@ -1,0 +1,31 @@
+{% extends "ledgeros/base.html" %}
+
+{% block title %}Provision tenant customer | PropertyLedger{% endblock %}
+
+{% block content %}
+  <div class="card">
+    <h1>Provision tenant customer</h1>
+    <p>Create a LedgerOS customer for {{ tenant.name }}, or verify an existing exact match.</p>
+    <p>Conflicting customers will not be changed. A different name, AR account, or inactive LedgerOS customer requires administrator review.</p>
+    <p class="muted">This action creates no invoice, payment, or journal entry. Saving tenant edits and posting invoices do not run this action.</p>
+    {% if submission_error %}<div class="banner banner-bad" role="alert">{{ submission_error }}</div>{% endif %}
+    {% if provision_error %}<div class="banner banner-bad" role="alert">{{ provision_error }}</div>{% endif %}
+    {% if provision_payload %}
+      <table aria-label="Customer details to provision">
+        <tbody>
+          <tr><th scope="row">Tenant name</th><td>{{ provision_payload.name }}</td></tr>
+          <tr><th scope="row">Customer code</th><td>{{ provision_payload.customer_code }}</td></tr>
+          <tr><th scope="row">LedgerOS customer status</th><td>Active</td></tr>
+          <tr><th scope="row">Default AR account</th><td>{{ provision_payload.default_ar_account_code }}</td></tr>
+        </tbody>
+      </table>
+      <form method="post">
+        {% csrf_token %}
+        <input type="hidden" name="action" value="provision">
+        <input type="hidden" name="review_token" value="{{ review_token }}">
+        <button class="button primary" type="submit">Provision in LedgerOS</button>
+      </form>
+    {% endif %}
+    <a class="button" href="{% url 'tenant-detail' tenant.pk %}">Back to tenant</a>
+  </div>
+{% endblock %}
