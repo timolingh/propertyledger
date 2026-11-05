@@ -1,58 +1,111 @@
 {% extends "ledgeros/base.html" %}
+{% load static %}
 
 {% block title %}Vendor Bill {{ bill.pk }} | PropertyLedger{% endblock %}
 
+{% block extra_css %}
+  <link rel="stylesheet" href="{% static 'payments/vendor_bill_detail.css' %}?v=2">
+{% endblock %}
+
 {% block content %}
-  <div class="card">
-    <h1>Vendor Bill {{ bill.pk }}</h1>
-    <p><strong>Vendor:</strong> {{ bill.vendor }}</p>
-    <p><strong>Vendor invoice number:</strong> {{ bill.vendor_invoice_number|default:"—" }}</p>
-    <p><strong>Property:</strong> {{ bill.property }}</p>
-    <p><strong>Unit:</strong> {{ bill.unit|default:"-" }}</p>
-    <p><strong>Date:</strong> {{ bill.bill_date }}</p>
-    <p><strong>Due date:</strong> {{ bill.due_date|default:"-" }}</p>
-    <p><strong>Amount:</strong> {{ bill.amount }}</p>
-    <p><strong>Expense category:</strong> {{ bill.get_expense_category_display }}</p>
-    <p><strong>Maintenance category:</strong> {{ bill.maintenance_category|default:"-" }}</p>
-    <p><strong>Maintenance request:</strong> {% if bill.maintenance_request %}<a href="{% url 'maintenance-request-detail' bill.maintenance_request.pk %}">Request {{ bill.maintenance_request.pk }}</a>{% else %}—{% endif %}</p>
-    <p><strong>Tenant chargeable:</strong> {{ bill.tenant_chargeable|yesno:"Yes,No" }}</p>
-    <p><strong>Bill posting status:</strong> {{ bill.get_status_display }}</p>
-    <p><strong>Approval status:</strong> {{ bill.get_approval_status_display }}</p>
-    {% if bill.submitted_by %}<p><strong>Submitted by:</strong> {{ bill.submitted_by }} at {{ bill.submitted_at }}</p>{% endif %}
-    {% if bill.decision_by %}<p><strong>Decision by:</strong> {{ bill.decision_by }} at {{ bill.decision_at }}</p>{% endif %}
-    {% if bill.decision_reason %}<p><strong>Decision reason:</strong> {{ bill.decision_reason }}</p>{% endif %}
-    <p><strong>Payment status:</strong> {{ bill_payment_status.label }}</p>
-    <p><strong>Amount paid:</strong> {{ bill_payment_status.paid|default_if_none:"—" }}</p>
-    <p><strong>Credits applied:</strong> {{ bill_payment_status.credited|default_if_none:"—" }}</p>
-    <p><strong>Balance due:</strong> {{ bill_payment_status.balance|default_if_none:"—" }}</p>
-    {% if bill_payment_status.error %}<p class="muted">{{ bill_payment_status.error }}</p>{% endif %}
-    <p><strong>Repair notes:</strong> {{ bill.repair_notes|default:"-" }}</p>
-    <p><strong>Notes:</strong> {{ bill.notes|default:"-" }}</p>
-    <div class="vendor-bill-actions">
-      <a class="button" href="{% url 'vendor-bill-list' %}">Back</a>
-      {% if can_edit_bill %}<a class="button" href="{% url 'vendor-bill-edit' bill.pk %}">Edit bill</a>{% endif %}
-      {% if can_submit_bill %}
-        <form method="post">{% csrf_token %}<input type="hidden" name="action" value="submit"><button type="submit">Submit for approval</button></form>
-      {% endif %}
-      {% if can_withdraw_bill %}
+  <div class="bill-detail-page">
+  <article class="card bill-detail-card">
+    <nav class="bill-breadcrumb" aria-label="Breadcrumb">
+      <a href="{% url 'vendor-bill-list' %}">Bills</a><span aria-hidden="true">/</span><span>Bill details</span>
+    </nav>
+    <header class="bill-detail-heading">
+      <div><h1>Bill details</h1><p class="muted">Vendor bill {{ bill.pk }}</p></div>
+      <span class="bill-status bill-status--{{ bill.approval_status }}">{{ bill.get_approval_status_display }}</span>
+    </header>
+
+    <div class="bill-detail-grid">
+    <section class="bill-detail-section bill-information" aria-labelledby="bill-information-heading">
+      <h2 id="bill-information-heading">Bill information</h2>
+      <dl class="bill-detail-list">
+        <dt>Vendor</dt><dd>{{ bill.vendor }}</dd>
+        <dt>Vendor invoice number</dt><dd>{{ bill.vendor_invoice_number|default:"—" }}</dd>
+        <dt>Property</dt><dd>{{ bill.property }}</dd>
+        <dt>Unit</dt><dd>{{ bill.unit|default:"—" }}</dd>
+        <dt>Date</dt><dd>{{ bill.bill_date }}</dd>
+        <dt>Due date</dt><dd>{{ bill.due_date|default:"—" }}</dd>
+        <dt>Amount</dt><dd>{{ bill.amount }}</dd>
+        <dt>Expense category</dt><dd>{{ bill.get_expense_category_display }}</dd>
+        <dt>Maintenance category</dt><dd>{{ bill.maintenance_category|default:"—" }}</dd>
+        <dt>Maintenance request</dt><dd>{% if bill.maintenance_request %}<a href="{% url 'maintenance-request-detail' bill.maintenance_request.pk %}">Request {{ bill.maintenance_request.pk }}</a>{% else %}—{% endif %}</dd>
+        <dt>Tenant chargeable</dt><dd>{{ bill.tenant_chargeable|yesno:"Yes,No" }}</dd>
+      </dl>
+    </section>
+
+    <section class="bill-detail-section" aria-labelledby="bill-status-heading">
+      <h2 id="bill-status-heading">Approval &amp; posting</h2>
+      <dl class="bill-detail-list">
+        <dt>Bill posting status</dt><dd>{{ bill.get_status_display }}</dd>
+        <dt>Approval status</dt><dd>{{ bill.get_approval_status_display }}</dd>
+        {% if bill.submitted_by %}<dt>Submitted by</dt><dd>{{ bill.submitted_by }} <span class="muted">at {{ bill.submitted_at }}</span></dd>{% endif %}
+        {% if bill.decision_by %}<dt>Decision by</dt><dd>{{ bill.decision_by }} <span class="muted">at {{ bill.decision_at }}</span></dd>{% endif %}
+        {% if bill.decision_reason %}<dt>Decision reason</dt><dd class="bill-detail-note">{{ bill.decision_reason }}</dd>{% endif %}
+      </dl>
+    </section>
+
+    <section class="bill-detail-section" aria-labelledby="bill-payment-heading">
+      <h2 id="bill-payment-heading">Payment</h2>
+      <dl class="bill-detail-list">
+        <dt>Payment status</dt><dd>{{ bill_payment_status.label }}</dd>
+        <dt>Amount paid</dt><dd>{{ bill_payment_status.paid|default_if_none:"—" }}</dd>
+        <dt>Credits applied</dt><dd>{{ bill_payment_status.credited|default_if_none:"—" }}</dd>
+        <dt>Balance due</dt><dd class="bill-balance">{{ bill_payment_status.balance|default_if_none:"—" }}</dd>
+      </dl>
+      {% if bill_payment_status.error %}<p class="muted">{{ bill_payment_status.error }}</p>{% endif %}
+    </section>
+
+    <section class="bill-detail-section bill-notes" aria-labelledby="bill-notes-heading">
+      <h2 id="bill-notes-heading">Notes</h2>
+      <dl class="bill-detail-list">
+        <dt>Repair notes</dt><dd class="bill-detail-note">{{ bill.repair_notes|default:"—" }}</dd>
+        <dt>Notes</dt><dd class="bill-detail-note">{{ bill.notes|default:"—" }}</dd>
+      </dl>
+    </section>
+
+    </div>
+
+    {% if can_pay_bills and payment_blocker %}
+      <div class="bill-payment-notice" role="status">
+        <span class="bill-notice-icon" aria-hidden="true">i</span>
+        <div><strong>Payment unavailable</strong><p>{{ payment_blocker }}</p></div>
+      </div>
+    {% endif %}
+
+    {% if can_withdraw_bill %}
+      <section class="bill-withdrawal" aria-labelledby="bill-withdrawal-heading">
+        <h2 id="bill-withdrawal-heading">{% if bill.approval_status == 'approved' %}Withdraw approval{% else %}Withdraw submission{% endif %}</h2>
+        <p class="muted">{% if bill.approval_status == 'approved' %}Provide a reason to withdraw this approved bill.{% else %}Withdraw this bill from independent review.{% endif %}</p>
         <form method="post">
           {% csrf_token %}
           <input type="hidden" name="action" value="withdraw">
           {% if bill.approval_status == 'approved' %}
-            <label for="withdrawal-reason">Withdrawal reason (required)</label>
-            <input type="text" id="withdrawal-reason" name="reason" required>
-            <button type="submit">Withdraw approved bill</button>
-          {% else %}
-            <button type="submit">Withdraw submission</button>
+            <div class="bill-withdrawal-label"><label for="withdrawal-reason">Withdrawal reason</label><span class="muted" id="withdrawal-required">Required</span></div>
+            <textarea id="withdrawal-reason" name="reason" rows="3" placeholder="Enter a reason…" aria-describedby="withdrawal-required" required></textarea>
           {% endif %}
+          <div class="bill-withdrawal-actions">
+            <button type="submit" class="bill-danger-button">{% if bill.approval_status == 'approved' %}Withdraw approved bill{% else %}Withdraw submission{% endif %}</button>
+          </div>
         </form>
-      {% endif %}
-      {% if can_pay_bills and not payment_blocker %}
-        <a class="button primary" href="{% url 'vendor-bill-pay' bill.pk %}">Pay bill</a>
-      {% endif %}
-    </div>
-    {% if can_pay_bills and payment_blocker %}<p class="muted">{{ payment_blocker }}</p>{% endif %}
-  </div>
+      </section>
+    {% endif %}
+
+    <footer class="bill-detail-footer">
+      <a class="bill-back-link" href="{% url 'vendor-bill-list' %}"><span aria-hidden="true">←</span> Back to bills</a>
+      <div class="bill-footer-actions">
+        {% if can_edit_bill %}<a class="button" href="{% url 'vendor-bill-edit' bill.pk %}">Edit bill</a>{% endif %}
+        {% if can_submit_bill %}
+          <form method="post">{% csrf_token %}<input type="hidden" name="action" value="submit"><button type="submit" class="button primary">Submit for approval</button></form>
+        {% endif %}
+        {% if can_pay_bills and not payment_blocker %}
+          <a class="button primary" href="{% url 'vendor-bill-pay' bill.pk %}">Pay bill</a>
+        {% endif %}
+      </div>
+    </footer>
+  </article>
   {% if can_approve_bill %}
     <div class="card">
       <h2>Independent review</h2>
@@ -102,5 +155,6 @@
     {% empty %}
       <p class="muted">No sync record yet.</p>
     {% endfor %}
+  </div>
   </div>
 {% endblock %}
