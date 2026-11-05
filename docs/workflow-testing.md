@@ -41,6 +41,7 @@ Use `Cedar Grove Apartments`, owned by `Cedar Grove Holdings LLC`.
 | Scenario | Seeded record | Initial state |
 | --- | --- | --- |
 | Vendor provisioning | Ace Plumbing, Bright Electric, GreenLine Landscaping | Local vendor records; fresh seeding does not sync them to LedgerOS |
+| Tenant provisioning | Avery Jordan | Local tenant record; explicitly provision the matching LedgerOS customer before posting rent in step 5 |
 | Rent and deposit | `BETA-MIXED-RECEIPT` for Avery Jordan, unit 101 | Draft receipt for `1950.00`: rent `1450.00`, deposit `500.00`; no allocations posted |
 | Maintenance lifecycle | `BETA-MAINT-OPEN` | Urgent leaking sink request, Open |
 | Hold and resume | `BETA-MAINT-HOLD` | Hallway light request, On hold while awaiting access |
@@ -117,6 +118,10 @@ Before continuing, test approved-bill withdrawal on a separate unposted bill:
 5. Confirm another bookkeeper cannot withdraw this bill; an administrator can withdraw an eligible bill submitted by someone else. Once a bill has a posting attempt (including failure/timeout), approved withdrawal must be unavailable. Recover that attempt on the same bill.
 
 ## 5. Combined rent and security-deposit receipt
+
+**Prerequisite: provision the tenant in LedgerOS separately.** The seed creates Avery Jordan locally but does not provision a LedgerOS customer. Before posting rent, explicitly provision or verify the matching customer with code `tenant-<Avery's local tenant ID>` and the configured accounts-receivable account. Charge approval does not create or update customers, and editing/saving an existing tenant does not provision one either. A healthy setup smoke check does not confirm that the customer exists.
+
+If posting fails with `customer_code: Unknown customer.`, complete that separate provisioning step, then select the same failed charge and choose **Approve selected** again. Keep the existing charge and receipt so their sync identities are preserved; do not reseed or create replacements to work around this error.
 
 Sign in as `beta-bookkeeper`.
 

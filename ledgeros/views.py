@@ -889,6 +889,7 @@ class TenantCreateView(LedgerOSCrudFormView, CreateView):
             )
         if validation_failed:
             return self.form_invalid(form)
+        messages.success(self.request, "Tenant created and provisioned in LedgerOS.")
         return HttpResponseRedirect(reverse(self.list_url_name))
 
 

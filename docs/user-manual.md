@@ -53,6 +53,8 @@ Create records in this order:
 
 That order matters because later records depend on earlier ones.
 
+Creating a tenant also provisions its customer in LedgerOS. After both succeed, the tenant list displays **Tenant created and provisioned in LedgerOS.** If provisioning fails, the form displays the error and the tenant is not saved. Editing an existing tenant saves local changes only and does not provision or sync its LedgerOS customer.
+
 On maintenance, vendor-bill, and security-deposit forms, selecting a unit fills in its property. Selecting a tenant on maintenance, security-deposit, or receipt forms fills in the property and, where present, the unit from an active lease. If the tenant has multiple active units, choose the applicable unit; the form does not guess. Tenants without an active lease require manual selection. Saved form values remain unchanged until you change a selection.
 
 On the Properties, Units, Tenants, and Leases lists, choose **View** to review a record without opening an editing form. Choose **Edit** when you want to make changes. Detail pages also provide an Edit link and a Back to list link.

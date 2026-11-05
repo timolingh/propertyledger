@@ -598,6 +598,10 @@ class PropertyLedgerCrudViewTests(TestCase):
             },
         )
         self.assertEqual(tenant_response.status_code, 302)
+        self.assertContains(
+            self.client.get(reverse("tenant-list")),
+            "Tenant created and provisioned in LedgerOS.",
+        )
         tenant = Tenant.objects.get(name="Tenant One")
 
         lease_response = self.client.post(
@@ -745,6 +749,7 @@ class PropertyLedgerCrudViewTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "LedgerOS customer sync failed.")
+        self.assertNotContains(response, "Tenant created and provisioned in LedgerOS.")
         self.assertFalse(Tenant.objects.filter(name="Tenant One").exists())
         self.assertEqual(mock_create_customer.call_count, 1)
 
