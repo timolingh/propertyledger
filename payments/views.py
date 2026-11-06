@@ -8,6 +8,9 @@ from decimal import Decimal
 from typing import Any
 
 from django.contrib import messages
+from django.db import transaction
+from django.views import View
+from payments.vendor_sync import vendor_sync_status
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.core import signing
 from django.shortcuts import get_object_or_404
@@ -773,21 +776,48 @@ class SecurityDepositEventDetailView(ReportingRoleRequiredMixin, PaymentsAppCont
 
 
 class VendorListView(ReportingRoleRequiredMixin, PaymentsCrudListView):
+    template_name = "payments/vendor_list.html"
     model = Vendor
     page_title = "Vendors"
     create_url_name = "vendor-create"
     create_label = "Add vendor"
     allowed_roles = ReportingRoleRequiredMixin.allowed_roles
 
+    def get_queryset(self):
+        return Vendor.objects.select_related("sync_record").order_by("name", "id")
+
     def get_rows(self, objects):
         return [
             {
                 "object": obj,
+                "vendor_sync": vendor_sync_status(obj),
                 "summary": f"{obj.email or 'No email'} | {'active' if obj.is_active else 'inactive'}",
                 "edit_url": reverse("vendor-edit", kwargs={"pk": obj.pk}),
             }
             for obj in objects
         ]
+
+
+class VendorSyncView(BookkeepingRoleRequiredMixin, View):
+    """Explicit provisioning of the saved vendor; never a financial posting."""
+    http_method_names = ["post"]
+
+    def post(self, request, pk):
+        try:
+            with transaction.atomic():
+                vendor = get_object_or_404(Vendor.objects.select_for_update(), pk=pk)
+                VendorService.save_and_sync_vendor(vendor)
+                vendor.refresh_from_db()
+                status = vendor_sync_status(vendor)
+                audit_success(action="vendor_sync_requested", record=vendor, user=request.user, source="ui")
+        except ValidationError:
+            messages.error(request, "Vendor could not be synced. Review the saved vendor details and LedgerOS setup before retrying.")
+            return HttpResponseRedirect(reverse("vendor-edit", args=[pk]))
+        if status["synced"]:
+            messages.success(request, "Vendor synced to LedgerOS.")
+        else:
+            messages.warning(request, status["guidance"])
+        return HttpResponseRedirect(reverse("vendor-list"))
 
 
 class VendorCreateView(PaymentsCrudFormView, CreateView):
@@ -813,8 +843,7 @@ class VendorCreateView(PaymentsCrudFormView, CreateView):
         elif self.object.sync_record and self.object.sync_record.status == LedgerOSSyncRecord.Status.FAILED:
             messages.warning(
                 self.request,
-                "Vendor saved locally, but LedgerOS provisioning failed."
-                + (f" {self.object.sync_record.last_error}" if self.object.sync_record.last_error else ""),
+                "Vendor saved locally. " + vendor_sync_status(self.object)["guidance"],
             )
         else:
             messages.warning(
@@ -825,12 +854,21 @@ class VendorCreateView(PaymentsCrudFormView, CreateView):
 
 
 class VendorUpdateView(PaymentsCrudFormView, UpdateView):
+    template_name = "payments/vendor_form.html"
     model = Vendor
     form_class = VendorForm
     page_title = "Edit vendor"
     page_action = "Save vendor"
     list_url_name = "vendor-list"
     allowed_roles = BookkeepingRoleRequiredMixin.allowed_roles
+
+    def get_queryset(self):
+        return Vendor.objects.select_related("sync_record")
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context["vendor_sync"] = vendor_sync_status(self.object)
+        return context
 
     def form_valid(self, form):
         self.object = form.save(commit=False)
@@ -847,8 +885,7 @@ class VendorUpdateView(PaymentsCrudFormView, UpdateView):
         elif self.object.sync_record and self.object.sync_record.status == LedgerOSSyncRecord.Status.FAILED:
             messages.warning(
                 self.request,
-                "Vendor saved locally, but LedgerOS provisioning failed."
-                + (f" {self.object.sync_record.last_error}" if self.object.sync_record.last_error else ""),
+                "Vendor saved locally. " + vendor_sync_status(self.object)["guidance"],
             )
         else:
             messages.warning(
@@ -1037,7 +1074,7 @@ class VendorBillDetailView(ReportingRoleRequiredMixin, PaymentsAppContextMixin, 
         return super().dispatch(request, *args, **kwargs)
 
     def get_queryset(self):
-        return VendorBill.objects.select_related("vendor", "property", "unit", "maintenance_category", "maintenance_request", "sync_record")
+        return VendorBill.objects.select_related("vendor", "vendor__sync_record", "property", "unit", "maintenance_category", "maintenance_request", "sync_record")
 
     def post(self, request, *args, **kwargs):
         self.object = self.get_object()
@@ -1081,6 +1118,8 @@ class VendorBillDetailView(ReportingRoleRequiredMixin, PaymentsAppContextMixin, 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         bill = self.object
+        context["vendor_sync"] = vendor_sync_status(bill.vendor)
+        context["can_sync_vendor"] = user_has_any_role(self.request.user, BookkeepingRoleRequiredMixin.allowed_roles)
         status = BillPaymentStatusService.statuses([bill])[bill.pk]
         context["bill_payment_status"] = status
         context["can_pay_bills"] = can_pay_vendor_bills(self.request.user)

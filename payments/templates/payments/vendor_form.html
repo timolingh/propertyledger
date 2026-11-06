@@ -1,0 +1,15 @@
+{% extends "ledgeros/crud_form.html" %}
+{% block after_form %}
+<section class="card vendor-sync-panel" aria-labelledby="vendor-sync-heading">
+  <div class="vendor-sync-panel-header">
+    <h2 id="vendor-sync-heading">LedgerOS connection</h2>
+    {% if not vendor_sync.synced %}
+    <form method="post" action="{% url 'vendor-sync' object.pk %}">
+      {% csrf_token %}<button type="submit">{{ vendor_sync.action_label }}</button>
+    </form>
+    {% endif %}
+  </div>
+  {% include "payments/vendor_sync_status.html" %}
+  <p class="vendor-table-note">Last recorded result. {% if not vendor_sync.synced %}Sync uses saved details—save any edits first. {% endif %}No bills or payments are posted.</p>
+</section>
+{% endblock %}

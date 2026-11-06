@@ -83,8 +83,8 @@ Representative records participants should encounter:
   - `GreenLine Landscaping` for `315.00`
 - a draft vendor payment for `Ace Plumbing` with check number `BETA-1001`
 - three draft security deposit events tied to the three leases
-- `BETA-MIXED-RECEIPT`, a draft `1950.00` receipt with `1450.00` rent and a `500.00` deposit component
-- maintenance scenarios `BETA-MAINT-OPEN`, `BETA-MAINT-HOLD`, and `BETA-MAINT-INVOICE-PENDING`
+- Avery Jordan’s draft $1,950.00 receipt for unit 101: $1,450.00 rent and a $500.00 security deposit
+- maintenance requests: “Kitchen sink is leaking into the cabinet.” (unit 101, Open), “Hallway light flickers intermittently.” (unit 102, On hold), and “Remove fallen branches and restore the rear walkway.” (unit 103, Closed with vendor invoice pending)
 
 Default demo password:
 

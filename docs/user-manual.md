@@ -92,6 +92,10 @@ failure rather than creating a replacement.
 
 Use vendor records for payees and vendor bills for expenses.
 
+The Vendors list shows each vendor’s **LedgerOS status**: Not synced, Pending, In progress, Synced, or Sync failed. This is the last recorded result, not a live check of LedgerOS availability. The list and vendor edit page show the last successful sync time when available and guidance after a failure. A vendor must sync before its bills can post.
+
+As an administrator or bookkeeper, choose **Sync to LedgerOS** or **Retry sync** for an unsynced vendor. On the edit page, save changes before using this action: it syncs the saved details. Saving a vendor also retains its existing automatic sync behavior. Fix connection or Accounts Payable setup issues before retrying. Repeating an unchanged successful sync does not send another request. Vendor sync does not post a bill or payment; read-only users can review status but cannot sync.
+
 Set a vendor's payment terms to **15 days**, **30 days**, or **Upon receipt**. New bills default to today's bill date and a due date calculated from that date using the vendor's terms; unset terms mean the same day. On new bill forms, changing the vendor or bill date updates the suggested due date until you enter your own due date. Both dates remain editable before posting. Existing bills keep their saved dates when vendor terms change.
 
 Enter the supplier's reference in **Vendor invoice number** (optional). It appears on the bill detail page and is sent to LedgerOS when a new bill is posted. Changing it on an approved, unposted bill requires approval again. Previously posted bills are not automatically updated in LedgerOS.

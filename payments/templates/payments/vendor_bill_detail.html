@@ -140,6 +140,11 @@
   {% endif %}
   <div class="card">
     <h2>LedgerOS Sync</h2>
+    <p>Vendor sync: <strong>{{ vendor_sync.label }}</strong> (last recorded result).</p>
+    {% if not vendor_sync.synced %}
+      <p>This vendor must sync to LedgerOS before an unposted bill can post. Syncing the vendor does not post this bill.</p>
+      {% if can_sync_vendor %}<a href="{% url 'vendor-edit' bill.vendor_id %}">Review vendor and sync</a>{% else %}<p>Ask a bookkeeper or administrator to sync the vendor.</p>{% endif %}
+    {% endif %}
     {% if can_post_bill %}<form method="post">
       {% csrf_token %}
       <input type="hidden" name="action" value="sync">

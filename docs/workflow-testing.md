@@ -34,21 +34,21 @@ All demo users use password `PropertyLedgerBeta123!`.
 | `beta-owner-viewer` | Owner/reporting visibility without writes |
 | `beta-read-only` | General read access without writes |
 
-## Fixture map
+## Demo records to use
 
-Use `Cedar Grove Apartments`, owned by `Cedar Grove Holdings LLC`.
+Use **Cedar Grove Apartments**, owned by **Cedar Grove Holdings LLC**. Find the records below by tenant, amount, unit, or maintenance description. Codes beginning with `BETA-` are test-data references, not values you need to enter.
 
-| Scenario | Seeded record | Initial state |
+| Scenario | Record to look for | Initial state |
 | --- | --- | --- |
 | Vendor provisioning | Ace Plumbing, Bright Electric, GreenLine Landscaping | Local vendor records; fresh seeding does not sync them to LedgerOS |
 | Tenant provisioning | Avery Jordan | Local tenant record; explicitly provision the matching LedgerOS customer before posting rent in step 5 |
-| Rent and deposit | `BETA-MIXED-RECEIPT` for Avery Jordan, unit 101 | Draft receipt for `1950.00`: rent `1450.00`, deposit `500.00`; no allocations posted |
-| Maintenance lifecycle | `BETA-MAINT-OPEN` | Urgent leaking sink request, Open |
-| Hold and resume | `BETA-MAINT-HOLD` | Hallway light request, On hold while awaiting access |
-| Maintenance-to-AP | `BETA-MAINT-INVOICE-PENDING` | Closed and verified; vendor invoice pending; no linked bill |
+| Rent and deposit | Avery Jordan’s $1,950.00 rent and security-deposit receipt, unit 101 | Draft receipt for `1950.00`: rent `1450.00`, deposit `500.00`; no allocations posted |
+| Maintenance lifecycle | the unit 101 request, “Kitchen sink is leaking into the cabinet.” | Urgent leaking sink request, Open |
+| Hold and resume | the unit 102 request, “Hallway light flickers intermittently.” | Hallway light request, On hold while awaiting access |
+| Maintenance bill handoff | the unit 103 request, “Remove fallen branches and restore the rear walkway.” | Closed and verified; vendor invoice pending; no linked bill |
 | Approved payable | Ace Plumbing bill for `240.00` | Approved locally; sync the vendor before posting the bill to LedgerOS |
 | Approval queue | Bright Electric bill for `180.00` | Submitted by the bookkeeper; awaiting independent approval |
-| Draft payable | GreenLine Landscaping bill for `315.00` | Draft |
+| Draft payable | GreenLine Landscaping bill for `315.00`, “Monthly landscaping service” | Draft, with no unit selected; prepare it for linking in step 3 |
 
 The seed is idempotent before workflow execution. Once a tester changes or posts a scenario, use `beta-reset.sh` followed by `beta-seed.sh` to restore its documented initial state. Rerunning the seed does not reverse lifecycle or accounting activity.
 
@@ -68,25 +68,27 @@ Record the role, URL, visible action, attempted forbidden action, HTTP result, a
 
 Sign in as `beta-manager` and open the maintenance queue.
 
-1. Open `BETA-MAINT-OPEN` and confirm Cedar Grove, unit 101, Avery Jordan, Plumbing, Ace Plumbing, urgent priority, and `240.00` estimate.
+1. Open the unit 101 request, “Kitchen sink is leaking into the cabinet.” and confirm Cedar Grove, unit 101, Avery Jordan, Plumbing, Ace Plumbing, urgent priority, and `240.00` estimate.
 2. Move it through Triage, Assign, Start, and Verify.
 3. Close it with **Vendor invoice pending** and a meaningful closure note.
 4. Confirm the event history records each actor, old state, new state, reason, and version.
 5. Reopen it with a reason. Confirm the prior close event remains and the reopen count increases.
-6. Open `BETA-MAINT-HOLD`, resume it, and confirm it returns to its prior Triaged state.
+6. Open the unit 102 request, “Hallway light flickers intermittently.”, resume it, and confirm it returns to its prior Triaged state.
 
 Expected accounting result: none. Maintenance transitions must not create a bill, payment, journal, tenant-ledger line, owner-statement line, sync record, or LedgerOS mutation.
 
 ## 3. Maintenance-to-vendor-bill handoff
 
-Sign in as `beta-bookkeeper` and open `BETA-MAINT-INVOICE-PENDING`. Property managers may link existing bills, while bill creation is reserved for admins and bookkeepers.
+Sign in as `beta-bookkeeper`. This scenario demonstrates a linking dependency: a bill must belong to the same property and, for a unit-specific maintenance request, the same unit. The existing **GreenLine Landscaping $315.00 draft bill** starts with no unit selected and the description **Monthly landscaping service**.
 
-1. Start the **Create vendor bill** handoff.
-2. Confirm property and request context are prefilled; choose GreenLine Landscaping and enter `315.00` if needed.
-3. Save the bill as a draft.
-4. Confirm the request remains Closed with Vendor invoice pending.
-5. Confirm both request and bill link to each other.
-6. Start the handoff again and confirm repeat submission does not create a duplicate bill.
+1. Open the unit 103 maintenance request, “Remove fallen branches and restore the rear walkway.” Under **Link an existing bill**, notice that the GreenLine bill is absent. It exists, but its unit does not match the request.
+2. Open **Vendor Bills**, find the existing GreenLine Landscaping $315.00 draft, and choose **Edit**.
+3. For this demo, treat that draft as the invoice for the walkway repair. Keep **Cedar Grove Apartments**, select unit **103**, change the repair description to **Remove fallen branches and restore the rear walkway.**, and choose **Save draft**. In actual use, only change attribution when it matches the vendor invoice and work performed.
+4. Return to the maintenance request. Under **Link an existing bill**, select the GreenLine Landscaping $315.00 bill and choose **Link bill**. No new bill is needed.
+5. Confirm the bill appears once in the linked-bills table and the request remains Closed with Vendor invoice pending.
+6. Open the linked bill and confirm it links back to the request. Approval and posting should remain in their draft states; linking does not approve, post, or pay it.
+
+Property managers can link compatible existing bills, but editing this draft requires a bookkeeper or administrator. If the bill already has the matching unit and description from an earlier walkthrough, skip the edit. If it is already linked, review the existing link instead of creating another bill.
 
 Expected accounting result: none until the bill is separately approved and posted. Maintenance closure must remain independent from bill approval, posting, and payment.
 
@@ -94,14 +96,14 @@ Expected accounting result: none until the bill is separately approved and poste
 
 1. Sign in as `beta-manager` and open the approval queue.
 2. Approve the submitted Bright Electric `180.00` bill. Confirm the original bookkeeper submitter cannot approve it.
-3. Sign in as `beta-bookkeeper`. Open **Vendors**, choose **Edit** for **Ace Plumbing**, and choose **Save vendor**. No field changes are required. Saving provisions the vendor in LedgerOS when setup and connectivity are ready. Confirm the message **Vendor saved and provisioned in LedgerOS.** If provisioning fails or remains pending, resolve the reported setup/connectivity issue and save the same vendor again before continuing.
+3. Sign in as `beta-bookkeeper`. Open **Vendors** and check **Ace Plumbing** in the **LedgerOS status** column. Fresh demo data shows **Not synced**. Choose **Sync to LedgerOS**, then confirm **Synced** and a last successful sync time. If it fails, follow the displayed guidance and choose **Retry sync** for the same vendor. If already Synced, continue to the bill; no vendor edits are required.
 4. Open the approved Ace Plumbing `240.00` bill.
 5. Post the bill to LedgerOS and confirm the local state shows a successful bill resource/reference.
 6. Choose **Pay bill** on that bill, enter `100.00`, review the payment date, choose the payment method, and retain the configured **Operating Bank** account for non-card payments. Choose **Post payment**. Confirm **Payment posted to LedgerOS.** and a remaining payable of `140.00`. If the form returns with **Payment could not be completed**, read the error summary, correct the indicated fields, and submit the same form again. The balance remains `240.00` until LedgerOS confirms the payment.
 7. Submit the same payment again only as a replay check. Confirm one local payment and one LedgerOS accounting effect.
 8. Record the remaining `140.00`. Confirm the bill is fully paid and a new payment action is no longer offered.
 
-The seed creates vendors locally without provisioning them in LedgerOS. Setup smoke passing and a bill's local approval do not imply its vendor is synced. Repeat the vendor Edit/Save step for Bright Electric or GreenLine Landscaping before posting their bills. Vendor provisioning does not post a bill or payment.
+The seed creates vendors locally without provisioning them in LedgerOS. Setup smoke passing and a bill's local approval do not imply its vendor is synced. Check vendor sync status and sync Bright Electric or GreenLine Landscaping before posting their bills. Vendor provisioning does not post a bill or payment.
 
 Expected accounting behavior: approval itself creates no ledger entry. Bill posting records the expense/payable once. Payments reduce the payable without changing the original expense, owner expense total, or tenant ledger. Every retry retains the same local payment and idempotency identity.
 
@@ -133,7 +135,7 @@ If posting previously failed with `customer_code: Unknown customer.`, the invoic
 Sign in as `beta-bookkeeper`.
 
 1. Open Avery Jordan's current `1450.00` base-rent charge with **View**. In **LedgerOS Sync**, choose **Approve and post to LedgerOS** and confirm **Invoice posted to LedgerOS.** The Edit screen offers the same action for the saved invoice; save edits first. Confirm a failed attempt shows its error and retains the action for retry, while a successfully posted invoice shows its sync reference and no posting button.
-2. Open tenant receipts and select `BETA-MIXED-RECEIPT`.
+2. Open tenant receipts and select Avery Jordan’s draft receipt for **$1,950.00** ($1,450.00 rent plus $500.00 security deposit).
 3. Confirm total `1950.00`, rent portion `1450.00`, and deposit portion `500.00` tied to Avery's unit 101 lease.
 4. Auto-allocate the rent portion and review the component status before finalization.
 5. Finalize the same receipt.

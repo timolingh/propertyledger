@@ -252,6 +252,12 @@ change after exact replay.
 - Record vendors, bills, vendor payments, and debt-service payments.
 - Keep credit-card and liability workflows behind the supported adapter paths.
 
+### Vendor sync visibility
+
+The vendor list and edit page display the stored `Vendor.sync_record` result and last successful sync timestamp. `payments/vendor_sync.py` supplies controlled labels and recovery guidance without exposing raw exceptions or response bodies. No live vendor verification is implied. Vendor and sync rows are fetched together; reading status does not initiate provisioning.
+
+`POST /payments/vendors/<id>/sync/` permits administrators and bookkeepers, requires CSRF, locks the saved vendor, and calls the existing `VendorService.save_and_sync_vendor` path. It records the requesting actor, preserves unchanged retry identity, and skips a repeat request when the successful payload hash matches. Missing setup can leave the vendor locally unsynced without creating an attempt. No journal, bill, payment, balance, report, or schema behavior changes. Bill detail explains the vendor prerequisite and links authorized editors to recovery.
+
 ### Vendor bill approval and payment authority (WP2)
 
 Vendors have optional calendar-day payment terms (0, 15, or 30 days). New bill dates default to `timezone.localdate`; missing due dates default to bill date plus vendor terms, or zero days when unset. The bill form and draft service apply defaults while preserving explicit dates. Existing bill dates are not recalculated when vendor terms change. The normal and maintenance handoff forms share date suggestions and preserve manually overridden due dates.
