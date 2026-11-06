@@ -25,7 +25,8 @@ class RecordDetailTests(TestCase):
             with self.subTest(record=name):
                 url = reverse(f"{name}-detail", args=[obj.pk])
                 before = type(obj).objects.filter(pk=obj.pk).values().get()
-                self.assertContains(self.client.get(reverse(f"{name}-list")), f'href="{url}">View</a>')
+                label = f'View<span class="visually-hidden"> {obj.name}</span>' if name == 'tenant' else 'View'
+                self.assertContains(self.client.get(reverse(f"{name}-list")), f'<a href="{url}">{label}</a>', html=True)
                 response = self.client.get(url)
                 self.assertContains(response, expected)
                 self.assertContains(response, reverse(f"{name}-edit", args=[obj.pk]))

@@ -12,8 +12,11 @@
     <p><strong>Type:</strong> {{ event.get_event_type_display }}</p>
     <p><strong>Date:</strong> {{ event.event_date }}</p>
     <p><strong>Amount:</strong> {{ event.amount }}</p>
-    <p><strong>Required balance:</strong> {{ required_amount }}</p>
-    <p><strong>Held balance:</strong> {{ held_balance }}</p>
+    <p><strong>Required by lease:</strong> ${{ deposit_totals.required|floatformat:"2g" }}</p>
+    <p><strong>Confirmed received across receipts and events:</strong> ${{ deposit_totals.received|floatformat:"2g" }}</p>
+    <p><strong>Remaining initial deposit to collect:</strong> {% if deposit_totals.review %}Needs review{% else %}${{ deposit_totals.remaining|floatformat:"2g" }}{% endif %}</p>
+    {% if deposit_totals.excess > 0 %}<p class="status-bad"><strong>${{ deposit_totals.excess|floatformat:"2g" }} over the lease requirement. Reconcile the posted transactions.</strong></p>{% endif %}
+    <p><strong>This event:</strong> {{ deposit_activity_status }}</p>
     <p><strong>Status:</strong> {{ event.get_status_display }}</p>
     <p><strong>Description:</strong> {{ event.description|default:"-" }}</p>
     <div style="display:flex; gap:1rem; flex-wrap:wrap;">
@@ -22,7 +25,8 @@
     </div>
   </div>
   <div class="card">
-    <h2>LedgerOS Sync</h2>
+    <h2>Post standalone event</h2>
+    <p>This posts a separate transaction. If this money is already included in a tenant receipt, post it from that receipt instead; posting both would record it twice.</p>
     {% if can_bookkeep %}<form method="post">
       {% csrf_token %}
       <input type="hidden" name="action" value="sync">

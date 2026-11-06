@@ -4,27 +4,43 @@
 
 {% block content %}
   <div class="card">
-    <h1>Tenant Payment {{ payment.pk }}</h1>
+    <h1>Tenant Receipt {{ payment.pk }}</h1>
     <p><strong>Tenant:</strong> {{ payment.tenant }}</p>
     <p><strong>Property:</strong> {{ payment.property }}</p>
+    <p><strong>Payment date:</strong> {{ payment.payment_date }}</p>
+    <p><strong>Payment method:</strong> {{ payment.get_payment_method_display }}</p>
+    <p><strong>Reference:</strong> {{ payment.reference|default:"—" }}</p>
     <p><strong>Status:</strong> {{ payment.get_status_display }}</p>
-    <p><strong>Invoice / rent component:</strong> {{ payment.allocated_amount }}</p>
-    <p><strong>Security deposit component:</strong> {{ payment.deposit_amount }}</p>
-    <p><strong>Unallocated:</strong> {{ payment.unapplied_amount }}</p>
+    <p><strong>Total payment: ${{ payment.amount|floatformat:"2g" }}</strong></p>
+    <p><strong>Applied to rent / invoices:</strong> {{ payment.allocated_amount }}</p>
+    <p><strong>Assigned to security deposit:</strong> {{ payment.deposit_amount }}</p>
+    <p><strong>Unapplied balance:</strong> {{ payment.unapplied_amount }}</p>
     <p><strong>Notes:</strong> {{ payment.notes|default:"-" }}</p>
-    <p class="muted">Invoice allocations settle accounts receivable. The deposit component posts to the security deposit liability. Finalizing retries only unconfirmed components and confirms the local receipt after every component has a posted LedgerOS journal.</p>
+    <p class="muted">This receipt records money already received. Apply the rent portion to invoices first, then post the receipt to record its deposit portion. Assigned amounts are not proof of posting; check the confirmation for each part below. Retrying reuses this receipt and skips confirmed postings.</p>
     <div style="display:flex; gap:1rem; flex-wrap:wrap;">
       <a class="button" href="{% url 'tenant-payment-list' %}">Back</a>
       <a class="button" href="{% url 'invoice-list' %}">Open invoices</a>
-      {% if can_bookkeep %}<a class="button" href="{% url 'tenant-payment-edit' payment.pk %}">Edit payment notes</a>{% endif %}
+      {% if can_bookkeep %}<a class="button" href="{% url 'tenant-payment-edit' payment.pk %}">{% if payment.is_editable_after_sync %}Edit receipt{% else %}Edit payment notes{% endif %}</a>{% endif %}
     </div>
   </div>
   <div class="card">
-    <h2>Security deposit component</h2>
+    <h2 id="security-deposit">Security deposit</h2>
+    {% if can_bookkeep and can_assign_deposit %}
+      <h3>Assign unapplied money to deposit</h3>
+      <p>Up to ${{ payment.unapplied_amount|floatformat:"2g" }} of this existing receipt is available. Choose the lease and amount. Rent already posted stays unchanged. This assignment does not post the deposit yet.</p>
+      <form method="post">
+        {% csrf_token %}
+        <input type="hidden" name="action" value="assign_deposit">
+        {{ deposit_assignment_form.as_p }}
+        <button type="submit" class="button primary">Assign to security deposit</button>
+      </form>
+    {% endif %}
+    <p><a href="{% url 'security-deposit-list' %}">View deposit requirements and received amounts</a></p>
     {% if deposit_allocation %}
       <p><strong>Lease:</strong> {{ deposit_allocation.lease }}</p>
       <p><strong>Amount:</strong> {{ deposit_allocation.amount }}</p>
-      <p><strong>Sync:</strong> {{ deposit_allocation.sync_record.status|default:"Not attempted" }}</p>
+      <p><strong>Posting:</strong> {% if deposit_allocation.sync_record.status == 'succeeded' and deposit_allocation.sync_record.ledgeros_journal_entry_id %}Posted to LedgerOS{% else %}Not confirmed — not counted as received{% endif %}</p>
+      {% if deposit_allocation.sync_record.ledgeros_journal_entry_id %}<p><strong>Journal:</strong> {{ deposit_allocation.sync_record.ledgeros_journal_entry_id }}</p>{% endif %}
       {% if deposit_sync_log_entry %}
         <div class="card">
           <strong>{{ deposit_sync_log_entry.title }}</strong>
@@ -38,12 +54,13 @@
     {% endif %}
   </div>
   <div class="card">
-    <h2>Allocations</h2>
-    {% if can_bookkeep %}<form method="post">
+    <h2 id="receipt-allocation">Apply rent to invoices</h2>
+    <p>This action applies the remaining ${{ payment.unapplied_amount|floatformat:"2g" }} to open invoices using the configured payment order and posts those invoice payments to LedgerOS.</p>
+    {% if can_bookkeep and payment.status != 'posted' and payment.status != 'voided' and payment.unapplied_amount > 0 %}<form method="post">
       {% csrf_token %}
       <input type="hidden" name="action" value="allocate">
       <input type="hidden" name="payment_id" value="{{ payment.pk }}">
-      <button type="submit" class="button primary">Auto allocate remaining</button>
+      <button type="submit" class="button primary">Apply rent and post to LedgerOS</button>
     </form>{% endif %}
     <table>
       <thead>
@@ -82,12 +99,16 @@
     {% endif %}
   </div>
   <div class="card">
-    <h2>Finalize payment</h2>
-    {% if can_bookkeep %}<form method="post">
+    <h2>Post receipt to LedgerOS</h2>
+    {% if payment.status == 'posted' %}<p>Receipt posted. Its confirmed rent and deposit components are recorded in LedgerOS.</p>
+    {% elif payment.status == 'voided' %}<p>This receipt is voided.</p>
+    {% elif payment.unapplied_amount > 0 %}<p>Apply the remaining ${{ payment.unapplied_amount|floatformat:"2g" }} to invoices or assign it to the security deposit above before posting this receipt.</p>
+    {% else %}<p>Record the ${{ payment.deposit_amount|floatformat:"2g" }} deposit portion and retry any unconfirmed invoice payments. Already confirmed amounts will not post again.</p>{% endif %}
+    {% if can_bookkeep and payment.status != 'posted' and payment.status != 'voided' and payment.unapplied_amount == 0 %}<form method="post">
       {% csrf_token %}
       <input type="hidden" name="action" value="sync">
       <input type="hidden" name="payment_id" value="{{ payment.pk }}">
-      <button type="submit" class="button primary">Retry components and finalize receipt</button>
+      <button type="submit" class="button primary">Post receipt to LedgerOS</button>
     </form>{% endif %}
     {% if sync_log_entries %}
       {% for entry in sync_log_entries %}

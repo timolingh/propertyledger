@@ -63,6 +63,8 @@ On maintenance, vendor-bill, and security-deposit forms, selecting a unit fills 
 
 On the Properties, Units, Tenants, and Leases lists, choose **View** to review a record without opening an editing form. Choose **Edit** when you want to make changes. Detail pages also provide an Edit link and a Back to list link.
 
+The Tenants list shows compact **LedgerOS status** badges and the last successful provisioning time when recorded. **Synced** reflects a successful creation/provisioning operation; **Not confirmed** means no local evidence exists, not necessarily that the customer is absent upstream. **Sync failed** offers **Review & retry**. **Review & sync** opens the existing confirmation page; viewing the list never provisions customers. Newly created tenants are provisioned by the creation flow. A changed name after a recorded confirmation requires review; older audit entries may not contain a name snapshot.
+
 ### 3. Add tenant charges
 
 Use tenant charges for recurring rent and manual charges.
@@ -80,9 +82,7 @@ Open an existing invoice with **View** or **Edit** to see the **LedgerOS Sync** 
 
 Use tenant payments to record money received from tenants. Enter the full receipt amount. If part is a refundable security deposit, enter that amount and choose the matching lease; the remainder can be allocated to open invoices.
 
-Allocating posts invoice components to LedgerOS. Choose **Retry components and
-finalize receipt** to post the deposit component, retry failures, and confirm the
-receipt. Successfully posted components are reused. The full amount must be split
+On receipt detail, **Apply rent and post to LedgerOS** allocates and posts the invoice portion. Once the full payment is assigned, choose **Post receipt to LedgerOS** on detail or the Tenant Receipts list to post the deposit portion, retry unconfirmed components, and confirm the receipt. Successfully posted components are reused. The full amount must be split
 between invoices and the deposit before finalization; any remainder stays
 unallocated locally. After any posting attempt, accounting fields are locked and
 notes remain editable. Retry the existing receipt after a timeout or partial
@@ -162,7 +162,9 @@ One request can show multiple vendor bills. Each row displays approval, posting,
 
 ### 7. Track deposits
 
-Security deposit activity comes from confirmed receipt deposit components and standalone received/refunded events. Deposit money is a liability and does not appear as rent collection or tenant AR settlement.
+Security Deposits shows lease requirements, confirmed amounts received, and the remaining initial deposit to collect. Receipt deposits and standalone events appear together with their source links and posting status. A draft “Received” event is not counted as collected; do not post a standalone event for money already recorded through a receipt.
+
+Confirmed receipt components count even if another part of the receipt is still awaiting posting. Failed or uncertain attempts and historical successes without a journal reference require review before relying on the collection balance. Refunds and deductions also show **Needs review** for remaining collection rather than automatically requiring the tenant to replenish a deposit. Amounts over the lease requirement are flagged explicitly. New deposit postings across receipts and standalone events share the lease’s limit; an unconfirmed earlier posting must be resolved before another deposit can post. Retry the original record after a timeout. These are recorded collection totals, not a live deposit-liability balance. Deposit money is a liability and does not appear as rent collection or tenant AR settlement.
 
 ### 8. Review reports and owner statements
 
@@ -209,3 +211,7 @@ Rules of thumb:
 
 The header and workflow home distinguish incomplete PropertyLedger setup, incomplete LedgerOS configuration, denied access, and a service outage. You may continue local maintenance work and save receipt or vendor-bill drafts. Posting allocations, finalizing receipts, posting bills, paying vendors, and other accounting actions remain disabled until LedgerOS is ready. Accounting-derived amounts appear as **Unavailable**, never as zero. After recovery, retry the same saved record so PropertyLedger reuses its accounting identity; do not create a replacement record.
 
+
+### Assign an existing payment’s unused balance to a deposit
+
+If you recorded a rent-and-deposit check on an invoice, use **Assign to security deposit** beside that payment in **Applied Payments**. On the receipt, choose the matching lease and enter the deposit portion of its unapplied balance. Assignment saves the split; **Post receipt to LedgerOS** records the deposit. Previously posted rent stays unchanged. Do not create another receipt or standalone deposit event for the same money. An unconfirmed rent posting must be resolved before assigning a deposit.

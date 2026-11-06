@@ -174,3 +174,4 @@ th, td { text-align: left; border-bottom: 1px solid var(--border); padding: .75r
   .vendor-row-actions { gap: .65rem; flex-wrap: wrap; }
   .vendor-sync-time { max-width: 11rem; }
 }
+.vendor-row-actions .button { margin: 0; padding: .35rem .7rem; font-size: .8rem; }

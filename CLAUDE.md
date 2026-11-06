@@ -114,3 +114,9 @@ When PropertyLedger is the active context, keep LedgerOS setup and bootstrap flo
 
 8. **Treat correct setup as a prerequisite to user testing.**  
    User-facing feature testing should happen after the relevant setup path is correct, not while the setup path itself is still being discovered. If a screen or workflow depends on configuration, automate or document that configuration first so the test measures the feature instead of the missing setup.
+
+## Receipt workflow acceptance
+
+When changing receipt allocation or posting, exercise every visible entry point (including recording payment from an invoice), not only a preconfigured receipt. Start from an unpaid invoice, record one actual or simulated payment, and follow the rendered controls through rent allocation, deposit assignment, and posting. Test both assigning the deposit before rent posting and assigning unused funds afterward. Every intermediate state with unapplied money must offer an explicit supported next action or explain the specific blocker.
+
+Assert that total received equals invoice applications plus deposit allocation plus unapplied funds. Preserve attempted component payloads, enforce the shared lease deposit ceiling, and verify retries do not post cash twice. Do not use a new receipt, standalone deposit event, direct database repair, or demo reset to stand in for allocating existing money. Validate instructions against the actual screens and report which entry paths were exercised.

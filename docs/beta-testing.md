@@ -54,9 +54,11 @@ Then inspect LedgerOS with:
 This prepares both local stacks and seeds a realistic demo property-management setup.
 If the smoke check did not complete during seeding, run `make smoke` after both stacks are up so the setup screen records the result.
 
-### Seeded demo data
+### Prepared records for later exercises
 
-The session should use these specific records:
+Keep these seeded records for later maintenance, approval, partial-payment, and recovery exercises. Start the first walkthrough with the new tenant **Dana Morgan**, created by the tester using the [Guided Workflow Test](./workflow-testing.md#start-here-a-new-tenants-first-payment). The seeded owner and property provide context; do not begin by posting Avery’s prepared receipt.
+
+Prepared records:
 
 - owner: `Cedar Grove Holdings LLC`
 - property: `Cedar Grove Apartments`
@@ -94,143 +96,39 @@ For the complete step-by-step acceptance sequence and expected accounting result
 
 ## How to run the hour
 
-Ask participants to move through the product in the order below.
+Use [sections 1–6 of the Guided Workflow Test](./workflow-testing.md#start-here-a-new-tenants-first-payment) as the first story. Ask the tester to think aloud before each action. Let them create the records instead of presenting partially completed ones.
 
-1. Start with the admin/setup view.
-2. Move into property management.
-3. Finish with payments, bills, and reports.
-4. End with open-ended feedback.
+### Minutes 0–5: Confirm setup
 
-Tell people up front that they should think out loud. You want them to narrate what they expect to happen before they click.
+As `beta-admin`, confirm the LedgerOS connection, selected open period, mappings, and smoke result. Explain that the seeded owner/property are ready, but the new tenant’s workflow has not started. Agree on the demo dates before handing over.
 
-## Minute 0 to 10: First impression and setup
+### Minutes 5–15: Create and provision a tenant
 
-Give the group the admin user first:
+As `beta-manager`, have the tester create **Dana Morgan**, review the tenant, and confirm the **Synced** badge after creation. If the result is not confirmed, follow **Review & sync** and the provisioning review. Confirm success before proceeding. Ask what this did and whether any money has been recorded yet; the answer should be no.
 
-- username: `beta-admin`
-- password: `PropertyLedgerBeta123!`
+### Minutes 15–25: Create the lease and rent invoice
 
-Ask them to open the admin screen:
+Have the tester create unit **104** and Dana’s active lease with **$1,450 monthly rent** and **$1,450 required deposit**. Review the lease and the initially unpaid deposit requirement. Switch to `beta-bookkeeper`, create the $1,450 rent invoice, and post it. Ask the tester to explain the **$2,900 total owed** and where each obligation appears.
 
-- `http://localhost:8000/admin/`
+### Minutes 25–40: Receive and record the first payment
 
-Then send them to the setup screen:
+Only now introduce the fictional **$2,900 check**, covering rent and deposit in full. Have the tester create a receipt, enter the **$1,450 deposit allocation** themselves, save for review, apply/post rent, and post the receipt’s deposit portion. Confirm every action’s result before continuing. Do not create a separate deposit-received event for the same money.
 
-- `http://localhost:8000/`
+### Minutes 40–50: Verify the outcome
 
-Ask them to do these things in order:
+Have the tester find Dana’s paid rent invoice, posted $2,900 receipt, and deposit summary showing **$1,450 required / $1,450 received / $0 remaining**. Follow the deposit activity link back to the receipt. Ask them to explain which action created each record, when the payment arrived, and whether any amount remains owed.
 
-1. Look for the LedgerOS connection and setup status.
-2. Confirm the page already shows the LedgerOS entity and accounting period that were seeded.
-3. Find the setup information for `Cedar Grove Apartments`.
-4. Say out loud whether the page feels ready to use or still feels half-configured.
+### Minutes 50–60: Debrief
 
-What to listen for:
+Ask what was confusing, which labels were unexpected, and whether the screen made each posting action clear. Record the exact step and screen. If the first story is not understandable, use the remaining time to capture that friction rather than switching into another prepared scenario.
 
-- Do they understand what LedgerOS is doing here?
-- Do they know whether they are “set up” yet?
-- Do they have to guess where to begin?
+## Later sessions: partial states and recovery
 
-## Minute 10 to 25: Property management flow
-
-Switch them to the property manager account:
-
-- username: `beta-manager`
-- password: `PropertyLedgerBeta123!`
-
-Ask them to move through these pages:
-
-- `http://localhost:8000/properties/`
-- `http://localhost:8000/units/`
-- `http://localhost:8000/tenants/`
-- `http://localhost:8000/leases/`
-
-Ask them to complete these tasks:
-
-1. Find `Cedar Grove Apartments`.
-2. Find units `101`, `102`, and `103`.
-3. Find tenants `Avery Jordan`, `Brooke Chen`, and `Carlos Rivera`.
-4. Open one lease and explain, in plain language, who lives in which unit and what the rent is.
-5. Tell you whether the relationships between property, unit, tenant, and lease feel obvious.
-
-Use this as a concrete prompt:
-
-- “Show me who lives in unit `101` and what rent they pay.”
-
-What to listen for:
-
-- Can they navigate by instinct?
-- Do they understand the object model without explanation?
-- Do they notice when a record belongs to another record?
-
-## Minute 25 to 40: Payments and bills
-
-Switch them to the bookkeeper account:
-
-- username: `beta-bookkeeper`
-- password: `PropertyLedgerBeta123!`
-
-Ask them to open the payments area:
-
-- `http://localhost:8000/payments/`
-
-Then give them this sequence:
-
-1. Find the vendor bills.
-2. As `beta-manager`, open the approval queue and review the submitted `Bright Electric` bill. Confirm the submitter cannot approve their own bill.
-3. Identify the approved bill for `Ace Plumbing`, the submitted bill for `Bright Electric`, and the draft bill for `GreenLine Landscaping`.
-4. As `beta-bookkeeper`, confirm that an approved bill still has a separate LedgerOS posting state and that payment begins from an eligible posted bill.
-5. Open the existing vendor payment for `Ace Plumbing` and distinguish it from a fresh settlement.
-6. Open the security deposit area and look for the three seeded deposit events.
-
-Ask them to describe what seems ready for action and what seems like a draft or in-progress record.
-
-Use concrete prompts like:
-
-- “Which of these bills looks most like something you would actually enter today?”
-- “Which fields help you trust that the bill is attached to the right property?”
-- “Does the payment screen make it clear what has already been recorded?”
-
-What to listen for:
-
-- Can they tell bills, payments, and deposits apart?
-- Do the statuses make sense?
-- Do the amounts feel believable?
-
-## Minute 40 to 50: Reports and confidence check
-
-Ask participants to review the reports area and confirm `Cedar Grove Apartments` appears in the reporting pages.
-
-If they need help, direct them to the reporting views already available in the app and ask them to answer these questions:
-
-1. What would you expect to learn from this report?
-2. Does the report seem tied to the property they were just exploring?
-3. Would they trust this screen enough to make a decision from it?
-
-This is the right time to ask whether the product feels accounting-first, property-first, or something in between.
-
-## Minute 50 to 60: Open feedback
-
-Close the session with a short discussion.
-
-Ask each person:
-
-1. What was the easiest thing to understand?
-2. What felt confusing or too hidden?
-3. Which screen would you change first?
-4. Which one record, label, or amount made the product feel real?
-5. What would you expect to do next if this were your actual job?
-
-Capture feedback on:
-
-- whether the seeded examples felt realistic;
-- whether the names, amounts, and dates helped them orient quickly;
-- whether the setup screen explained the product well enough;
-- whether the property, payments, and reports workflows felt connected.
+Once the first story is understood, use sections 7–13 of the guided test for permission checks, maintenance, vendor bills, the separate Avery partial-deposit scenario, and outages. Explain the starting state of each prepared record before using it. These exercises test resuming work; they are not the introduction to creating it.
 
 ## Moderator notes
 
-Start each role at `/home/` after setup. Check the three workflow cards, existing record/report links, desktop collapse and mobile menu. Confirm read-only viewers can review maintenance while owner viewers and unassigned users cannot. Exercise request creation, hold/resume, verified closure with each invoice outcome, and reasoned reopening. Create two vendor bills from one request with different vendors, link an existing bill after closure, and confirm operational, approval, posting, and payment states remain separate. Repeat a bill submission and confirm it reuses the existing bill. Exercise the separate bill submitter, approver, and payer capabilities with the seeded users. Record rent-only, deposit-only and combined receipts and verify their component references and totals.
+Start with the new-tenant story above. For later prepared scenarios, start each role at `/home/` after setup. Check the three workflow cards, existing record/report links, desktop collapse and mobile menu. Confirm read-only viewers can review maintenance while owner viewers and unassigned users cannot. Exercise request creation, hold/resume, verified closure with each invoice outcome, and reasoned reopening. Create two vendor bills from one request with different vendors, link an existing bill after closure, and confirm operational, approval, posting, and payment states remain separate. Repeat a bill submission and confirm it reuses the existing bill. Exercise the separate bill submitter, approver, and payer capabilities with the seeded users. Record rent-only, deposit-only and combined receipts and verify their component references and totals.
 
 Stop LedgerOS, reload the workflow home, and confirm the outage warning and **Unavailable** accounting values. Save a maintenance change, receipt draft and bill draft. Confirm finalization, bill posting and vendor payment are blocked without a new sync attempt. Restart LedgerOS and retry the same saved records, confirming their local IDs and idempotency identities remain unchanged. Maintenance photos remain gated pending private durable storage. See [WP1 browser acceptance](qa/wp1/README.md) for desktop/mobile examples.
 

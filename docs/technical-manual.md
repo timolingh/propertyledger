@@ -247,10 +247,24 @@ to rent and `500.00` to the deposit liability. Confirm aggregate Cash `+2,000.00
 AR `-1,500.00`, deposit liability `+500.00`, and no balance or journal-count
 change after exact replay.
 
+### Receipt posting and deposit collection visibility
+
+Receipt detail labels the existing allocation mutation **Apply rent and post to LedgerOS** and the existing finalization mutation **Post receipt to LedgerOS**. The latter is also available on the receipts list once the payment is fully allocated; posted/voided receipts and viewers have no posting control. Both paths retain their readiness, role, CSRF, service, and idempotency enforcement. No new accounting endpoint or posting sequence is introduced.
+
+`payments/deposit_activity.py` is a read-only projection of lease requirements, receipt deposit allocations, and standalone events. It counts received amounts only with a succeeded sync and journal ID, independently of parent receipt finalization, excluding voided records. Drafts remain visible but contribute nothing to confirmed receipts. Uncertain attempts, local posted events without evidence, and legacy journal-less successes flag the remaining collection amount for review. Confirmed refunds/deductions also require review rather than inferring a replenishment obligation. Remaining initial collection is otherwise `max(lease requirement - confirmed receipts, 0)`; it is not a current liability balance. Standalone detail uses the same projection so draft amounts no longer appear as held money. Existing ledger/report accounting treatments are unchanged.
+
+For Avery’s example: a $1,450 rent invoice and $500 deposit portion on a $1,950 receipt produce the existing Cash +$1,950, AR -$1,450, liability +$500 contract. The deposit page shows required $1,450, received $500, remaining $950, and excludes the separate $1,450 draft event. Retrying the same receipt creates no additional posting. No migration or correction of historical data is performed. Amounts above the lease requirement are displayed explicitly as an excess, not hidden by a zero remaining balance.
+
+Received-deposit posting now checks one shared lease limit across receipt allocations and standalone received events. The lease row is locked through posting, including concurrent calls from different paths. Fresh postings cannot exceed the lease requirement less existing confirmed deposits. Unconfirmed prior attempts block new postings; the original attempted operation can still retry its frozen payload/key. Local voiding does not reopen posting capacity, and refunds do not automatically authorize recollection. Receipt allocation/finalization preflight the deposit before attempting invoice writes. A blocked new deposit creates no new sync attempt or journal. Existing posted history requires an explicit supported reversal/reconciliation; the guard does not rewrite it.
+
 ### Vendor and debt workflows
 
 - Record vendors, bills, vendor payments, and debt-service payments.
 - Keep credit-card and liability workflows behind the supported adapter paths.
+
+### Tenant sync visibility
+
+The tenant list uses `ledgeros/tenant_sync.py` to read creation/provisioning audit results in one batched query. `tenant_created` and `tenant_customer_provisioned` successes supply the last successful time; a later provisioning failure displays Sync failed. Missing evidence displays Not confirmed. New success audit metadata includes the tenant name so a later name mismatch can show Needs review. Historical entries remain unchanged. Review links retain the existing role, signed-payload confirmation, CSRF, and strict provisioning service. List GET sends no provisioning request, and no migration or accounting mutation is introduced.
 
 ### Vendor sync visibility
 
@@ -471,3 +485,7 @@ Do not rely on host Python or host-installed Django dependencies.
 - [Quick Start Guide](./quick-start.md)
 - [User Manual](./user-manual.md)
 
+
+### Deposit assignment after rent posting
+
+`TenantPaymentService.assign_unapplied_deposit` adds a deposit component from an existing receipt’s unused funds, including after confirmed invoice applications. It locks the lease and receipt, validates ownership, unapplied funds and the shared deposit ceiling, and rejects finalized receipts or uncertain rent postings. It does not relax general receipt editing or alter attempted invoice payloads. Assignment creates no journal; the existing receipt sync service posts the deposit and skips confirmed invoice applications. Identical assignment submissions reuse the existing allocation.

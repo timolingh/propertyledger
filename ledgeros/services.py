@@ -315,7 +315,8 @@ class LedgerOSCustomerSyncService:
             audit_failure(action="tenant_customer_provision_failed", record_type="Tenant", record_id=str(tenant.pk), user=actor)
             raise
         audit_success(action="tenant_customer_provisioned", record=tenant, user=actor,
-                      metadata={"customer_code": payload["customer_code"], "ledgeros_customer_id": str(customer["id"])})
+                      metadata={"customer_code": payload["customer_code"], "ledgeros_customer_id": str(customer["id"]),
+                                "tenant_name": payload["name"]})
 
     @staticmethod
     def _format_http_error(exc: HTTPError) -> str:

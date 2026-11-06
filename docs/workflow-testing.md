@@ -2,7 +2,7 @@
 
 Use this guide to exercise the implemented WP1–WP6 workflows in a disposable local environment. It is designed for a tester working through the product in a browser while a moderator records evidence.
 
-The fixture pack contains synthetic data only. The reset command deletes both local Docker databases. Never run it against bookkeeping data you need to retain.
+The seed supplies setup, roles, and separate records for later exercises. The first walkthrough creates its own tenant and transaction history from scratch. All demo data is synthetic. The reset command deletes both local Docker databases. Never run it against bookkeeping data you need to retain.
 
 ## Prepare the environment
 
@@ -34,25 +34,145 @@ All demo users use password `PropertyLedgerBeta123!`.
 | `beta-owner-viewer` | Owner/reporting visibility without writes |
 | `beta-read-only` | General read access without writes |
 
-## Demo records to use
+## Start here: a new tenant’s first payment
+
+Complete sections 1–6 before opening the prepared scenarios later in this guide. Use the existing **Cedar Grove Apartments** property and owner as setup prerequisites, but create a **new tenant, unit, lease, invoice, and receipt** yourself. Do not use Avery’s prepared receipt or deposit events for this first walkthrough.
+
+The story: **Dana Morgan moves into unit 104. Monthly rent is $1,450 and the required refundable deposit is $1,450. Dana pays both in full with one $2,900 check.** No receipt exists until the tester records that check.
+
+Use dates within the configured open LedgerOS period. The examples below use November 2026: lease/rent start **November 1**, rent due **November 1**, and payment received **November 6**. If the demo uses a different month, agree on equivalent dates before starting.
+
+## 1. Create the tenant
+
+Sign in as **beta-manager**.
+
+1. Open **Tenants → Add tenant**.
+2. Enter **Dana Morgan**, email **dana.morgan@example.test**, and leave the tenant active. Phone and notes are optional.
+3. Choose **Create tenant**. This creation flow also provisions the LedgerOS customer. Confirm **Tenant created and provisioned in LedgerOS** and Dana’s **Synced** badge, then choose **View**. If creation fails, resolve the reported setup or connection problem before continuing.
+4. Confirm the name and contact information you just entered.
+
+**Checkpoint:** Dana now exists in PropertyLedger. No lease, invoice, receipt, or payment has been created for Dana. If Dana already exists from an earlier run, use a fresh tenant name and unused unit for this walkthrough rather than mixing histories.
+
+## 2. Verify the tenant’s LedgerOS connection
+
+Stay signed in as **beta-manager**. If Dana’s list row already shows **Synced**, creation completed provisioning; continue to section 3. For a tenant showing **Not confirmed**, **Sync failed**, or **Needs review**, follow this recovery path:
+
+1. Choose **Provision in LedgerOS**.
+2. On the review page, confirm **Dana Morgan**, the generated customer code, and the configured default Accounts Receivable account. Do not enter or guess a customer code.
+3. Choose **Provision in LedgerOS** to confirm.
+4. Confirm **Tenant customer provisioned in LedgerOS.** Stop here if it fails; resolve the reported setup or customer conflict before proceeding.
+
+**Checkpoint:** LedgerOS can now accept invoices for Dana. Provisioning creates or verifies the customer; it does not create charges or move money. Creating a tenant provisions the customer; editing an existing tenant does not automatically provision it.
+
+## 3. Create the unit and lease
+
+Stay signed in as **beta-manager**.
+
+1. Open **Units → Add unit**. Select **Cedar Grove Apartments**, name the unit **104**, keep it active, and choose **Create unit**. Use another unused unit name if 104 already exists.
+2. Open **Leases → Add lease** and enter:
+
+   | Field | Value |
+   | --- | --- |
+   | Unit | Cedar Grove Apartments / 104 |
+   | Tenant | Dana Morgan |
+   | Lease start date | November 1, 2026 |
+   | Lease end date | Leave blank |
+   | Rent effective date | November 1, 2026 |
+   | Base monthly rent amount | $1,450.00 |
+   | Deposit required amount | $1,450.00 |
+   | Status | Active |
+
+3. Choose **Create lease**, then open it with **View**. Confirm tenant, unit, rent, and deposit requirement.
+4. Open **Security Deposits** and find Dana’s lease. Confirm **Required by lease $1,450**, **Confirmed received $0**, and **Remaining to collect $1,450**. There should be no deposit activity for Dana yet.
+
+**Checkpoint:** The deposit obligation is introduced here, on the lease. A lease is local property-management data and has no separate LedgerOS sync button. It does not prove any money has been received.
+
+## 4. Create and post the rent invoice
+
+Sign in as **beta-bookkeeper**.
+
+1. Open **Invoices → Add invoice**.
+2. Select Dana’s new lease. It determines the property, unit, and tenant.
+3. Choose **Base rent**, enter **$1,450.00**, and describe it as **November rent — unit 104**. Set the billing period to **November 1–30, 2026**, the charge date to **November 1**, and the due date to **November 1**. Leave status **Draft**.
+4. Choose **Create invoice**, then **View** that new invoice in the list. Confirm Dana, unit 104, and $1,450 before posting.
+5. In **LedgerOS Sync**, choose **Approve and post to LedgerOS**. Confirm **Invoice posted to LedgerOS** and **Synced** status. A failed attempt must be recovered on this same invoice; do not create a replacement.
+
+**Checkpoint:** The invoice records rent owed, not rent paid. The deposit obligation remains separate on the lease.
+
+| Dana owes before payment | Amount |
+| --- | ---: |
+| Rent invoice | $1,450.00 |
+| Required deposit | $1,450.00 |
+| **Total** | **$2,900.00** |
+
+## 5. Receive the check and create the receipt
+
+Stay signed in as **beta-bookkeeper**. **Now simulate Dana handing you a $2,900 check for the full rent and full deposit.** This is the first payment event in the story; PropertyLedger does not collect money itself.
+
+1. Open **Home → Record rent / deposit receipt**. Use this combined-receipt form for the check covering both rent and deposit.
+2. Enter the payment yourself:
+
+   | Field | Value |
+   | --- | --- |
+   | Property | Cedar Grove Apartments |
+   | Tenant | Dana Morgan |
+   | Payment date | November 6, 2026 |
+   | Amount | **$2,900.00**, the entire check |
+   | Payment method | Check |
+   | Reference | Dana first payment — check 1041 |
+   | Notes | First month’s rent and full security deposit |
+   | Deposit amount | **$1,450.00**, the part of this check for the deposit |
+   | Deposit lease | Dana’s unit 104 lease |
+
+3. Choose **Save receipt for review**. This saves a draft; it does not post the payment.
+4. On the new **Tenant Receipt** page, confirm **Total payment $2,900**, **Applied to rent / invoices $0**, **Assigned to security deposit $1,450**, and **Unapplied balance $1,450**. The rent amount is still unallocated; it is not an additional amount owed beyond the check.
+5. Choose **Apply rent and post to LedgerOS**. This applies the remaining $1,450 to Dana’s rent invoice and posts that invoice payment. Confirm the successful allocation. The deposit portion is not posted by this action.
+6. Choose **Post receipt to LedgerOS**. This posts the $1,450 deposit portion and confirms the whole receipt. Confirm **Posted** status and the deposit’s **Posted to LedgerOS** confirmation.
+
+**Checkpoint:** One check has been recorded through one receipt. Do not also create a standalone “Deposit received” event for this money.
+
+### If you recorded the check from the invoice instead
+
+Do not enter the check again. On the invoice’s **Applied Payments** table, choose **Assign to security deposit** beside the existing payment’s unapplied balance. On its receipt page, select Dana’s unit 104 lease and enter **$1,450** as the deposit amount, then choose **Assign to security deposit**. Confirm total $2,900, rent applied $1,450, deposit assigned $1,450, and unapplied balance $0. Choose **Post receipt to LedgerOS**. The rent payment already posted is retained and is not posted again.
+
+## 6. Verify the completed first-payment story
+
+1. Return to Dana’s rent invoice. Confirm the $1,450 payment application; the invoice balance should be zero on the open-invoice/payment view.
+2. Open **Tenant Receipts**. Find the receipt you created: total **$2,900**, rent applied **$1,450**, deposit assigned **$1,450**, nothing left to apply, and **Posted** status.
+3. Open **Security Deposits**. Dana’s lease should show **$1,450 required**, **$1,450 confirmed received**, **$0 remaining**, and no excess. Its $1,450 deposit activity must link back to the receipt you created.
+4. Review Dana’s tenant ledger and deposit report. The rent payment is $1,450; the other $1,450 belongs to deposit activity, not rent income or rent receivables.
+
+| Component | Owed before payment | Received and posted | Still to collect |
+| --- | ---: | ---: | ---: |
+| Rent | $1,450.00 | $1,450.00 | $0.00 |
+| Deposit | $1,450.00 | $1,450.00 | $0.00 |
+| **Total** | **$2,900.00** | **$2,900.00** | **$0.00** |
+
+For the moderator’s accounting check, the receipt increases Cash by $2,900, reduces rent AR by $1,450, and increases the deposit liability by $1,450. Its parent receipt does not post the cash again. Provisioning and lease creation create no journals. Preserve the record IDs for any retry checks.
+
+Only move on when the tester can explain where the obligation came from, when money arrived, what was entered, and which actions posted it.
+
+## Prepared records for later scenarios
+
+These records are deliberately prefilled or partially complete. Use them only after the new-tenant walkthrough above. They belong to separate scenarios and must not be mixed with Dana’s payment.
 
 Use **Cedar Grove Apartments**, owned by **Cedar Grove Holdings LLC**. Find the records below by tenant, amount, unit, or maintenance description. Codes beginning with `BETA-` are test-data references, not values you need to enter.
 
 | Scenario | Record to look for | Initial state |
 | --- | --- | --- |
 | Vendor provisioning | Ace Plumbing, Bright Electric, GreenLine Landscaping | Local vendor records; fresh seeding does not sync them to LedgerOS |
-| Tenant provisioning | Avery Jordan | Local tenant record; explicitly provision the matching LedgerOS customer before posting rent in step 5 |
-| Rent and deposit | Avery Jordan’s $1,950.00 rent and security-deposit receipt, unit 101 | Draft receipt for `1950.00`: rent `1450.00`, deposit `500.00`; no allocations posted |
+| Tenant provisioning | Avery Jordan | Local tenant record; explicitly provision the matching LedgerOS customer before posting rent in section 11 |
+| Rent and deposit | Avery Jordan’s unit 101 lease, $1,450.00 rent invoice, and $1,950.00 draft receipt | Lease requires a $1,450.00 deposit separately from rent. The draft receipt is a prepared example for a simulated check: $1,450.00 rent plus $500.00 partial deposit; no payment has been posted |
 | Maintenance lifecycle | the unit 101 request, “Kitchen sink is leaking into the cabinet.” | Urgent leaking sink request, Open |
 | Hold and resume | the unit 102 request, “Hallway light flickers intermittently.” | Hallway light request, On hold while awaiting access |
 | Maintenance bill handoff | the unit 103 request, “Remove fallen branches and restore the rear walkway.” | Closed and verified; vendor invoice pending; no linked bill |
 | Approved payable | Ace Plumbing bill for `240.00` | Approved locally; sync the vendor before posting the bill to LedgerOS |
 | Approval queue | Bright Electric bill for `180.00` | Submitted by the bookkeeper; awaiting independent approval |
-| Draft payable | GreenLine Landscaping bill for `315.00`, “Monthly landscaping service” | Draft, with no unit selected; prepare it for linking in step 3 |
+| Draft payable | GreenLine Landscaping bill for `315.00`, “Monthly landscaping service” | Draft, with no unit selected; prepare it for linking in section 9 |
 
 The seed is idempotent before workflow execution. Once a tester changes or posts a scenario, use `beta-reset.sh` followed by `beta-seed.sh` to restore its documented initial state. Rerunning the seed does not reverse lifecycle or accounting activity.
 
-## 1. Home, navigation, and role boundaries
+## 7. Home, navigation, and role boundaries
 
 1. Sign in as `beta-admin` and open `/home/`.
 2. Confirm the three workflow cards lead to receipts, vendor payables, and maintenance.
@@ -64,7 +184,7 @@ The seed is idempotent before workflow execution. Once a tester changes or posts
 
 Record the role, URL, visible action, attempted forbidden action, HTTP result, and screenshot. A read-only POST must be denied before any LedgerOS request or local accounting-state change.
 
-## 2. Maintenance lifecycle
+## 8. Maintenance lifecycle
 
 Sign in as `beta-manager` and open the maintenance queue.
 
@@ -77,7 +197,7 @@ Sign in as `beta-manager` and open the maintenance queue.
 
 Expected accounting result: none. Maintenance transitions must not create a bill, payment, journal, tenant-ledger line, owner-statement line, sync record, or LedgerOS mutation.
 
-## 3. Maintenance-to-vendor-bill handoff
+## 9. Maintenance-to-vendor-bill handoff
 
 Sign in as `beta-bookkeeper`. This scenario demonstrates a linking dependency: a bill must belong to the same property and, for a unit-specific maintenance request, the same unit. The existing **GreenLine Landscaping $315.00 draft bill** starts with no unit selected and the description **Monthly landscaping service**.
 
@@ -92,7 +212,7 @@ Property managers can link compatible existing bills, but editing this draft req
 
 Expected accounting result: none until the bill is separately approved and posted. Maintenance closure must remain independent from bill approval, posting, and payment.
 
-## 4. Bill approval, posting, and payment
+## 10. Bill approval, posting, and payment
 
 1. Sign in as `beta-manager` and open the approval queue.
 2. Approve the submitted Bright Electric `180.00` bill. Confirm the original bookkeeper submitter cannot approve it.
@@ -119,7 +239,33 @@ Before continuing, test approved-bill withdrawal on a separate unposted bill:
 4. Resubmit the same bill and independently approve it again. Confirm posting becomes available again.
 5. Confirm another bookkeeper cannot withdraw this bill; an administrator can withdraw an eligible bill submitted by someone else. Once a bill has a posting attempt (including failure/timeout), approved withdrawal must be unavailable. Recover that attempt on the same bill.
 
-## 5. Combined rent and security-deposit receipt
+## 11. Advanced: partial deposit and a prepared receipt
+
+This is a separate advanced exercise using Avery’s prefilled records. The first walkthrough used Dana and a full deposit; this one tests partial collection and recovery. If Avery’s records have already been posted or altered, do not assume the amounts below are a fresh starting state. Review their existing activity first.
+
+**Scenario: Avery Jordan pays the rent and part of the required deposit with one check.** The seeded tenant is Avery Jordan, in unit 101.
+
+First establish what Avery owes. Open **Leases**, choose **View** for Avery’s unit 101 lease, and review:
+
+| Obligation | Where it is recorded | Amount |
+| --- | --- | --- |
+| Monthly rent | Lease rent amount and the current rent invoice | $1,450.00 |
+| Required security deposit | Lease’s deposit required amount | $1,450.00 |
+| **Total owed before payment** | **Rent plus required deposit, assuming neither has been paid** | **$2,900.00** |
+
+The simulated check pays part of that total:
+
+| Component | Owed before payment | Check applied | Still owed |
+| --- | ---: | ---: | ---: |
+| Rent | $1,450.00 | $1,450.00 | $0.00 |
+| Security deposit | $1,450.00 | $500.00 | $950.00 |
+| **Total** | **$2,900.00** | **$1,950.00** | **$950.00** |
+
+The $1,450.00 invoice covers **rent only**. The deposit requirement was entered on the lease; this scenario does not create a deposit invoice or add the deposit to rent receivables. The later $500.00 is a **partial payment toward the $1,450.00 deposit**, not a new charge or the full deposit requirement.
+
+For this exercise, assume no previous deposit money has been received. The seed also includes a separate **draft** $1,450.00 “Security deposit received for unit 101” event. It is an unposted example, not evidence of payment. Leave it in draft during this scenario; posting it would record additional money outside the check described below.
+
+**The receipt is not a request for payment.** PropertyLedger records money received outside the app; it does not collect the money. The seed has prepared a draft $1,950.00 receipt to save typing. No real payment occurred. Only continue to allocation and posting after adopting the simulated check-received step below. In actual use, record a receipt after receiving the payment.
 
 **Prerequisite: explicitly provision the tenant customer.** The seed creates Avery Jordan locally but does not provision a LedgerOS customer. A healthy setup smoke check does not confirm that the customer exists.
 
@@ -134,13 +280,15 @@ If posting previously failed with `customer_code: Unknown customer.`, the invoic
 
 Sign in as `beta-bookkeeper`.
 
-1. Open Avery Jordan's current `1450.00` base-rent charge with **View**. In **LedgerOS Sync**, choose **Approve and post to LedgerOS** and confirm **Invoice posted to LedgerOS.** The Edit screen offers the same action for the saved invoice; save edits first. Confirm a failed attempt shows its error and retains the action for retry, while a successfully posted invoice shows its sync reference and no posting button.
-2. Open tenant receipts and select Avery Jordan’s draft receipt for **$1,950.00** ($1,450.00 rent plus $500.00 security deposit).
-3. Confirm total `1950.00`, rent portion `1450.00`, and deposit portion `500.00` tied to Avery's unit 101 lease.
-4. Auto-allocate the rent portion and review the component status before finalization.
-5. Finalize the same receipt.
+1. Open Avery Jordan's current `1450.00` base-rent charge with **View**. If it is already **Synced**, continue to step 2. Otherwise, in **LedgerOS Sync**, choose **Approve and post to LedgerOS** and confirm **Invoice posted to LedgerOS.** The Edit screen offers the same action for the saved invoice; save edits first. Confirm a failed attempt shows its error and retains the action for retry, while a successfully posted invoice shows its sync reference and no posting button.
+2. **Simulate receiving payment:** Avery hands you a **$1,950.00 check**, specifying **$1,450.00 for rent** and **$500.00 toward the security deposit**. This is the payment event the following receipt records; the app does not initiate it.
+3. Open tenant receipts and select Avery Jordan’s prepared **$1,950.00 draft**. Review the check payment method, payment date, total, and $500.00 deposit component tied to the unit 101 lease. Before allocation, **Applied to rent / invoices** is `0.00` and **Still to apply to invoices** is `1450.00`; the rent payment has not yet been applied. Reuse this draft rather than entering the same check again.
+4. Choose **Apply rent and post to LedgerOS**. This applies and posts the $1,450.00 rent portion against the open rent invoice; it is not just a preview. Confirm the allocation succeeds and review its posted reference.
+5. Choose **Post receipt to LedgerOS** on the same receipt (also available in **Tenant Receipts** once the rent is fully allocated). This posts the $500.00 deposit component and confirms that both parts of the check have been recorded. If it fails, fix the reported issue and use the same action on this receipt to retry.
 6. Confirm the invoice application and deposit journal each have their own successful reference and the parent receipt is Posted.
-7. Retry finalization and confirm no additional payment, sync event, or journal appears.
+7. Open **Security Deposits**. Avery’s lease summary should show **Required by lease $1,450.00**, **Confirmed received $500.00**, and **Remaining to collect $950.00**. In **Deposit activity**, the $500.00 row should say **Posted — confirmed** and link back to this receipt. The separate $1,450.00 standalone draft remains **Unposted — not counted as received**; do not post it for the same check.
+8. On the separate $1,450.00 standalone draft, attempting **Sync event** must now be rejected: only $950.00 remains against the lease requirement. Confirm the event stays unposted and creates no new journal. Do not change its amount merely to make the test pass.
+9. Return to the receipt and confirm it shows **Posted** with no further posting action. Automated replay coverage verifies that repeating the same request creates no additional payment or journal.
 
 Expected aggregate LedgerOS result:
 
@@ -149,10 +297,11 @@ Expected aggregate LedgerOS result:
 - Tenant security deposit liability increases `500.00`.
 - Rent and owner reporting include only the confirmed `1450.00` rent component.
 - Deposit reporting includes only the confirmed `500.00` liability component.
+- Against the lease requirement of $1,450.00, this $500.00 payment leaves **$950.00 of deposit still to collect**, assuming no other confirmed deposit activity. This appears in the Security Deposits lease summary; it is not an additional rent invoice. A collection balance needing reconciliation displays **Needs review** instead.
 
 Do not create a replacement receipt after a timeout. Retry the same receipt so its frozen payloads and idempotency identities are reused.
 
-## 6. Reports and history
+## 12. Reports and history for the prepared scenarios
 
 After the accounting scenarios succeed:
 
@@ -163,7 +312,7 @@ After the accounting scenarios succeed:
 
 Treat an upstream-derived value as **Unavailable** during a read failure. A zero value is not an acceptable substitute.
 
-## 7. LedgerOS outage and recovery
+## 13. LedgerOS outage and recovery
 
 Use the same browser records so identity preservation is visible.
 

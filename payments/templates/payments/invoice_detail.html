@@ -27,7 +27,7 @@
     <p class="muted">
       Saving records the payment and posts its invoice allocations to LedgerOS, increasing Cash and reducing AR.
       The payment is applied to this invoice first, then to the oldest open invoices for the same tenant and property.
-      Any excess can remain as tenant credit.
+      To assign excess money to a security deposit, open the existing payment below and choose Assign to security deposit. Do not record the same money again.
     </p>
     <form method="post">
       {% csrf_token %}
@@ -53,7 +53,7 @@
             <td><a href="{% url 'tenant-payment-detail' entry.payment.pk %}">Payment {{ entry.payment.pk }}</a></td>
             <td>{{ entry.payment.payment_date }}</td>
             <td>{{ entry.application.amount_applied }}</td>
-            <td>{{ entry.unapplied_amount }}</td>
+            <td>{{ entry.unapplied_amount }}{% if can_bookkeep and entry.unapplied_amount > 0 %}<br><a href="{% url 'tenant-payment-detail' entry.payment.pk %}#security-deposit">Assign to security deposit</a>{% endif %}</td>
             <td>{{ entry.sync_status|default:"-" }}</td>
           </tr>
         {% empty %}

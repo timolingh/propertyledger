@@ -179,9 +179,9 @@ class WorkflowHomeTests(TestCase):
         tenant = Tenant.objects.create(name="Avery")
         receipt = TenantPayment.objects.create(property=property_obj, tenant=tenant, payment_date=date(2026, 10, 21), amount="100.00", payment_method="cash")
         response = self.client.get(reverse("tenant-payment-detail", args=[receipt.pk]))
-        self.assertContains(response, "Allocations")
-        self.assertNotContains(response, "Auto allocate remaining")
-        self.assertNotContains(response, "Retry and finalize payment")
+        self.assertContains(response, "Apply rent to invoices")
+        self.assertNotContains(response, 'name="action" value="allocate"')
+        self.assertNotContains(response, 'name="action" value="sync"')
         self.assertNotContains(response, reverse("tenant-payment-edit", args=[receipt.pk]))
 
     def test_post_migrate_does_not_create_or_rewrite_legacy_landing_config(self):

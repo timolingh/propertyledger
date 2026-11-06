@@ -16,6 +16,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from ledgeros.audit import audit_failure, audit_success
+from ledgeros.tenant_sync import tenant_sync_statuses
 from ledgeros.models import AuditLog
 from ledgeros.permissions import (
     AdminRoleRequiredMixin,
@@ -932,6 +933,7 @@ class UnitArchiveView(LedgerOSCrudArchiveView):
 
 
 class TenantListView(LedgerOSCrudListView):
+    template_name = "ledgeros/tenant_list.html"
     model = Tenant
     page_title = "Tenants"
     create_url_name = "tenant-create"
@@ -939,9 +941,13 @@ class TenantListView(LedgerOSCrudListView):
     allowed_roles = PropertyManagementRoleRequiredMixin.allowed_roles
 
     def get_rows(self, objects):
+        objects = list(objects)
+        statuses = tenant_sync_statuses(objects)
         return [
             {
                 "object": obj,
+                "tenant_sync": statuses[obj.pk],
+                "provision_url": reverse("tenant-provision", args=[obj.pk]),
                 "summary": f"{obj.email or 'No email'} | {'active' if obj.is_active else 'inactive'}",
                 "detail_url": reverse("tenant-detail", kwargs={"pk": obj.pk}),
                 "edit_url": reverse("tenant-edit", kwargs={"pk": obj.pk}),
@@ -978,6 +984,7 @@ class TenantCreateView(LedgerOSCrudFormView, CreateView):
             audit_success(
                 action="tenant_created",
                 record=self.object,
+                metadata={"tenant_name": self.object.name.strip()},
                 user=self.request.user,
                 source="ui",
             )

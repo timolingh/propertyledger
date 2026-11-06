@@ -273,3 +273,114 @@ class MixedReceiptTests(TestCase):
                 payment=receipt, lease=self.lease, amount=Decimal("400.00")
             )
 
+
+    @patch("payments.views.LedgerOSWriteReadinessService.require")
+    @patch.dict(os.environ, {"LEDGEROS_HMAC_SECRET": "secret"})
+    @patch("payments.services.urlopen")
+    def test_receipt_ui_posts_deposit_and_updates_collection_summary(self, transport, readiness):
+        self.lease.deposit_required_amount = Decimal("1450.00")
+        self.lease.save()
+        self.create_charge("1450.00")
+        receipt = self.create_receipt("1950.00")
+        TenantPaymentService.set_deposit_allocation(payment=receipt, lease=self.lease, amount=Decimal("500.00"))
+        user = get_user_model().objects.create_user("receipt-ui")
+        assign_user_role(user, ROLE_BOOKKEEPER)
+        self.client.force_login(user)
+        transport.side_effect = [self.payment_response(), self.deposit_response()]
+        response = self.client.post(reverse("tenant-payment-detail", args=[receipt.pk]), {"action": "allocate"})
+        self.assertEqual(response.status_code, 302)
+        response = self.client.post(reverse("tenant-payment-list"), {"action": "sync", "payment_id": receipt.pk})
+        self.assertEqual(response.status_code, 302)
+        receipt.refresh_from_db()
+        self.assertEqual(receipt.status, "posted")
+        response = self.client.get(reverse("security-deposit-list"))
+        totals = response.context["deposit_summary"][0]
+        self.assertEqual(totals["required"], Decimal("1450.00"))
+        self.assertEqual(totals["received"], Decimal("500.00"))
+        self.assertEqual(totals["remaining"], Decimal("950.00"))
+        self.assertContains(response, reverse("tenant-payment-detail", args=[receipt.pk]))
+        self.client.post(reverse("tenant-payment-list"), {"action": "sync", "payment_id": receipt.pk})
+        self.assertEqual(transport.call_count, 2)
+
+    @patch('payments.views.LedgerOSWriteReadinessService.require')
+    @patch.dict(os.environ, {'LEDGEROS_HMAC_SECRET': 'secret'})
+    @patch('payments.services.urlopen')
+    def test_invoice_payment_remainder_can_be_assigned_then_posted_as_deposit(self, transport, readiness):
+        charge = self.create_charge()
+        user = get_user_model().objects.create_user('invoice-deposit')
+        assign_user_role(user, ROLE_BOOKKEEPER)
+        self.client.force_login(user)
+        transport.side_effect = [self.payment_response(), self.deposit_response()]
+        self.client.post(reverse('invoice-detail', args=[charge.pk]), {
+            'payment_date': '2026-10-21', 'amount': '2000.00',
+            'payment_method': 'check', 'reference': 'AFTER-RENT', 'notes': '',
+        })
+        receipt = TenantPayment.objects.get(reference='AFTER-RENT')
+        application = receipt.applications.get()
+        original_sync = application.sync_record_id
+        self.assertFalse(receipt.is_editable_after_sync)
+        url = reverse('tenant-payment-detail', args=[receipt.pk])
+        self.assertContains(self.client.get(url), 'Assign unapplied money to deposit')
+        payload = {'action': 'assign_deposit', 'deposit_lease': self.lease.pk, 'deposit_amount': '500.00'}
+        self.assertEqual(self.client.post(url, payload).status_code, 302)
+        self.client.post(url, payload)  # Double submission must not create a second allocation.
+        receipt.refresh_from_db()
+        self.assertEqual(receipt.deposit_amount, Decimal('500.00'))
+        self.assertEqual(receipt.unapplied_amount, Decimal('0.00'))
+        self.assertEqual(transport.call_count, 1)  # Assignment itself does not post money.
+        self.client.post(url, {'action': 'sync'})
+        self.client.post(url, {'action': 'sync'})
+        receipt.refresh_from_db()
+        application.refresh_from_db()
+        self.assertEqual(receipt.status, 'posted')
+        self.assertEqual(application.sync_record_id, original_sync)
+        self.assertEqual(application.amount_applied, Decimal('1500.00'))
+        self.assertEqual(transport.call_count, 2)
+        self.assertEqual(TenantPayment.objects.count(), 1)
+
+    def test_remainder_deposit_rejects_overallocation_wrong_lease_and_voided_receipt(self):
+        receipt = self.create_receipt('400.00')
+        with self.assertRaises(ValidationError):
+            TenantPaymentService.assign_unapplied_deposit(payment=receipt, lease=self.lease, amount=Decimal('500.00'))
+        other = Tenant.objects.create(name='Other')
+        self.lease.tenant = other
+        self.lease.save()
+        with self.assertRaises(ValidationError):
+            TenantPaymentService.assign_unapplied_deposit(payment=receipt, lease=self.lease, amount=Decimal('100.00'))
+        self.lease.tenant = self.tenant
+        self.lease.save()
+        receipt.status = 'voided'
+        receipt.save()
+        with self.assertRaises(ValidationError):
+            TenantPaymentService.assign_unapplied_deposit(payment=receipt, lease=self.lease, amount=Decimal('100.00'))
+
+    def test_remainder_assignment_enforces_lease_ceiling_and_read_only_role(self):
+        from ledgeros.roles import ROLE_READ_ONLY_VIEWER
+        receipt = self.create_receipt()
+        with self.assertRaises(ValidationError):
+            TenantPaymentService.assign_unapplied_deposit(payment=receipt, lease=self.lease, amount=Decimal('501.00'))
+        user = get_user_model().objects.create_user('deposit-viewer')
+        assign_user_role(user, ROLE_READ_ONLY_VIEWER)
+        self.client.force_login(user)
+        url = reverse('tenant-payment-detail', args=[receipt.pk])
+        self.assertNotContains(self.client.get(url), 'Assign unapplied money to deposit')
+        self.assertEqual(self.client.post(url, {
+            'action': 'assign_deposit', 'deposit_lease': self.lease.pk, 'deposit_amount': '500.00',
+        }).status_code, 403)
+        self.assertFalse(TenantPaymentDepositAllocation.objects.filter(payment=receipt).exists())
+
+    @patch.dict(os.environ, {'LEDGEROS_HMAC_SECRET': 'secret'})
+    @patch('payments.services.urlopen')
+    def test_remainder_assignment_blocks_uncertain_rent_and_preserves_existing_split(self, transport):
+        self.create_charge()
+        receipt = self.create_receipt()
+        transport.side_effect = URLError('timeout')
+        TenantPaymentService.allocate_payment_and_sync_applications(receipt)
+        with self.assertRaises(ValidationError):
+            TenantPaymentService.assign_unapplied_deposit(payment=receipt, lease=self.lease, amount=Decimal('500.00'))
+        fresh = self.create_receipt()
+        TenantPaymentService.assign_unapplied_deposit(payment=fresh, lease=self.lease, amount=Decimal('400.00'))
+        with self.assertRaises(ValidationError):
+            TenantPaymentService.assign_unapplied_deposit(payment=fresh, lease=self.lease, amount=Decimal('500.00'))
+        fresh.refresh_from_db()
+        self.assertEqual(fresh.deposit_amount, Decimal('400.00'))

@@ -1,11 +1,12 @@
 {% extends "ledgeros/base.html" %}
 
-{% block title %}Payment History | PropertyLedger{% endblock %}
+{% block title %}Tenant Receipts | PropertyLedger{% endblock %}
 
 {% block content %}
   <div class="card">
-    <h1>Payment History</h1>
-    <p class="muted">These are the saved payment receipts and their allocation status.</p>
+    <h1>Tenant Receipts</h1>
+    <p class="muted">Record payments received outside the app. Review the rent and deposit split, then post the receipt to LedgerOS.</p>
+    <a class="button" href="{% url 'security-deposit-list' %}">Security deposits</a>
     <a class="button primary" href="{% url 'invoice-list' %}">Open invoices</a>
   </div>
   <div class="card">
@@ -17,9 +18,9 @@
           <th>Date</th>
           <th>Amount</th>
           <th>Status</th>
-          <th>Invoice / rent</th>
-          <th>Deposit</th>
-          <th>Unallocated</th>
+          <th>Applied to invoices</th>
+          <th>Assigned to deposit</th>
+          <th>Still to apply</th>
           <th>Actions</th>
         </tr>
       </thead>
@@ -32,10 +33,18 @@
             <td>{{ payment.amount }}</td>
             <td>{{ payment.get_status_display }}</td>
             <td>{{ payment.allocated_amount }}</td>
-            <td>{{ payment.deposit_amount }}</td>
+            <td>{{ payment.deposit_amount }}{% if payment.deposit_amount > 0 %}<br><span class="muted">{% if payment.deposit_allocation.sync_record.status == 'succeeded' and payment.deposit_allocation.sync_record.ledgeros_journal_entry_id %}Posted{% else %}Not confirmed{% endif %}</span>{% endif %}</td>
             <td>{{ payment.unapplied_amount }}</td>
             <td class="actions">
-              <a href="{% url 'tenant-payment-detail' payment.pk %}">View</a>
+              <a href="{% url 'tenant-payment-detail' payment.pk %}">View receipt</a>
+              {% if can_bookkeep and payment.status != 'posted' and payment.status != 'voided' %}
+                {% if payment.remaining_amount == 0 %}
+                <form method="post">
+                  {% csrf_token %}<input type="hidden" name="action" value="sync"><input type="hidden" name="payment_id" value="{{ payment.pk }}">
+                  <button type="submit">Post receipt to LedgerOS</button>
+                </form>
+                {% else %}<a href="{% url 'tenant-payment-detail' payment.pk %}#receipt-allocation">Review and apply rent</a>{% endif %}
+              {% endif %}
             </td>
           </tr>
         {% empty %}

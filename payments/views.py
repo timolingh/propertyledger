@@ -31,6 +31,7 @@ from payments.forms import (
     BillPaymentForm,
     DebtServicePaymentForm,
     InvoicePaymentForm,
+    ReceiptDepositAssignmentForm,
     MaintenanceCategoryForm,
     SecurityDepositEventForm,
     TenantPaymentForm,
@@ -53,6 +54,7 @@ from payments.models import (
 )
 from payments.approval_services import VendorBillApprovalService, WorkflowAuthorizationService
 from payments.bill_navigation import BillCreationReturnMixin
+from payments.deposit_activity import deposit_activity
 from payments.authorization import (
     WORKFLOW_FINANCIAL_ROLES,
     can_approve_vendor_bills,
@@ -64,7 +66,6 @@ from payments.services import (
     DebtServicePaymentService,
     LedgerOSBankingReadService,
     MaintenanceExpenseSummaryService,
-    SecurityDepositLedgerService,
     TenantPaymentService,
     VendorBillService,
     VendorPaymentService,
@@ -532,6 +533,21 @@ class TenantPaymentDetailView(ReportingRoleRequiredMixin, PaymentsAppContextMixi
     def post(self, request, *args, **kwargs):
         self.object = self.get_object()
         action = request.POST.get("action", "").strip()
+        if action == "assign_deposit":
+            form = ReceiptDepositAssignmentForm(request.POST, payment=self.object)
+            if form.is_valid():
+                try:
+                    allocation = TenantPaymentService.assign_unapplied_deposit(
+                        payment=self.object, lease=form.cleaned_data['deposit_lease'],
+                        amount=form.cleaned_data['deposit_amount'],
+                    )
+                except ValidationError as exc:
+                    form.add_error(None, exc)
+                else:
+                    audit_success(action='receipt_deposit_assigned', record=allocation, user=request.user, source='ui')
+                    messages.success(request, 'Deposit assigned from this receipt. Choose Post receipt to LedgerOS to record it.')
+                    return HttpResponseRedirect(reverse('tenant-payment-detail', args=[self.object.pk]))
+            return self.render_to_response(self.get_context_data(deposit_assignment_form=form))
         if action == "allocate":
             try:
                 LedgerOSWriteReadinessService.require()
@@ -622,6 +638,12 @@ class TenantPaymentDetailView(ReportingRoleRequiredMixin, PaymentsAppContextMixi
         except TenantPaymentDepositAllocation.DoesNotExist:
             deposit = None
         context["deposit_allocation"] = deposit
+        context['can_assign_deposit'] = (
+            deposit is None and payment.unapplied_amount > 0
+            and payment.status not in ('posted', 'voided')
+            and not (payment.sync_record and payment.sync_record.attempt_count)
+        )
+        context.setdefault('deposit_assignment_form', ReceiptDepositAssignmentForm(payment=payment))
         context["deposit_sync_log_entry"] = (
             {
                 "title": "Security deposit component",
@@ -660,6 +682,11 @@ class SecurityDepositEventListView(ReportingRoleRequiredMixin, PaymentsAppContex
 
     def get_queryset(self):
         return SecurityDepositEvent.objects.select_related("tenant", "property", "unit", "lease", "sync_record").order_by("-event_date", "-id")
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context["deposit_summary"], context["deposit_activity"] = deposit_activity()
+        return context
 
     def post(self, request, *args, **kwargs):
         event_id = request.POST.get("event_id", "").strip()
@@ -770,8 +797,12 @@ class SecurityDepositEventDetailView(ReportingRoleRequiredMixin, PaymentsAppCont
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        context["required_amount"] = SecurityDepositLedgerService.required_amount_for_lease(self.object.lease)
-        context["held_balance"] = SecurityDepositLedgerService.balance_for_lease(self.object.lease)
+        summaries, activity = deposit_activity(lease_id=self.object.lease_id)
+        context["deposit_totals"] = summaries[0]
+        context["deposit_activity_status"] = next(
+            row["status"] for row in activity
+            if row["source"] == f"Standalone event {self.object.pk}"
+        )
         return context
 
 

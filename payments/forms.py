@@ -121,6 +121,17 @@ class TenantPaymentForm(forms.ModelForm):
         return cleaned
 
 
+class ReceiptDepositAssignmentForm(forms.Form):
+    deposit_lease = forms.ModelChoiceField(queryset=Lease.objects.none(), label="Deposit lease")
+    deposit_amount = forms.DecimalField(max_digits=12, decimal_places=2, min_value=Decimal('0.01'), label="Deposit amount")
+
+    def __init__(self, *args, payment, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields['deposit_lease'].queryset = Lease.objects.filter(
+            tenant=payment.tenant, unit__property=payment.property,
+        ).exclude(status=Lease.Status.CANCELLED)
+
+
 class InvoicePaymentForm(forms.ModelForm):
     class Meta:
         model = TenantPayment

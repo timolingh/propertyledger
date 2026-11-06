@@ -31,6 +31,7 @@ from ledgeros.models import (
 from ledgeros.signing import sign_api_request
 from payments.approval_services import VendorBillApprovalService
 from payments.authorization import require_bill_editor, require_vendor_payer
+from payments.deposit_limits import require_deposit_capacity
 from payments.models import (
     DebtServicePayment,
     PaymentWorkflowSettings,
@@ -777,6 +778,33 @@ class TenantPaymentService:
         ]
 
     @staticmethod
+    @transaction.atomic
+    def assign_unapplied_deposit(*, payment: TenantPayment, lease: Lease, amount: Decimal):
+        """Assign unused funds without changing any posted invoice component."""
+        payment = TenantPayment.objects.select_for_update().get(pk=payment.pk)
+        lease = Lease.objects.select_for_update().get(pk=lease.pk)
+        amount = Decimal(str(amount))
+        if not amount.is_finite() or amount <= 0 or amount != amount.quantize(Decimal('0.01')):
+            raise ValidationError('Enter a positive deposit amount with at most two decimal places.')
+        if payment.status in ('posted', 'voided') or (payment.sync_record and payment.sync_record.attempt_count):
+            raise ValidationError('This receipt has already been finalized or attempted; its split cannot change.')
+        if lease.status == 'cancelled' or lease.tenant_id != payment.tenant_id or lease.unit.property_id != payment.property_id:
+            raise ValidationError('Choose a non-cancelled lease for this receipt’s tenant and property.')
+        existing = TenantPaymentDepositAllocation.objects.filter(payment=payment).first()
+        if existing:
+            if existing.lease_id == lease.pk and existing.amount == amount:
+                return existing
+            raise ValidationError('This receipt already has a deposit allocation. Review its existing split.')
+        for application in payment.applications.select_related('sync_record'):
+            sync = application.sync_record
+            if sync and sync.attempt_count and not (sync.status == 'succeeded' and sync.ledgeros_journal_entry_id):
+                raise ValidationError('Resolve the unconfirmed rent posting before assigning a deposit.')
+        if amount > payment.unapplied_amount:
+            raise ValidationError('Deposit amount cannot exceed this receipt’s unapplied balance.')
+        require_deposit_capacity(lease_id=lease.pk, amount=amount)
+        return TenantPaymentDepositAllocation.objects.create(payment=payment, lease=lease, amount=amount)
+
+    @staticmethod
     def set_deposit_allocation(
         *, payment: TenantPayment, lease: Lease | None, amount: Decimal
     ) -> TenantPaymentDepositAllocation | None:
@@ -909,6 +937,9 @@ class TenantPaymentService:
             if payment.status == TenantPayment.Status.VOIDED:
                 raise ValidationError({"payment": "Voided payments cannot be reallocated."})
 
+            deposit = TenantPaymentDepositAllocation.objects.select_related("sync_record").filter(payment=payment).first()
+            if deposit is not None:
+                require_deposit_capacity(lease_id=deposit.lease_id, amount=deposit.amount, allocation=deposit)
             settings = PaymentWorkflowSettings.load()
             priority = list(settings.charge_type_priority or [
                 TenantCharge.ChargeType.BASE_RENT,
@@ -1054,11 +1085,14 @@ class TenantPaymentService:
     @staticmethod
     @transaction.atomic
     def sync_deposit_allocation(allocation: TenantPaymentDepositAllocation) -> TenantPaymentDepositAllocation:
+        lease_id = TenantPaymentDepositAllocation.objects.values_list("lease_id", flat=True).get(pk=allocation.pk)
+        Lease.objects.select_for_update().get(pk=lease_id)
         allocation = TenantPaymentDepositAllocation.objects.select_for_update(of=("self",)).select_related(
             "payment", "lease__unit", "sync_record"
         ).get(pk=allocation.pk)
         if allocation.payment.status == TenantPayment.Status.VOIDED:
             raise ValidationError({"payment": "Voided receipts cannot be posted."})
+        require_deposit_capacity(lease_id=allocation.lease_id, amount=allocation.amount, allocation=allocation)
         current_payload = TenantPaymentService._build_deposit_allocation_payload(allocation)
         if allocation.frozen_request_payload is not None and allocation.frozen_request_payload != current_payload:
             raise ValidationError({"deposit_amount": "An attempted deposit allocation cannot be changed. Reconcile it before retrying."})
@@ -1134,6 +1168,8 @@ class TenantPaymentService:
         if payment.remaining_amount != Decimal("0.00"):
             raise ValidationError({"payment": "Payment must be fully allocated before finalization. Unapplied credit posting is not supported."})
 
+        if deposit is not None:
+            require_deposit_capacity(lease_id=deposit.lease_id, amount=deposit.amount, allocation=deposit)
         applications = []
         errors = []
         for application in payment.applications.select_related("charge", "sync_record").order_by("id"):
@@ -1203,6 +1239,13 @@ class TenantPaymentService:
     @staticmethod
     @transaction.atomic
     def sync_security_deposit_event(event: SecurityDepositEvent) -> SecurityDepositEvent:
+        lease_id = SecurityDepositEvent.objects.values_list("lease_id", flat=True).get(pk=event.pk)
+        Lease.objects.select_for_update().get(pk=lease_id)
+        event = SecurityDepositEvent.objects.select_for_update(of=("self",)).select_related("sync_record").get(pk=event.pk)
+        if event.status == SecurityDepositEvent.Status.VOIDED:
+            raise ValidationError("Voided deposit events cannot be posted.")
+        if event.event_type == SecurityDepositEvent.EventType.RECEIVED:
+            require_deposit_capacity(lease_id=event.lease_id, amount=event.amount, event=event)
         if event.event_type not in {
             SecurityDepositEvent.EventType.RECEIVED,
             SecurityDepositEvent.EventType.REFUNDED,
