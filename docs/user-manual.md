@@ -80,13 +80,11 @@ Open an existing invoice with **View** or **Edit** to see the **LedgerOS Sync** 
 
 ### 4. Record tenant payments
 
-Use tenant payments to record money received from tenants. Enter the full receipt amount. If part is a refundable security deposit, enter that amount and choose the matching lease; the remainder can be allocated to open invoices.
+Use **Record rent / deposit receipt**, or **Record receipt and review allocation** on an invoice. Enter the full amount received and review the waterfall on that same form: **Open invoices** (including late fees, oldest first), **Deposit**, then **Other**. The deposit is capped by the selected lease's remaining requirement. Multiple leases require an explicit selection. Enter **0** to skip a category; remaining money flows down to the next row. Each row shows funds remaining. Other requires an account code when its amount is positive; it credits that account, which LedgerOS validates during posting.
 
-On receipt detail, **Apply rent and post to LedgerOS** allocates and posts the invoice portion. Once the full payment is assigned, choose **Post receipt to LedgerOS** on detail or the Tenant Receipts list to post the deposit portion, retry unconfirmed components, and confirm the receipt. Successfully posted components are reused. The full amount must be split
-between invoices and the deposit before finalization; any remainder stays
-unallocated locally. After any posting attempt, accounting fields are locked and
-notes remain editable. Retry the existing receipt after a timeout or partial
-failure rather than creating a replacement.
+**Save receipt for review** saves the split without posting. On the saved receipt, review all components and choose **Post receipt to LedgerOS**. **Review receipt allocation** returns to the same form, where **Save and post receipt** is also available. Posting requires the entire amount to be allocated. Confirmed components are reused after a timeout or partial failure; retry the same receipt. Attempted components cannot be changed. An older receipt with confirmed rent and unused funds can allocate that existing money through **Review receipt allocation**, while the posted rent remains fixed. Uncertain postings must be resolved first.
+
+Other allocations appear separately by credited account on the receipt, property report, and owner statement/export. They do not settle invoices or count as rent collections. Their accounting classification follows the credited account in LedgerOS; the owner statement displays them as a separate memo outside its rent/net summary.
 
 ### 5. Record vendor bills and payments
 

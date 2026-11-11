@@ -15,7 +15,7 @@ from django.core.exceptions import PermissionDenied, ValidationError
 from django.core import signing
 from django.shortcuts import get_object_or_404
 from django.utils.functional import cached_property
-from django.http import HttpResponseRedirect
+from django.http import HttpResponseRedirect, JsonResponse
 from django.urls import reverse, reverse_lazy
 from django.utils import timezone
 from django.views.generic import CreateView, DetailView, FormView, ListView, TemplateView, UpdateView
@@ -34,7 +34,6 @@ from payments.forms import (
     ReceiptDepositAssignmentForm,
     MaintenanceCategoryForm,
     SecurityDepositEventForm,
-    TenantPaymentForm,
     VendorBillForm,
     VendorBillDecisionForm,
     VendorForm,
@@ -54,6 +53,8 @@ from payments.models import (
 )
 from payments.approval_services import VendorBillApprovalService, WorkflowAuthorizationService
 from payments.bill_navigation import BillCreationReturnMixin
+from payments.receipt_forms import WaterfallReceiptForm
+from payments.receipt_services import receipt_waterfall, save_receipt
 from payments.deposit_activity import deposit_activity
 from payments.authorization import (
     WORKFLOW_FINANCIAL_ROLES,
@@ -405,7 +406,7 @@ class TenantPaymentListView(ReportingRoleRequiredMixin, PaymentsAppContextMixin,
 
     def get_queryset(self):
         return TenantPayment.objects.select_related(
-            "tenant", "property", "sync_record", "deposit_allocation__sync_record"
+            "tenant", "property", "sync_record", "deposit_allocation__sync_record", "other_allocation__sync_record"
         ).prefetch_related("applications__charge").order_by("-payment_date", "-id")
 
     def post(self, request, *args, **kwargs):
@@ -468,20 +469,42 @@ class TenantPaymentListView(ReportingRoleRequiredMixin, PaymentsAppContextMixin,
         return HttpResponseRedirect(reverse("tenant-payment-list"))
 
 
+def _saved_receipt_response(request, payment):
+    if request.POST.get("action") == "post":
+        try:
+            LedgerOSWriteReadinessService.require()
+            TenantPaymentService.sync_payment(payment)
+        except ValidationError as exc:
+            messages.error(request, "; ".join(exc.messages))
+        else:
+            payment.refresh_from_db()
+            if payment.status == TenantPayment.Status.POSTED:
+                messages.success(request, "Receipt posted to LedgerOS.")
+            else:
+                messages.error(request, "Receipt saved; one or more postings need review. Retry this same receipt.")
+    return HttpResponseRedirect(reverse("tenant-payment-detail", args=[payment.pk]))
+
+
 class TenantPaymentCreateView(BookkeepingRoleRequiredMixin, PaymentsAppContextMixin, CreateView):
     model = TenantPayment
-    form_class = TenantPaymentForm
+    form_class = WaterfallReceiptForm
     template_name = "payments/payment_form.html"
     login_url = reverse_lazy("login")
     allowed_roles = BookkeepingRoleRequiredMixin.allowed_roles
 
+    def get_initial(self):
+        initial = super().get_initial()
+        if self.request.GET.get("invoice", "").isdigit():
+            invoice = get_object_or_404(TenantCharge, pk=self.request.GET["invoice"])
+            initial.update(property=invoice.property_id, tenant=invoice.tenant_id, amount=_invoice_balance_due(invoice), payment_date=timezone.localdate())
+        return initial
+
     def form_valid(self, form):
-        self.object = form.save()
-        TenantPaymentService.set_deposit_allocation(
-            payment=self.object,
-            lease=form.cleaned_data.get("deposit_lease"),
-            amount=form.cleaned_data.get("deposit_amount") or Decimal("0.00"),
-        )
+        try:
+            self.object = save_receipt(form)
+        except ValidationError as exc:
+            form.add_error(None, "; ".join(exc.messages))
+            return self.form_invalid(form)
         audit_success(
             action="tenant_payment_created",
             record=self.object,
@@ -493,7 +516,7 @@ class TenantPaymentCreateView(BookkeepingRoleRequiredMixin, PaymentsAppContextMi
 
 class TenantPaymentUpdateView(BookkeepingRoleRequiredMixin, PaymentsAppContextMixin, UpdateView):
     model = TenantPayment
-    form_class = TenantPaymentForm
+    form_class = WaterfallReceiptForm
     template_name = "payments/payment_form.html"
     login_url = reverse_lazy("login")
     allowed_roles = BookkeepingRoleRequiredMixin.allowed_roles
@@ -503,19 +526,29 @@ class TenantPaymentUpdateView(BookkeepingRoleRequiredMixin, PaymentsAppContextMi
         return context
 
     def form_valid(self, form):
-        self.object = form.save()
-        TenantPaymentService.set_deposit_allocation(
-            payment=self.object,
-            lease=form.cleaned_data.get("deposit_lease"),
-            amount=form.cleaned_data.get("deposit_amount") or Decimal("0.00"),
-        )
+        try:
+            self.object = save_receipt(form)
+        except ValidationError as exc:
+            form.add_error(None, "; ".join(exc.messages))
+            return self.form_invalid(form)
         audit_success(
             action="tenant_payment_updated",
             record=self.object,
             user=self.request.user,
             source="ui",
         )
-        return HttpResponseRedirect(reverse("tenant-payment-detail", args=[self.object.pk]))
+        return _saved_receipt_response(self.request, self.object)
+
+
+class ReceiptWaterfallPreviewView(BookkeepingRoleRequiredMixin, View):
+    def get(self, request):
+        property_id, tenant_id = request.GET.get("property", ""), request.GET.get("tenant", "")
+        if not property_id.isdigit() or not tenant_id.isdigit():
+            return JsonResponse({"invoices": [], "leases": [], "invoice_due": "0.00"})
+        payment = None
+        if request.GET.get("payment", "").isdigit():
+            payment = get_object_or_404(TenantPayment, pk=request.GET["payment"], property_id=property_id, tenant_id=tenant_id)
+        return JsonResponse(receipt_waterfall(property_id=property_id, tenant_id=tenant_id, payment=payment))
 
 
 class TenantPaymentDetailView(ReportingRoleRequiredMixin, PaymentsAppContextMixin, DetailView):
@@ -527,7 +560,7 @@ class TenantPaymentDetailView(ReportingRoleRequiredMixin, PaymentsAppContextMixi
 
     def get_queryset(self):
         return TenantPayment.objects.select_related(
-            "tenant", "property", "sync_record", "deposit_allocation__lease__unit", "deposit_allocation__sync_record"
+            "tenant", "property", "sync_record", "deposit_allocation__lease__unit", "deposit_allocation__sync_record", "other_allocation__sync_record"
         ).prefetch_related("applications__charge", "applications__sync_record")
 
     def post(self, request, *args, **kwargs):

@@ -124,14 +124,16 @@ Stay signed in as **beta-bookkeeper**. **Now simulate Dana handing you a \$2,900
    | Deposit amount | **\$1,450.00**, the part of this check for the deposit |
    | Deposit lease | Dana’s unit 104 lease |
 
-3. Choose **Save receipt for review**. This saves a draft; it does not post the payment.
-4. On the new **Tenant Receipt** page, confirm **Total payment \$2,900**, **Applied to rent / invoices \$0**, **Assigned to security deposit \$1,450**, and **Unapplied balance \$1,450**. The rent amount is still unallocated; it is not an additional amount owed beyond the check.
-5. Choose **Apply rent and post to LedgerOS**. This applies the remaining \$1,450 to Dana’s rent invoice and posts that invoice payment. Confirm the successful allocation. The deposit portion is not posted by this action.
-6. Choose **Post receipt to LedgerOS**. This posts the \$1,450 deposit portion and confirms the whole receipt. Confirm **Posted** status and the deposit’s **Posted to LedgerOS** confirmation.
+3. On this same form, confirm the waterfall defaults to **Open invoices 1,450.00**, **Deposit 1,450.00**, **Other 0.00**, with zero remaining. Open invoices include late fees and are paid oldest first. Selecting the deposit lease caps its allocation at the remaining requirement.
+4. Choose **Save receipt for review**. This saves the reviewed allocation without posting. On the receipt, confirm total **2,900.00**, invoice allocations **1,450.00**, deposit **1,450.00**, Other **0.00**, and unapplied **0.00**. The component references must not yet claim posted money.
+5. Choose **Post receipt to LedgerOS**. Confirm **Posted** status and separate confirmed invoice-payment and deposit-journal references. Repeating the action must create no additional payment or journal.
+6. On a separate unposted receipt, use **Review receipt allocation** to test overrides. Enter **0** for invoices: funds must flow to deposit, then Other. Enter **0** for deposit: funds must flow to Other. Positive Other requires an account code. Save, reopen, and confirm the zeros and credited account remain. Restore the intended split before posting. A partially assigned draft can save but cannot post; excessive invoice/deposit allocations must be rejected without a journal.
 
 **Checkpoint:** One check has been recorded through one receipt. Do not also create a standalone “Deposit received” event for this money.
 
 ### If you recorded the check from the invoice instead
+
+New invoice entry uses **Record receipt and review allocation**, opening the same waterfall form with the invoice's property and tenant. Enter the full check amount there and follow the same review/save/post steps. Creating an invoice receipt no longer requires posting rent before reviewing the deposit split.
 
 Do not enter the check again. On the invoice’s **Applied Payments** table, choose **Assign to security deposit** beside the existing payment’s unapplied balance. On its receipt page, select Dana’s unit 104 lease and enter **\$1,450** as the deposit amount, then choose **Assign to security deposit**. Confirm total \$2,900, rent applied \$1,450, deposit assigned \$1,450, and unapplied balance \$0. Choose **Post receipt to LedgerOS**. The rent payment already posted is retained and is not posted again.
 

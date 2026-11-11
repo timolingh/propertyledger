@@ -44,6 +44,7 @@ from payments.views import (
     VendorPaymentListView,
     VendorPaymentUpdateView,
     WorkflowAuthorizationView,
+    ReceiptWaterfallPreviewView,
 )
 
 
@@ -82,6 +83,7 @@ urlpatterns = [
     path("invoices/", TenantInvoiceListView.as_view(), name="invoice-list"),
     path("invoices/<int:pk>/", TenantInvoiceDetailView.as_view(), name="invoice-detail"),
     path("tenant-payments/", TenantPaymentListView.as_view(), name="tenant-payment-list"),
+    path("tenant-payments/waterfall/", ReceiptWaterfallPreviewView.as_view(), name="receipt-waterfall-preview"),
     path("tenant-payments/add/", TenantPaymentCreateView.as_view(), name="tenant-payment-create"),
     path("tenant-payments/<int:pk>/", TenantPaymentDetailView.as_view(), name="tenant-payment-detail"),
     path("tenant-payments/<int:pk>/edit/", TenantPaymentUpdateView.as_view(), name="tenant-payment-edit"),

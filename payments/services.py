@@ -936,6 +936,8 @@ class TenantPaymentService:
                 raise ValidationError({"payment": "Posted payments cannot be reallocated."})
             if payment.status == TenantPayment.Status.VOIDED:
                 raise ValidationError({"payment": "Voided payments cannot be reallocated."})
+            if payment.allocation_reviewed:
+                return payment
 
             deposit = TenantPaymentDepositAllocation.objects.select_related("sync_record").filter(payment=payment).first()
             if deposit is not None:
@@ -1163,13 +1165,17 @@ class TenantPaymentService:
         if payment.status == TenantPayment.Status.VOIDED:
             raise ValidationError({"payment": "Voided payments cannot be finalized."})
         deposit = TenantPaymentDepositAllocation.objects.select_related("sync_record", "lease__unit").filter(payment=payment).first()
-        if not payment.applications.exists() and deposit is None:
+        other = getattr(payment, "other_allocation", None)
+        if not payment.applications.exists() and deposit is None and other is None:
             raise ValidationError({"payment": "Receipt must include an invoice or deposit allocation before sync."})
         if payment.remaining_amount != Decimal("0.00"):
             raise ValidationError({"payment": "Payment must be fully allocated before finalization. Unapplied credit posting is not supported."})
 
         if deposit is not None:
             require_deposit_capacity(lease_id=deposit.lease_id, amount=deposit.amount, allocation=deposit)
+        if other is not None:
+            from payments.receipt_services import other_payload
+            other_payload(other)  # Validate cash mapping before any invoice write.
         applications = []
         errors = []
         for application in payment.applications.select_related("charge", "sync_record").order_by("id"):
@@ -1201,6 +1207,17 @@ class TenantPaymentService:
                     "amount": str(deposit.amount.quantize(Decimal("0.01"))),
                 }
 
+        other_summary = None
+        if other is not None:
+            from payments.receipt_services import sync_other_allocation
+            other = sync_other_allocation(other)
+            if other.sync_record.status != LedgerOSSyncRecord.Status.SUCCEEDED:
+                errors.append(other.sync_record.last_error or "Other allocation did not post.")
+            else:
+                other_summary = {"amount": str(other.amount), "account_code": other.account_code,
+                                 "journal_entry_id": other.sync_record.ledgeros_journal_entry_id,
+                                 "sync_record_id": other.sync_record_id}
+
         # This local summary is not sent to LedgerOS. Keep legacy receipt events
         # under tenant_payment.received intact for audit history.
         summary = {
@@ -1211,6 +1228,8 @@ class TenantPaymentService:
             "applications": applications,
             "deposit": deposit_summary,
         }
+        if other is not None:
+            summary["other"] = other_summary
         if (
             not errors
             and payment.status == TenantPayment.Status.POSTED

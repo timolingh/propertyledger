@@ -22,6 +22,7 @@ This repository now includes the Epic 1 through Epic 3 Django foundation for Pro
 - WP3 local maintenance requests with role-gated creation, triage, assignment, progress, hold/resume, verification, independent closure, cancellation, and audited reopening.
 - WP4 audited maintenance-to-vendor-bill handoff, safe prefill, replay-safe creation, multi-vendor bill lists, and separate operational/approval/posting/payment states.
 - WP5 combined rent/security-deposit receipts with frozen component retries, explicit deposit-liability journals, and component-based reporting.
+- Receipt entry reviews an editable invoice → deposit → Other waterfall on one form; Other requires a credited account and keeps its own posting/retry identity.
 - WP6 bounded LedgerOS readiness gates, degraded local-first operation, outage recovery coverage, global connection messaging, and release/rollback inventory tooling.
 
 ## Environment variables

@@ -28,7 +28,7 @@ from ledgeros.models import (
 )
 from ledgeros.signing import sign_request
 from payments.models import SecurityDepositEvent, TenantPayment, TenantPaymentDepositAllocation, VendorBill
-from payments.models import TenantPaymentApplication
+from payments.models import TenantPaymentApplication, TenantPaymentOtherAllocation
 from reports.models import OwnerContributionDistribution
 
 
@@ -55,6 +55,7 @@ def _confirmed_rent_amount(payment: TenantPayment) -> Decimal:
         deposit_exists = True
     if (
         not deposit_exists
+        and not payment.allocation_reviewed
         and payment.sync_record
         and payment.sync_record.status == LedgerOSSyncRecord.Status.SUCCEEDED
     ):
@@ -457,6 +458,10 @@ class OwnerStatementService:
             "bills": bills,
             "owner_activities": owner_activities,
             "deposit_events": deposit_events,
+            "other_allocations": list(TenantPaymentOtherAllocation.objects.filter(
+                payment__property=property_obj, payment__payment_date__range=(start_date, end_date),
+                sync_record__status="succeeded", sync_record__ledgeros_journal_entry_id__isnull=False,
+            ).exclude(payment__status="voided").exclude(sync_record__ledgeros_journal_entry_id="").select_related("payment")),
             "rent_charged": rent_charged,
             "rent_collected": rent_collected,
             "property_expenses": property_expenses,
@@ -897,6 +902,12 @@ class PropertyReportService:
             [dict(TenantPayment.PaymentMethod.choices).get(method, method), amount]
             for method, amount in sorted(collections_by_method.items())
         ]
+        other_allocations = TenantPaymentOtherAllocation.objects.filter(
+            payment__payment_date__range=(period_start, period_end), sync_record__status="succeeded",
+            sync_record__ledgeros_journal_entry_id__isnull=False,
+        ).exclude(payment__status="voided").exclude(sync_record__ledgeros_journal_entry_id="").select_related("payment__tenant")
+        if property_obj is not None:
+            other_allocations = other_allocations.filter(payment__property=property_obj)
 
         return {
             "summary_items": [
@@ -928,6 +939,13 @@ class PropertyReportService:
                     "columns": ["Payment method", "Total"],
                     "rows": collection_rows,
                     "empty_message": "No synced payments matched the selected filters.",
+                },
+                {
+                    "title": "Other receipt allocations",
+                    "summary": "Confirmed Cash receipts by credited account; excluded from rent and invoice settlement totals.",
+                    "columns": ["Receipt", "Tenant", "Account credited", "Amount"],
+                    "rows": [[row.payment_id, row.payment.tenant, row.account_code, row.amount] for row in other_allocations],
+                    "empty_message": "No confirmed Other allocations matched the selected filters.",
                 },
             ],
         }

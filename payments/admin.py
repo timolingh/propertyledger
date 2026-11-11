@@ -1,7 +1,6 @@
 from django.contrib import admin
-from decimal import Decimal
 
-from payments.forms import DebtServicePaymentForm, MaintenanceCategoryForm, SecurityDepositEventForm, TenantPaymentForm, VendorBillForm, VendorForm, VendorPaymentForm
+from payments.forms import DebtServicePaymentForm, MaintenanceCategoryForm, SecurityDepositEventForm, VendorBillForm, VendorForm, VendorPaymentForm
 from payments.maintenance_forms import MaintenanceRequestForm
 from payments.models import (
     DebtServicePayment,
@@ -21,7 +20,9 @@ from payments.models import (
 )
 from payments.approval_services import VendorBillApprovalService
 from payments.maintenance_services import MaintenanceRequestService
-from payments.services import TenantPaymentService, VendorPaymentService, VendorService
+from payments.services import VendorPaymentService, VendorService
+from payments.receipt_forms import WaterfallReceiptForm
+from payments.receipt_services import save_receipt
 
 
 @admin.register(PaymentWorkflowSettings)
@@ -56,19 +57,14 @@ class TenantPaymentDepositAllocationInline(admin.StackedInline):
 
 @admin.register(TenantPayment)
 class TenantPaymentAdmin(admin.ModelAdmin):
-    form = TenantPaymentForm
+    form = WaterfallReceiptForm
     list_display = ["tenant", "property", "payment_date", "amount", "status", "allocated_amount", "unapplied_amount"]
     list_filter = ["status", "payment_method", "property"]
     search_fields = ["tenant__name", "property__name", "reference"]
     inlines = [TenantPaymentApplicationInline, TenantPaymentDepositAllocationInline]
 
     def save_model(self, request, obj, form, change):
-        super().save_model(request, obj, form, change)
-        TenantPaymentService.set_deposit_allocation(
-            payment=obj,
-            lease=form.cleaned_data.get("deposit_lease"),
-            amount=form.cleaned_data.get("deposit_amount") or Decimal("0.00"),
-        )
+        save_receipt(form)
 
 
 @admin.register(TenantPaymentApplication)

@@ -37,6 +37,13 @@
           <tr><td><strong>Net summary</strong></td><td><strong>{{ statement.net_summary }}</strong></td></tr>
         </tbody>
       </table>
+      {% if statement.other_allocations %}
+        <h3>Other receipt allocations</h3>
+        <p class="muted">Confirmed receipts by credited account, separate from rent collections and the net summary.</p>
+        <table><thead><tr><th>Receipt</th><th>Account credited</th><th>Amount</th></tr></thead><tbody>
+          {% for allocation in statement.other_allocations %}<tr><td><a href="{% url 'tenant-payment-detail' allocation.payment_id %}">{{ allocation.payment_id }}</a></td><td>{{ allocation.account_code }}</td><td>{{ allocation.amount }}</td></tr>{% endfor %}
+        </tbody></table>
+      {% endif %}
     </div>
   {% endif %}
 {% endblock %}

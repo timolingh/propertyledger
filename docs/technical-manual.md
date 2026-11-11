@@ -181,6 +181,18 @@ No migrations or LedgerOS API changes are needed for these invoice controls.
 
 ### Payments and deposits
 
+#### Reviewed receipt waterfall
+
+New receipt entry and invoice entry share `WaterfallReceiptForm`: amount received and editable invoice, deposit, and Other amounts are reviewed together. The read-only, bookkeeping-role-protected `receipt-waterfall-preview` route returns eligible posted invoice balances in due-date order and lease deposit capacity. Late fees remain ordinary invoices. The browser uses integer cents, preserves explicit zeros/overrides, and recalculates downstream defaults; server validation remains authoritative without JavaScript. Drafts may retain unapplied funds; posting requires exact allocation. Creating a receipt only saves; posting uses the saved receipt identity.
+
+`save_receipt_allocations` locks the receipt and eligible invoice rows, stores reviewed invoice applications without posting, and enforces deposit ownership/capacity and required Other account codes. Confirmed prior invoice components remain fixed, including their IDs and frozen payloads. Uncertain components cannot be reallocated. `allocation_reviewed` prevents legacy automatic allocation from overriding a reviewed zero. Admin saves use the same service. Existing legacy allocation controls and payloads remain available for unfinished older receipts.
+
+Migration `payments.0011` adds the reviewed flag and `TenantPaymentOtherAllocation`; existing receipts, journals, sync identities and allocations remain unchanged. Other posts through the established signed `/api/v1/sync-events/` contract: debit operating Cash, credit the specified account, for only its own amount on the receipt date. LedgerOS validates the active account and period. The Other component freezes its payload and key before the first request, requires a posted journal response, and appears in the local finalization summary. No additional parent Cash posting occurs. Invalid account responses remain failed components on the same receipt for reconciliation; an attempted account cannot silently change under a new key.
+
+Other cannot credit the configured receiving Cash, AR, or tenant-deposit control account; invoices/deposits must use their own allocation paths so their subledgers and deposit limits remain enforced.
+
+For a 2,100 receipt split 1,500 invoices / 500 deposit / 100 Other, aggregate Cash increases 2,100, AR decreases 1,500, deposit liability increases 500, and the chosen Other account is credited 100. Replays must create no additional journals. Tenant AR/rent, owner rent totals, and deposit totals exclude Other; property reports and owner statement/export display confirmed Other allocations separately by account. Their arbitrary account classification is not inferred into the owner net summary.
+
 - Record tenant payments.
 - Apply payments to invoices.
 - Track security deposit events and balances.

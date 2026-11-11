@@ -25,15 +25,10 @@
   {% if can_bookkeep %}<div class="card">
     <h2>Record Payment</h2>
     <p class="muted">
-      Saving records the payment and posts its invoice allocations to LedgerOS, increasing Cash and reducing AR.
-      The payment is applied to this invoice first, then to the oldest open invoices for the same tenant and property.
-      To assign excess money to a security deposit, open the existing payment below and choose Assign to security deposit. Do not record the same money again.
+      Review the full amount received on one receipt: open invoices first, then deposit, then Other.
+      Enter 0 to skip a category. Saving the split does not post money.
     </p>
-    <form method="post">
-      {% csrf_token %}
-      {{ payment_form.as_p }}
-      <button type="submit" class="button primary">Save and apply payment</button>
-    </form>
+    <a class="button primary" href="{% url 'tenant-payment-create' %}?invoice={{ invoice.pk }}">Record receipt and review allocation</a>
   </div>{% endif %}
   <div class="card">
     <h2>Applied Payments</h2>

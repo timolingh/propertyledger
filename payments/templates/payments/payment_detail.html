@@ -14,18 +14,20 @@
     <p><strong>Total payment: ${{ payment.amount|floatformat:"2g" }}</strong></p>
     <p><strong>Applied to rent / invoices:</strong> {{ payment.allocated_amount }}</p>
     <p><strong>Assigned to security deposit:</strong> {{ payment.deposit_amount }}</p>
+    <p><strong>Other:</strong> {{ payment.other_amount }}{% if payment.other_amount > 0 %} — account {{ payment.other_allocation.account_code }}<br><strong>Other posting:</strong> {% if payment.other_allocation.sync_record.status == 'succeeded' and payment.other_allocation.sync_record.ledgeros_journal_entry_id %}Posted to LedgerOS · journal {{ payment.other_allocation.sync_record.ledgeros_journal_entry_id }}{% else %}Not confirmed{% endif %}{% if payment.other_allocation.sync_record.last_error %}<br>{{ payment.other_allocation.sync_record.last_error }}{% endif %}{% endif %}</p>
     <p><strong>Unapplied balance:</strong> {{ payment.unapplied_amount }}</p>
     <p><strong>Notes:</strong> {{ payment.notes|default:"-" }}</p>
-    <p class="muted">This receipt records money already received. Apply the rent portion to invoices first, then post the receipt to record its deposit portion. Assigned amounts are not proof of posting; check the confirmation for each part below. Retrying reuses this receipt and skips confirmed postings.</p>
+    <p class="muted">This receipt records money already received. Review open invoices, deposit, and Other together before posting. Assigned amounts are not proof of posting; check the confirmation for each part below. Retrying reuses this receipt and skips confirmed postings.</p>
     <div style="display:flex; gap:1rem; flex-wrap:wrap;">
       <a class="button" href="{% url 'tenant-payment-list' %}">Back</a>
       <a class="button" href="{% url 'invoice-list' %}">Open invoices</a>
       {% if can_bookkeep %}<a class="button" href="{% url 'tenant-payment-edit' payment.pk %}">{% if payment.is_editable_after_sync %}Edit receipt{% else %}Edit payment notes{% endif %}</a>{% endif %}
+      {% if can_bookkeep and payment.status != 'posted' and payment.status != 'voided' %}<a class="button primary" href="{% url 'tenant-payment-edit' payment.pk %}">Review receipt allocation</a>{% endif %}
     </div>
   </div>
   <div class="card">
     <h2 id="security-deposit">Security deposit</h2>
-    {% if can_bookkeep and can_assign_deposit %}
+    {% if can_bookkeep and can_assign_deposit and not payment.allocation_reviewed %}
       <h3>Assign unapplied money to deposit</h3>
       <p>Up to ${{ payment.unapplied_amount|floatformat:"2g" }} of this existing receipt is available. Choose the lease and amount. Rent already posted stays unchanged. This assignment does not post the deposit yet.</p>
       <form method="post">
@@ -54,9 +56,9 @@
     {% endif %}
   </div>
   <div class="card">
-    <h2 id="receipt-allocation">Apply rent to invoices</h2>
-    <p>This action applies the remaining ${{ payment.unapplied_amount|floatformat:"2g" }} to open invoices using the configured payment order and posts those invoice payments to LedgerOS.</p>
-    {% if can_bookkeep and payment.status != 'posted' and payment.status != 'voided' and payment.unapplied_amount > 0 %}<form method="post">
+    <h2 id="receipt-allocation">{% if payment.allocation_reviewed %}Invoice allocations{% else %}Apply rent to invoices{% endif %}</h2>
+    {% if payment.allocation_reviewed %}<p>These reviewed allocations post with this receipt. Confirmed postings are retained on retry.</p>{% else %}<p>This action applies the remaining ${{ payment.unapplied_amount|floatformat:"2g" }} to open invoices using the configured payment order and posts those invoice payments to LedgerOS.</p>{% endif %}
+    {% if can_bookkeep and not payment.allocation_reviewed and payment.status != 'posted' and payment.status != 'voided' and payment.unapplied_amount > 0 %}<form method="post">
       {% csrf_token %}
       <input type="hidden" name="action" value="allocate">
       <input type="hidden" name="payment_id" value="{{ payment.pk }}">
@@ -100,10 +102,10 @@
   </div>
   <div class="card">
     <h2>Post receipt to LedgerOS</h2>
-    {% if payment.status == 'posted' %}<p>Receipt posted. Its confirmed rent and deposit components are recorded in LedgerOS.</p>
+    {% if payment.status == 'posted' %}<p>Receipt posted. All its confirmed components are recorded in LedgerOS.</p>
     {% elif payment.status == 'voided' %}<p>This receipt is voided.</p>
-    {% elif payment.unapplied_amount > 0 %}<p>Apply the remaining ${{ payment.unapplied_amount|floatformat:"2g" }} to invoices or assign it to the security deposit above before posting this receipt.</p>
-    {% else %}<p>Record the ${{ payment.deposit_amount|floatformat:"2g" }} deposit portion and retry any unconfirmed invoice payments. Already confirmed amounts will not post again.</p>{% endif %}
+    {% elif payment.unapplied_amount > 0 %}<p>Review receipt allocation to assign the remaining ${{ payment.unapplied_amount|floatformat:"2g" }} to invoices, deposit, or Other before posting.</p>
+    {% else %}<p>Post the reviewed invoice, deposit (${{ payment.deposit_amount|floatformat:"2g" }}), and Other (${{ payment.other_amount|floatformat:"2g" }}) components. Already confirmed amounts will not post again.</p>{% endif %}
     {% if can_bookkeep and payment.status != 'posted' and payment.status != 'voided' and payment.unapplied_amount == 0 %}<form method="post">
       {% csrf_token %}
       <input type="hidden" name="action" value="sync">

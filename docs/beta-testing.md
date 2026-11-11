@@ -112,7 +112,7 @@ Have the tester create unit **104** and Dana’s active lease with **\$1,450 mon
 
 ### Minutes 25–40: Receive and record the first payment
 
-Only now introduce the fictional **\$2,900 check**, covering rent and deposit in full. Have the tester create a receipt, enter the **\$1,450 deposit allocation** themselves, save for review, apply/post rent, and post the receipt’s deposit portion. Confirm every action’s result before continuing. Do not create a separate deposit-received event for the same money.
+Only now introduce the fictional **\$2,900 check**, covering rent and deposit in full. Have the tester enter the full amount on the receipt and review the waterfall: **\$1,450 open invoices**, **\$1,450 deposit**, **\$0 Other**. Save for review, then post the saved receipt. Test that entering zero skips a category and positive Other requires an account. Confirm every action’s result before continuing. Do not create a separate deposit-received event for the same money.
 
 ### Minutes 40–50: Verify the outcome
 
