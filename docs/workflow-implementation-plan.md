@@ -91,10 +91,10 @@ Source findings in sibling LedgerOS:
 
 Recommended candidate to prove before mutation code: retain `TenantPayment` as the economic receipt identity, existing invoice applications for rent, and add explicit receipt-owned deposit allocation lines referencing `SecurityDepositEvent`. Each component posts only its own amount, shares the stable local receipt reference, and has a persisted independent idempotency key. The parent remains a local summary with no cash journal. Do not change existing invoice-application keys. Deposit posting must use the receipt's payment date consistently in the supported event envelope.
 
-| Component for a $2,000 receipt | LedgerOS request candidate | Required journal/result |
+| Component for a \$2,000 receipt | LedgerOS request candidate | Required journal/result |
 | --- | --- | --- |
-| $1,500 rent | Existing invoice payment endpoint and original allocation identity | Debit Cash 1,500; credit AR 1,500; invoice balance falls by 1,500; posted payment/journal IDs |
-| $500 refundable deposit | Generic event with explicit validated journal lines for this portion and stable receipt/allocation reference | Debit the same Cash account 500; credit configured deposit liability 500; posted journal ID/status |
+| \$1,500 rent | Existing invoice payment endpoint and original allocation identity | Debit Cash 1,500; credit AR 1,500; invoice balance falls by 1,500; posted payment/journal IDs |
+| \$500 refundable deposit | Generic event with explicit validated journal lines for this portion and stable receipt/allocation reference | Debit the same Cash account 500; credit configured deposit liability 500; posted journal ID/status |
 | Parent finalization | Local confirmed-component summary only | No external write or additional Cash debit; sum confirmed allocations equals 2,000 |
 
 Before selecting this mechanism, prove in an isolated LedgerOS sandbox that account selection matches the operating-bank mapping, dates/periods are correct, signed retries reuse the exact serialized payload, both component writes are idempotent after timeout, and deposit event references link unambiguously to the receipt. Assert aggregate Cash +2,000, AR −1,500 and deposit liability +500. A second finalize/retry must leave all balances and journal counts unchanged. The current invoice API's implicit cash selection is a compatibility condition, not permission to assume a match.

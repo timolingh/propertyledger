@@ -85,7 +85,7 @@ Representative records participants should encounter:
   - `GreenLine Landscaping` for `315.00`
 - a draft vendor payment for `Ace Plumbing` with check number `BETA-1001`
 - three draft security deposit events tied to the three leases
-- Avery Jordan’s draft $1,950.00 receipt for unit 101: $1,450.00 rent and a $500.00 security deposit
+- Avery Jordan’s draft \$1,950.00 receipt for unit 101: \$1,450.00 rent and a \$500.00 security deposit
 - maintenance requests: “Kitchen sink is leaking into the cabinet.” (unit 101, Open), “Hallway light flickers intermittently.” (unit 102, On hold), and “Remove fallen branches and restore the rear walkway.” (unit 103, Closed with vendor invoice pending)
 
 Default demo password:
@@ -108,15 +108,15 @@ As `beta-manager`, have the tester create **Dana Morgan**, review the tenant, an
 
 ### Minutes 15–25: Create the lease and rent invoice
 
-Have the tester create unit **104** and Dana’s active lease with **$1,450 monthly rent** and **$1,450 required deposit**. Review the lease and the initially unpaid deposit requirement. Switch to `beta-bookkeeper`, create the $1,450 rent invoice, and post it. Ask the tester to explain the **$2,900 total owed** and where each obligation appears.
+Have the tester create unit **104** and Dana’s active lease with **\$1,450 monthly rent** and **\$1,450 required deposit**. Review the lease and the initially unpaid deposit requirement. Switch to `beta-bookkeeper`, create the \$1,450 rent invoice, and post it. Ask the tester to explain the **\$2,900 total owed** and where each obligation appears.
 
 ### Minutes 25–40: Receive and record the first payment
 
-Only now introduce the fictional **$2,900 check**, covering rent and deposit in full. Have the tester create a receipt, enter the **$1,450 deposit allocation** themselves, save for review, apply/post rent, and post the receipt’s deposit portion. Confirm every action’s result before continuing. Do not create a separate deposit-received event for the same money.
+Only now introduce the fictional **\$2,900 check**, covering rent and deposit in full. Have the tester create a receipt, enter the **\$1,450 deposit allocation** themselves, save for review, apply/post rent, and post the receipt’s deposit portion. Confirm every action’s result before continuing. Do not create a separate deposit-received event for the same money.
 
 ### Minutes 40–50: Verify the outcome
 
-Have the tester find Dana’s paid rent invoice, posted $2,900 receipt, and deposit summary showing **$1,450 required / $1,450 received / $0 remaining**. Follow the deposit activity link back to the receipt. Ask them to explain which action created each record, when the payment arrived, and whether any amount remains owed.
+Have the tester find Dana’s paid rent invoice, posted \$2,900 receipt, and deposit summary showing **\$1,450 required / \$1,450 received / \$0 remaining**. Follow the deposit activity link back to the receipt. Ask them to explain which action created each record, when the payment arrived, and whether any amount remains owed.
 
 ### Minutes 50–60: Debrief
 
