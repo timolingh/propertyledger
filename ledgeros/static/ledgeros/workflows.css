@@ -82,6 +82,7 @@ pre { white-space: pre-wrap; overflow-wrap: anywhere; }
 label { display: block; margin-top: .75rem; font-weight: 600; }
 input, select, textarea { width: 100%; max-width: 42rem; padding: .55rem; margin-top: .25rem; border: 1px solid #adbcb2; border-radius: .3rem; background: white; color: var(--text); }
 input[type="checkbox"], input[type="radio"] { width: auto; }
+.helptext { display: block; margin-top: .25rem; }
 textarea { min-height: 8rem; }
 table { display: block; max-width: 100%; width: 100%; overflow-x: auto; border-collapse: collapse; }
 th, td { text-align: left; border-bottom: 1px solid var(--border); padding: .75rem .5rem; vertical-align: top; }

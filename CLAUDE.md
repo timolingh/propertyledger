@@ -16,6 +16,7 @@ Simplicity:
 - Avoid speculative configurability.
 
 Surgical changes:
+- Touch the least amount of code necessary to satisfy the requirements; reuse existing behavior and remove redundant changes.
 - Every changed line must trace to the requested behavior.
 - Do not refactor unrelated property, payment, reporting, LedgerOS adapter, or accounting-sync code.
 - Do not rename accounts, enums, statuses, event types, or transaction types without migration and test coverage.
