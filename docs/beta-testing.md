@@ -85,7 +85,7 @@ Representative records participants should encounter:
   - `GreenLine Landscaping` for `315.00`
 - a draft vendor payment for `Ace Plumbing` with check number `BETA-1001`
 - three draft security deposit events tied to the three leases
-- Avery Jordan’s draft \$1,950.00 receipt for unit 101: \$1,450.00 rent and a \$500.00 security deposit
+- Avery Jordan’s draft \$1,950.00 receipt for unit 101: a \$500.00 deposit assignment and \$1,450.00 still unallocated. Use **View receipt → Review receipt allocation** to review **Open invoices 1,450.00 / Deposit 500.00 / Other 0.00**, choose **Save receipt for review**, then **Post receipt to LedgerOS** on that same receipt.
 - maintenance requests: “Kitchen sink is leaking into the cabinet.” (unit 101, Open), “Hallway light flickers intermittently.” (unit 102, On hold), and “Remove fallen branches and restore the rear walkway.” (unit 103, Closed with vendor invoice pending)
 
 Default demo password:
@@ -124,7 +124,7 @@ Ask what was confusing, which labels were unexpected, and whether the screen mad
 
 ## Later sessions: partial states and recovery
 
-Once the first story is understood, use sections 7–13 of the guided test for permission checks, maintenance, vendor bills, the separate Avery partial-deposit scenario, and outages. Explain the starting state of each prepared record before using it. These exercises test resuming work; they are not the introduction to creating it.
+Once the first story is understood, use sections 7–13 of the guided test for permission checks, maintenance, vendor bills, the separate Avery partial-deposit scenario, and outages. Explain the starting state of each prepared record before using it. For Avery, review and save the existing receipt's three-row waterfall before posting; do not start with the older **Apply rent and post to LedgerOS** action. These exercises test resuming work; they are not the introduction to creating it.
 
 ## Moderator notes
 

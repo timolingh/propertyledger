@@ -135,7 +135,9 @@ Stay signed in as **beta-bookkeeper**. **Now simulate Dana handing you a \$2,900
 
 New invoice entry uses **Record receipt and review allocation**, opening the same waterfall form with the invoice's property and tenant. Enter the full check amount there and follow the same review/save/post steps. Creating an invoice receipt no longer requires posting rent before reviewing the deposit split.
 
-Do not enter the check again. On the invoice’s **Applied Payments** table, choose **Assign to security deposit** beside the existing payment’s unapplied balance. On its receipt page, select Dana’s unit 104 lease and enter **\$1,450** as the deposit amount, then choose **Assign to security deposit**. Confirm total \$2,900, rent applied \$1,450, deposit assigned \$1,450, and unapplied balance \$0. Choose **Post receipt to LedgerOS**. The rent payment already posted is retained and is not posted again.
+If the receipt has already been saved, use **Review receipt allocation** on that same receipt to review or correct its split; do not enter the check again. Saving an invoice allocation does not prove its payment posted. Follow **Save receipt for review → Post receipt to LedgerOS**, just as for home entry.
+
+For an **older receipt whose rent payment already posted but whose remaining funds have not been assigned**, use **Review receipt allocation**. Confirm the posted invoice amount is fixed, select Dana's matching lease, enter the existing receipt's \$1,450 unused balance as Deposit, and keep Other at zero. Save the reviewed split, then post the same receipt; the confirmed rent payment is retained. Older, unreviewed receipts may also show **Assign to security deposit** in the invoice's Applied Payments table and a separate assignment form on receipt detail. That is a recovery route for existing money, not a required step for new waterfall receipts. Resolve uncertain postings before changing the split.
 
 ## 6. Verify the completed first-payment story
 
@@ -164,7 +166,7 @@ Use **Cedar Grove Apartments**, owned by **Cedar Grove Holdings LLC**. Find the 
 | --- | --- | --- |
 | Vendor provisioning | Ace Plumbing, Bright Electric, GreenLine Landscaping | Local vendor records; fresh seeding does not sync them to LedgerOS |
 | Tenant provisioning | Avery Jordan | Local tenant record; explicitly provision the matching LedgerOS customer before posting rent in section 11 |
-| Rent and deposit | Avery Jordan’s unit 101 lease, \$1,450.00 rent invoice, and \$1,950.00 draft receipt | Lease requires a \$1,450.00 deposit separately from rent. The draft receipt is a prepared example for a simulated check: \$1,450.00 rent plus \$500.00 partial deposit; no payment has been posted |
+| Rent and deposit | Avery Jordan’s unit 101 lease, \$1,450.00 rent invoice, and \$1,950.00 draft receipt | Lease requires a \$1,450.00 deposit separately from rent. The draft has a \$500.00 deposit assignment but no reviewed invoice allocation or posting. Review the existing receipt's waterfall as \$1,450.00 Open invoices / \$500.00 Deposit / \$0.00 Other, save, then post |
 | Maintenance lifecycle | the unit 101 request, “Kitchen sink is leaking into the cabinet.” | Urgent leaking sink request, Open |
 | Hold and resume | the unit 102 request, “Hallway light flickers intermittently.” | Hallway light request, On hold while awaiting access |
 | Maintenance bill handoff | the unit 103 request, “Remove fallen branches and restore the rear walkway.” | Closed and verified; vendor invoice pending; no linked bill |
@@ -284,13 +286,42 @@ Sign in as `beta-bookkeeper`.
 
 1. Open Avery Jordan's current `1450.00` base-rent charge with **View**. If it is already **Synced**, continue to step 2. Otherwise, in **LedgerOS Sync**, choose **Approve and post to LedgerOS** and confirm **Invoice posted to LedgerOS.** The Edit screen offers the same action for the saved invoice; save edits first. Confirm a failed attempt shows its error and retains the action for retry, while a successfully posted invoice shows its sync reference and no posting button.
 2. **Simulate receiving payment:** Avery hands you a **\$1,950.00 check**, specifying **\$1,450.00 for rent** and **\$500.00 toward the security deposit**. This is the payment event the following receipt records; the app does not initiate it.
-3. Open tenant receipts and select Avery Jordan’s prepared **\$1,950.00 draft**. Review the check payment method, payment date, total, and \$500.00 deposit component tied to the unit 101 lease. Before allocation, **Applied to rent / invoices** is `0.00` and **Still to apply to invoices** is `1450.00`; the rent payment has not yet been applied. Reuse this draft rather than entering the same check again.
-4. Choose **Apply rent and post to LedgerOS**. This applies and posts the \$1,450.00 rent portion against the open rent invoice; it is not just a preview. Confirm the allocation succeeds and review its posted reference.
-5. Choose **Post receipt to LedgerOS** on the same receipt (also available in **Tenant Receipts** once the rent is fully allocated). This posts the \$500.00 deposit component and confirms that both parts of the check have been recorded. If it fails, fix the reported issue and use the same action on this receipt to retry.
-6. Confirm the invoice application and deposit journal each have their own successful reference and the parent receipt is Posted.
+3. Open **Tenant Receipts**, find Avery Jordan’s prepared **\$1,950.00 draft** (`BETA-MIXED-RECEIPT`), and choose **View receipt**. Reuse this receipt rather than entering the same check again. In the untouched seeded draft, **Applied to rent / invoices** is `0.00`, **Assigned to security deposit** is `500.00`, and **Unapplied balance** is `1450.00`. Assignment is not proof of posting.
+4. Choose **Review receipt allocation** on the receipt detail page. Confirm Avery, Cedar Grove Apartments, the check payment method, a payment date in the open accounting period, and **Amount received 1950.00**. Select Avery’s unit 101 lease for the deposit. Review all three waterfall rows:
+
+   | Waterfall row | Allocation | Funds remaining after row |
+   | --- | ---: | ---: |
+   | 1. Open invoices | \$1,450.00 | \$500.00 |
+   | 2. Deposit | \$500.00 | \$0.00 |
+   | 3. Other | \$0.00 | \$0.00 |
+
+   The lease’s remaining deposit requirement is \$1,450.00, but only \$500.00 of this check remains after rent. Do not allocate the full deposit requirement. Other needs no account when its allocation is zero. Any invoiced late fees are included in Open invoices; this scenario assumes only the \$1,450.00 rent invoice is open. If the preview differs, review existing invoices and payment/deposit activity before continuing.
+5. Choose **Save receipt for review**. On the same receipt, confirm total `1950.00`, **Applied to rent / invoices 1450.00**, **Assigned to security deposit 500.00**, **Other 0.00**, and **Unapplied balance 0.00**. These are saved allocations; neither component has posted yet. The invoice section now shows **Invoice allocations** rather than the older **Apply rent and post to LedgerOS** action.
+6. Choose **Post receipt to LedgerOS**. This posts the saved invoice and deposit components and finalizes the receipt only when both are confirmed. Confirm **Payment posted to LedgerOS.**, **Posted** receipt status, and separate successful invoice-payment and deposit-journal references. If posting fails or times out, resolve the reported issue and retry this same receipt; confirmed components are retained.
 7. Open **Security Deposits**. Avery’s lease summary should show **Required by lease \$1,450.00**, **Confirmed received \$500.00**, and **Remaining to collect \$950.00**. In **Deposit activity**, the \$500.00 row should say **Posted — confirmed** and link back to this receipt. The separate \$1,450.00 standalone draft remains **Unposted — not counted as received**; do not post it for the same check.
 8. On the separate \$1,450.00 standalone draft, attempting **Sync event** must now be rejected: only \$950.00 remains against the lease requirement. Confirm the event stays unposted and creates no new journal. Do not change its amount merely to make the test pass.
 9. Return to the receipt and confirm it shows **Posted** with no further posting action. Automated replay coverage verifies that repeating the same request creates no additional payment or journal.
+
+If you already used the older rent-posting action, keep this receipt. If its existing \$500 deposit assignment completes the split and the unapplied balance is zero, review the amounts on receipt detail and choose **Post receipt to LedgerOS** to post the remaining deposit; the confirmed rent is retained. If money remains unassigned, use **Review receipt allocation**, keeping the confirmed invoice amount fixed. If any posting is uncertain, retry that saved operation before changing allocations. If the receipt is already Posted, verify its references and totals instead of recording the check again.
+
+### Other receipt cases to check
+
+Use separate synthetic payments for these cases; each receipt must represent its own money. Start with posted invoices where invoice allocation is required. Use **Save receipt for review → Post receipt to LedgerOS** for each new receipt, regardless of whether entry starts from Home or an invoice.
+
+| Case | Reviewed waterfall | Expected result |
+| --- | --- | --- |
+| Rent only | Receipt 100; Open invoices 100 / Deposit 0 / Other 0 | Cash +100, AR −100; no deposit posting |
+| Partial rent | Receipt 60 against an unpaid 100 invoice; Open invoices 60 / Deposit 0 / Other 0 | Cash +60, AR −60; 40 remains on the invoice |
+| Deposit only | Receipt 100 with at least 100 remaining lease capacity; Open invoices 0 / Deposit 100 / Other 0 | Cash +100, deposit liability +100; no AR settlement or rent income |
+| Other only | Receipt 100; Open invoices 0 / Deposit 0 / Other 100; valid credited account | Cash +100, selected account credited 100; no rent or deposit activity |
+| Three components | Receipt 2,100; Open invoices 1,500 / Deposit 500 / Other 100; valid credited account | Cash +2,100 total; AR −1,500; deposit liability +500; Other account credited 100; no parent Cash posting |
+| Invoiced late fee / multiple invoices | Include a posted late-fee invoice and rent invoice in Open invoices | Due-date order, then charge date and ID; late fees have no separate waterfall row |
+| Partial draft / zero override | Explicitly enter 0 to skip a category; leave part of the receipt unallocated | Saved zeros persist; a partial draft saves but cannot post until fully allocated |
+| Multiple leases / deposit limit | Select the intended matching lease; try more than its remaining deposit requirement | No guessed lease when multiple apply; excess is rejected without posting |
+| Partial success / timeout | Interrupt a component after another succeeds; retry **Post receipt to LedgerOS** on the same receipt | Confirmed components keep their IDs and are not reposted; uncertain components retain payload/key; no completed status until all succeed |
+| Read-only / finalized receipt | Open the same receipt as a viewer, or after confirmed posting | No financial write controls for viewers; no reallocation of finalized receipts |
+
+For Other, a positive amount requires an account code; the receiving Cash, AR, and tenant-deposit control accounts are rejected. A failed Other posting must be retried on the existing receipt rather than changed to a new account under a new posting identity. If JavaScript is unavailable, enter all three allocation amounts explicitly and rely on server validation; do not expect automatic defaults or funds-remaining updates.
 
 Expected aggregate LedgerOS result:
 
@@ -316,7 +347,7 @@ Treat an upstream-derived value as **Unavailable** during a read failure. A zero
 
 ## 13. LedgerOS outage and recovery
 
-Use the same browser records so identity preservation is visible.
+Use the same browser records so identity preservation is visible. Before stopping LedgerOS, prepare a separate **fully allocated, unposted** receipt through the waterfall and save it for review. Also identify an approved bill eligible for posting and an approved, posted, unpaid bill eligible for payment. This makes the visible posting/payment actions test readiness rather than missing allocations or approval prerequisites.
 
 1. Stop only the LedgerOS web service from the sibling repository:
 
@@ -327,8 +358,8 @@ Use the same browser records so identity preservation is visible.
 
 2. Reload PropertyLedger `/home/`. Confirm the LedgerOS unavailable warning and **Unavailable** accounting values.
 3. As `beta-manager`, create or update a local maintenance request. It must succeed.
-4. As `beta-bookkeeper`, save a new receipt draft and a vendor-bill draft. They must succeed.
-5. Attempt to finalize the receipt, post the bill, and pay an eligible bill. Each action must stop before a new sync attempt.
+4. As `beta-bookkeeper`, save a new receipt draft and a vendor-bill draft. They must succeed. For an intentionally unallocated receipt draft, explicitly set Open invoices, Deposit, and Other to `0.00`, then choose **Save receipt for review**. Do not try to post that incomplete split.
+5. On the fully allocated receipt prepared before the outage, choose **Post receipt to LedgerOS**. Also attempt to post the eligible approved bill and pay the eligible posted bill. Each action must stop before a new sync attempt.
 6. Record the local object IDs and current sync-attempt counts.
 7. Restart LedgerOS and rerun readiness:
 
