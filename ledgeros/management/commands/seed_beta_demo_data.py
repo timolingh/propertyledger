@@ -448,7 +448,10 @@ class Command(BaseCommand):
                     ("assign", {}),
                     ("start", {}),
                     ("verify", {"reason": "Walkway inspected and clear"}),
-                    ("close", {"reason": "Vendor invoice expected", "closure_financial_status": MaintenanceRequest.ClosureFinancialStatus.INVOICE_PENDING}),
+                    ("close", {
+                        "reason": "Rear walkway cleared and inspected.",
+                        "closure_financial_status": MaintenanceRequest.ClosureFinancialStatus.INVOICE_PENDING,
+                    }),
                 ),
             },
         )

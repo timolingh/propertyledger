@@ -195,18 +195,18 @@ Sign in as `beta-manager` and open the maintenance queue.
 1. Open the unit 101 request, “Kitchen sink is leaking into the cabinet.” and confirm Cedar Grove, unit 101, Avery Jordan, Plumbing, Ace Plumbing, urgent priority, and `240.00` estimate.
 2. Move it through Triage, Assign, Start, and Verify.
 3. Close it with **Vendor invoice pending** and a meaningful closure note.
-4. Confirm the event history records each actor, old state, new state, reason, and version.
-5. Reopen it with a reason. Confirm the prior close event remains and the reopen count increases.
+4. Under **History**, check the actor and state change for each transition, and confirm any reason you entered appears.
+5. Reopen it with a reason. Under **History**, confirm the **Closed** event remains and a new **Reopened** event shows **Closed → Triaged** and your reason.
 6. Open the unit 102 request, “Hallway light flickers intermittently.”, resume it, and confirm it returns to its prior Triaged state.
 
 Expected accounting result: none. Maintenance transitions must not create a bill, payment, journal, tenant-ledger line, owner-statement line, sync record, or LedgerOS mutation.
 
-## 9. Maintenance-to-vendor-bill handoff
+## 9. Maintenance-to-payables handoff
 
 Sign in as `beta-bookkeeper`. This scenario demonstrates a linking dependency: a bill must belong to the same property and, for a unit-specific maintenance request, the same unit. The existing **GreenLine Landscaping \$315.00 draft bill** starts with no unit selected and the description **Monthly landscaping service**.
 
 1. Open the unit 103 maintenance request, “Remove fallen branches and restore the rear walkway.” Under **Link an existing bill**, notice that the GreenLine bill is absent. It exists, but its unit does not match the request.
-2. Open **Vendor Bills**, find the existing GreenLine Landscaping \$315.00 draft, and choose **Edit**.
+2. Open **Vendor payables** in the sidebar, find the existing GreenLine Landscaping \$315.00 draft, and choose **Edit**.
 3. For this demo, treat that draft as the invoice for the walkway repair. Keep **Cedar Grove Apartments**, select unit **103**, change the repair description to **Remove fallen branches and restore the rear walkway.**, and choose **Save draft**. In actual use, only change attribution when it matches the vendor invoice and work performed.
 4. Return to the maintenance request. Under **Link an existing bill**, select the GreenLine Landscaping \$315.00 bill and choose **Link bill**. No new bill is needed.
 5. Confirm the bill appears once in the linked-bills table and the request remains Closed with Vendor invoice pending.
@@ -284,7 +284,7 @@ If posting previously failed with `customer_code: Unknown customer.`, the invoic
 
 Sign in as `beta-bookkeeper`.
 
-1. Open Avery Jordan's current `1450.00` base-rent charge with **View**. If it is already **Synced**, continue to step 2. Otherwise, in **LedgerOS Sync**, choose **Approve and post to LedgerOS** and confirm **Invoice posted to LedgerOS.** The Edit screen offers the same action for the saved invoice; save edits first. Confirm a failed attempt shows its error and retains the action for retry, while a successfully posted invoice shows its sync reference and no posting button.
+1. In the sidebar, open **Accounting & monitoring → Invoices**. Find Avery Jordan’s current \$1,450.00 **Base rent** invoice and choose **View**. If it is already **Synced**, continue to step 2. Otherwise, in **LedgerOS Sync**, choose **Approve and post to LedgerOS** and confirm **Invoice posted to LedgerOS.** The Edit screen offers the same action for the saved invoice; save edits first. Confirm a failed attempt shows its error and retains the action for retry, while a successfully posted invoice shows its sync reference and no posting button.
 2. **Simulate receiving payment:** Avery hands you a **\$1,950.00 check**, specifying **\$1,450.00 for rent** and **\$500.00 toward the security deposit**. This is the payment event the following receipt records; the app does not initiate it.
 3. Open **Tenant Receipts**, find Avery Jordan’s prepared **\$1,950.00 draft** (`BETA-MIXED-RECEIPT`), and choose **View receipt**. Reuse this receipt rather than entering the same check again. In the untouched seeded draft, **Applied to rent / invoices** is `0.00`, **Assigned to security deposit** is `500.00`, and **Unapplied balance** is `1450.00`. Assignment is not proof of posting.
 4. Choose **Review receipt allocation** on the receipt detail page. Confirm Avery, Cedar Grove Apartments, the check payment method, a payment date in the open accounting period, and **Amount received 1950.00**. Select Avery’s unit 101 lease for the deposit. Review all three waterfall rows:

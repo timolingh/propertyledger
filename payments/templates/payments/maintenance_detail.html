@@ -19,7 +19,16 @@
         <tr><th>Estimated cost</th><td>{% if maintenance_request.estimated_cost != None %}${{ maintenance_request.estimated_cost }}{% else %}—{% endif %}</td></tr>
         <tr><th>Created by</th><td>{{ maintenance_request.created_by|default:"Unknown" }} · {{ maintenance_request.created_at }}</td></tr>
         {% if maintenance_request.verified_at %}<tr><th>Verified</th><td>{{ maintenance_request.verified_by|default:"Unknown" }} · {{ maintenance_request.verified_at }}</td></tr>{% endif %}
-        {% if maintenance_request.closed_at %}<tr><th>Closed</th><td>{{ maintenance_request.closed_by|default:"Unknown" }} · {{ maintenance_request.closed_at }}<br>{{ maintenance_request.get_closure_financial_status_display }} · {{ maintenance_request.closure_notes }}</td></tr>{% endif %}
+        {% if maintenance_request.closed_at %}
+          <tr>
+            <th>Closed</th>
+            <td>
+              {{ maintenance_request.closed_by|default:"Unknown" }} · {{ maintenance_request.closed_at }}<br>
+              <strong>Invoice outcome</strong> {{ maintenance_request.get_closure_financial_status_display }}<br>
+              <strong>Closure note</strong> {{ maintenance_request.closure_notes }}
+            </td>
+          </tr>
+        {% endif %}
       </tbody>
     </table>
   </div>
