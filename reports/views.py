@@ -263,6 +263,12 @@ class OwnerStatementExportView(ReportingRoleRequiredMixin, ReportsAppContextMixi
             "net_summary",
         ]:
             writer.writerow([key.replace("_", " ").title(), statement[key]])
+        if statement["other_allocations"]:
+            writer.writerow([])
+            writer.writerow(["Other receipt allocations (separate from rent/net summary)"])
+            writer.writerow(["Receipt", "Account credited", "Amount"])
+            for allocation in statement["other_allocations"]:
+                writer.writerow([allocation.payment_id, allocation.account_code, allocation.amount])
         response = HttpResponse(buffer.getvalue(), content_type="text/csv")
         response["Content-Disposition"] = 'attachment; filename="owner-statement.csv"'
         return response

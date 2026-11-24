@@ -1,16 +1,42 @@
 {% extends "ledgeros/base.html" %}
+{% load static %}
 
 {% block title %}Payment | PropertyLedger{% endblock %}
+{% block extra_css %}<script src="{% static 'ledgeros/receipt_waterfall.js' %}" defer></script>{% endblock %}
 
 {% block content %}
   <div class="card">
-    <h1>{{ object|default:"Add payment" }}</h1>
-    <p class="muted">Enter the full receipt amount. If it includes a refundable security deposit, enter that portion and choose its lease. The remainder is available for invoice allocation.</p>
-    <form method="post">
+    <h1>{{ object|default:"Record receipt" }}</h1>
+    <p class="muted">Enter money already received. Allocate it to open invoices (including late fees), then deposit, then Other. Enter 0 to skip a category; the money flows to the next row. Saving a draft does not post money.</p>
+    <form method="post" data-receipt-waterfall="{% url 'receipt-waterfall-preview' %}" data-payment="{{ object.pk|default:'' }}" data-preserve="{% if form.is_bound or object.allocation_reviewed %}true{% endif %}">
       {% csrf_token %}
-      {{ form.as_p }}
-      <button type="submit" class="button primary">Save receipt for review</button>
+      {{ form.non_field_errors }}
+      {% for field in form %}
+        {% if field.name != 'invoice_amount' and field.name != 'deposit_amount' and field.name != 'deposit_lease' and field.name != 'other_amount' and field.name != 'other_account_code' and field.name != 'reference' and field.name != 'notes' and field.name != 'payment_method' %}
+          {% if field.is_hidden %}{{ field }}{% else %}<p>{{ field.errors }}{{ field.label_tag }}{{ field }}{% if field.help_text %}<span class="helptext" id="{{ field.auto_id }}_helptext">{{ field.help_text }}</span>{% endif %}</p>{% endif %}
+        {% endif %}
+      {% endfor %}
+      <h2>Allocate amount received</h2>
+      <p>{{ form.deposit_lease.errors }}{{ form.deposit_lease.label_tag }}{{ form.deposit_lease }}</p>
+      <p class="muted" id="{{ form.deposit_lease.auto_id }}_helptext">Choose the applicable lease for the deposit. Multiple leases require an explicit selection.</p>
+      <table>
+        <thead><tr><th>Category</th><th>Available to pay</th><th>Allocation</th><th>Funds remaining</th></tr></thead>
+        <tbody>
+          <tr><td>{{ form.invoice_amount.label_tag }}<span class="muted" id="{{ form.invoice_amount.auto_id }}_helptext">{{ form.invoice_amount.help_text }}</span></td><td><output id="invoice-due">{{ form.preview.invoice_due }}</output></td><td>{{ form.invoice_amount.errors }}{{ form.invoice_amount }}</td><td><output id="after-invoices"></output></td></tr>
+          <tr><td>{{ form.deposit_amount.label_tag }}<span class="muted" id="{{ form.deposit_amount.auto_id }}_helptext">{{ form.deposit_amount.help_text }}</span></td><td><output id="deposit-due">Choose lease</output></td><td>{{ form.deposit_amount.errors }}{{ form.deposit_amount }}</td><td><output id="after-deposit"></output></td></tr>
+          <tr><td>{{ form.other_amount.label_tag }}</td><td>Remaining funds</td><td>{{ form.other_amount.errors }}{{ form.other_amount }}</td><td><output id="after-other"></output></td></tr>
+        </tbody>
+      </table>
+      <p>{{ form.other_account_code.errors }}{{ form.other_account_code.label_tag }}{{ form.other_account_code }}<span class="helptext" id="{{ form.other_account_code.auto_id }}_helptext">{{ form.other_account_code.help_text }}</span></p>
+      <p id="waterfall-status" role="status" aria-live="polite">Review the split before posting. Posting requires the full amount to be allocated.</p>
+      <details><summary>Open invoices in allocation order</summary><ul id="waterfall-invoices">{% for invoice in form.preview.invoices %}<li>{{ invoice.label }} — {{ invoice.due }}</li>{% empty %}<li>Select the property and tenant to review invoices.</li>{% endfor %}</ul></details>
+      <p>{{ form.payment_method.errors }}{{ form.payment_method.label_tag }}{{ form.payment_method }}</p>
+      <p>{{ form.reference.errors }}{{ form.reference.label_tag }}{{ form.reference }}</p>
+      <p>{{ form.notes.errors }}{{ form.notes.label_tag }}{{ form.notes }}</p>
+      {% if object and form.can_allocate %}<button type="submit" class="button primary" name="action" value="post">Save and post receipt</button>{% endif %}
+      <button type="submit" class="button" name="action" value="save">Save receipt for review</button>
       <a class="button" href="{% url 'tenant-payment-list' %}">Back</a>
     </form>
+    {{ form.preview|json_script:"receipt-waterfall-data" }}
   </div>
 {% endblock %}

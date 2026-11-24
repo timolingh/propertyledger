@@ -196,21 +196,40 @@ class VendorBillApprovalService:
         return bill
 
     @staticmethod
+    def withdrawal_blocker(bill: VendorBill) -> str:
+        if bill.approval_status not in {
+            VendorBill.ApprovalStatus.SUBMITTED, VendorBill.ApprovalStatus.APPROVED,
+        }:
+            return "Only a submitted or approved bill can be withdrawn."
+        if bill.approval_status == VendorBill.ApprovalStatus.APPROVED and (
+            bill.status != VendorBill.Status.DRAFT or bill.sync_record_id is not None
+        ):
+            # A failed request may already have committed upstream. Preserve its
+            # approval and retry identity; withdrawal is local-only.
+            return "An approved bill cannot be withdrawn once LedgerOS posting has started."
+        return ""
+
+    @staticmethod
     @transaction.atomic
     def withdraw(bill: VendorBill, *, actor, reason: str = "") -> VendorBill:
         require_bill_editor(actor)
         bill = VendorBill.objects.select_for_update().get(pk=bill.pk)
-        if bill.approval_status != VendorBill.ApprovalStatus.SUBMITTED:
-            raise ValidationError("Only a submitted bill can be withdrawn.")
+        blocker = VendorBillApprovalService.withdrawal_blocker(bill)
+        if blocker:
+            raise ValidationError(blocker)
         if bill.submitted_by_id != actor.pk and not user_has_any_role(actor, (ROLE_ADMIN,)):
             raise PermissionDenied("Only the submitter or an administrator can withdraw this bill.")
+        reason = reason.strip()
+        if bill.approval_status == VendorBill.ApprovalStatus.APPROVED and not reason:
+            raise ValidationError("A withdrawal reason is required.")
         bill.approval_status = VendorBill.ApprovalStatus.WITHDRAWN
+        bill.approved_fingerprint = ""
         bill.decision_by = actor
         bill.decision_at = timezone.now()
-        bill.decision_reason = reason.strip()
+        bill.decision_reason = reason
         bill.save()
         VendorBillApprovalService._event(
-            bill, action=VendorBill.ApprovalStatus.WITHDRAWN, actor=actor, reason=reason.strip()
+            bill, action=VendorBill.ApprovalStatus.WITHDRAWN, actor=actor, reason=reason
         )
         return bill
 

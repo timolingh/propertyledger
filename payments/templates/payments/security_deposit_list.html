@@ -1,47 +1,36 @@
 {% extends "ledgeros/base.html" %}
-
 {% block title %}Security Deposits | PropertyLedger{% endblock %}
-
 {% block content %}
-  <div class="card">
-    <h1>Security Deposits</h1>
-    {% if can_bookkeep %}<a class="button primary" href="{% url 'security-deposit-create' %}">Add deposit event</a>{% endif %}
-  </div>
-  <div class="card">
-    <table>
-      <thead>
-        <tr>
-          <th>Tenant</th>
-          <th>Property</th>
-          <th>Unit</th>
-          <th>Lease</th>
-          <th>Type</th>
-          <th>Date</th>
-          <th>Amount</th>
-          <th>Status</th>
-          <th>Actions</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for event in events %}
-          <tr>
-            <td>{{ event.tenant }}</td>
-            <td>{{ event.property }}</td>
-            <td>{{ event.unit }}</td>
-            <td>{{ event.lease }}</td>
-            <td>{{ event.get_event_type_display }}</td>
-            <td>{{ event.event_date }}</td>
-            <td>{{ event.amount }}</td>
-            <td>{{ event.get_status_display }}</td>
-            <td class="actions">
-              <a href="{% url 'security-deposit-detail' event.pk %}">View</a>
-            </td>
-          </tr>
-        {% empty %}
-          <tr><td colspan="9" class="muted">No deposit events yet.</td></tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </div>
+<div class="card">
+  <h1>Security Deposits</h1>
+  <p>Compare lease requirements with confirmed deposit receipts. Drafts and unconfirmed postings are shown separately below.</p>
+  <a class="button" href="{% url 'tenant-payment-list' %}">Tenant receipts</a>
+  {% if can_bookkeep %}<a class="button" href="{% url 'security-deposit-create' %}">Add standalone deposit event</a>{% endif %}
+</div>
+<div class="card">
+  <h2>Deposit collection by lease</h2>
+  <p class="muted">Received amounts are confirmed historical postings, including receipt deposits. Remaining means the initial lease requirement less confirmed receipts, not the current liability balance. Refunds, deductions, or uncertain postings require review before collecting more.</p>
+  <table>
+    <thead><tr><th>Tenant / lease</th><th>Required by lease</th><th>Confirmed received</th><th>Remaining to collect</th><th>Over requirement</th></tr></thead>
+    <tbody>{% for row in deposit_summary %}<tr>
+      <td>{{ row.lease }}</td>
+      <td>${{ row.required|floatformat:"2g" }}</td><td>${{ row.received|floatformat:"2g" }}</td>
+      <td>{% if row.review %}Needs review{% else %}${{ row.remaining|floatformat:"2g" }}{% endif %}</td>
+      <td>{% if row.excess > 0 %}<strong class="status-bad">${{ row.excess|floatformat:"2g" }} over requirement — reconcile postings</strong>{% else %}—{% endif %}</td>
+    </tr>{% empty %}<tr><td colspan="5">No leases yet.</td></tr>{% endfor %}</tbody>
+  </table>
+</div>
+<div class="card">
+  <h2>Deposit activity</h2>
+  <p class="muted">Receipt deposits link to the receipt that posts them. Standalone events are separate transactions; a draft “Received” event does not mean money has been posted. Do not record the same payment through both paths.</p>
+  <table>
+    <thead><tr><th>Tenant / lease</th><th>Date</th><th>Source</th><th>Type</th><th>Amount</th><th>Posting status</th></tr></thead>
+    <tbody>{% for row in deposit_activity %}<tr>
+      <td>{{ row.tenant }}<br><span class="muted">{{ row.lease }}</span></td>
+      <td>{{ row.date }}</td><td><a href="{{ row.url }}">{{ row.source }}</a></td>
+      <td>{{ row.type }}</td><td>${{ row.amount|floatformat:"2g" }}</td>
+      <td>{{ row.status }}{% if row.journal_id %}<br><span class="muted">Journal {{ row.journal_id }}</span>{% endif %}</td>
+    </tr>{% empty %}<tr><td colspan="6">No deposit activity yet.</td></tr>{% endfor %}</tbody>
+  </table>
+</div>
 {% endblock %}
-

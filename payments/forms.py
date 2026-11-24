@@ -10,6 +10,7 @@ from django.core import signing
 from django.core.exceptions import ValidationError
 from django.utils import timezone
 
+from ledgeros.form_relationships import configure_property_autofill
 from ledgeros.models import Lease, Property, PropertyLedgerAccountMapping, PropertyLedgerSetup, Tenant, TenantCharge, Unit
 from ledgeros.roles import ROLE_ADMIN, ROLE_BOOKKEEPER, ROLE_GROUP_NAMES, ROLE_PROPERTY_MANAGER
 from payments.models import (
@@ -100,6 +101,7 @@ class TenantPaymentForm(forms.ModelForm):
             for name in self.fields:
                 if name != "notes":
                     self.fields[name].disabled = True
+        configure_property_autofill(self)
 
     def clean(self):
         cleaned = super().clean()
@@ -117,6 +119,17 @@ class TenantPaymentForm(forms.ModelForm):
         if lease is not None and tenant is not None and lease.tenant_id != tenant.pk:
             self.add_error("deposit_lease", "The deposit lease must belong to the selected tenant.")
         return cleaned
+
+
+class ReceiptDepositAssignmentForm(forms.Form):
+    deposit_lease = forms.ModelChoiceField(queryset=Lease.objects.none(), label="Deposit lease")
+    deposit_amount = forms.DecimalField(max_digits=12, decimal_places=2, min_value=Decimal('0.01'), label="Deposit amount")
+
+    def __init__(self, *args, payment, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields['deposit_lease'].queryset = Lease.objects.filter(
+            tenant=payment.tenant, unit__property=payment.property,
+        ).exclude(status=Lease.Status.CANCELLED)
 
 
 class InvoicePaymentForm(forms.ModelForm):
@@ -170,6 +183,7 @@ class SecurityDepositEventForm(forms.ModelForm):
             for name in self.fields:
                 if name != "notes":
                     self.fields[name].disabled = True
+        configure_property_autofill(self)
 
 
 class VendorTermsSelect(forms.Select):
@@ -225,6 +239,7 @@ class VendorBillForm(_SyncEditableModelForm):
         )
         self.fields["due_date"].help_text = "Defaults from the vendor's payment terms. You can change either date."
         self._apply_sync_edit_restrictions()
+        configure_property_autofill(self)
 
     def clean(self):
         cleaned = super().clean()
@@ -321,6 +336,8 @@ class BillPaymentForm(VendorPaymentForm):
         self.user = user
         kwargs["instance"] = VendorPayment(vendor=bill.vendor, vendor_bill=bill)
         super().__init__(*args, **kwargs)
+        if not self.is_bound and not self.initial.get("bank_account_name"):
+            self.initial["bank_account_name"] = self.fields["bank_account_name"].initial
         self.fields["amount"].min_value = Decimal("0.01")
         mapping = PropertyLedgerSetup.load().account_mappings.filter(
             mapping_key=PropertyLedgerAccountMapping.MappingKey.CREDIT_CARD_LIABILITY, is_enabled=True,

@@ -1,0 +1,40 @@
+{% extends "ledgeros/base.html" %}
+{% block title %}Vendors | PropertyLedger{% endblock %}
+{% block content %}
+<header class="vendor-heading">
+  <div><h1>Vendors</h1><p class="muted">Manage payees and their connection to LedgerOS.</p></div>
+  {% if can_create_record %}<a class="button primary" href="{{ create_url }}">Add vendor</a>{% endif %}
+</header>
+<div class="card vendor-directory">
+  <div class="vendor-table-scroll" role="region" aria-label="Vendors" tabindex="0">
+    <table class="vendor-table">
+      <thead><tr><th scope="col">Vendor</th><th scope="col">LedgerOS status</th><th scope="col" class="vendor-actions-heading">Actions</th></tr></thead>
+      <tbody>
+        {% for row in rows %}
+        <tr>
+          <td>
+            <strong>{{ row.object.name }}</strong>
+            {% if not row.object.is_active %}<span class="vendor-inactive">Inactive</span>{% endif %}
+            <span class="vendor-contact">{{ row.object.email|default:"No email on file" }}</span>
+          </td>
+          <td>{% include "payments/vendor_sync_status.html" with vendor_sync=row.vendor_sync compact=True only %}</td>
+          <td>
+            <div class="vendor-row-actions">
+              {% if can_create_record %}
+                <a href="{{ row.edit_url }}">Edit<span class="visually-hidden"> {{ row.object.name }}</span></a>
+                {% if not row.vendor_sync.synced %}
+                <form method="post" action="{% url 'vendor-sync' row.object.pk %}">
+                  {% csrf_token %}<button type="submit" aria-label="{{ row.vendor_sync.action_label }}: {{ row.object.name }}">{% if row.object.sync_record_id %}Retry sync{% else %}Sync to LedgerOS{% endif %}</button>
+                </form>
+                {% endif %}
+              {% else %}<span class="muted">View only</span>{% endif %}
+            </div>
+          </td>
+        </tr>
+        {% empty %}<tr><td colspan="3" class="vendor-empty">No vendors yet. Add your first payee to get started.</td></tr>{% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <p class="vendor-table-note">Status reflects the last sync. Syncing a vendor does not post bills or payments.</p>
+</div>
+{% endblock %}

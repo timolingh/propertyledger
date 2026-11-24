@@ -9,6 +9,7 @@
     {% if create_available %}
       <form method="post">
         {% csrf_token %}
+        {% if bill_return_url %}<input type="hidden" name="return_url" value="{{ bill_return_url }}">{% endif %}
         {{ form.as_p }}
         <div class="actions">
           <button type="submit" name="action" value="draft">Save draft</button>

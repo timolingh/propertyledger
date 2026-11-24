@@ -16,10 +16,11 @@
     <p><strong>Description:</strong> {{ invoice.description|default:"-" }}</p>
     <div style="display:flex; gap:1rem; flex-wrap:wrap;">
       <a class="button" href="{% url 'charge-list' %}">Back to invoices</a>
-      <a class="button primary" href="{% url 'invoice-detail' invoice.pk %}">Record payment</a>
-      <a class="button" href="{% url 'charge-edit' invoice.pk %}">Edit invoice</a>
+      {% if can_edit_invoice %}<a class="button" href="{% url 'charge-edit' invoice.pk %}">Edit invoice</a>{% endif %}
+      {% if can_record_invoice_payment %}<a class="button primary" href="{% url 'invoice-detail' invoice.pk %}">Record payment</a>{% endif %}
     </div>
   </div>
+  {% include "ledgeros/invoice_sync.html" %}
   <div class="card">
     <h2>Applied Payments</h2>
     <table>

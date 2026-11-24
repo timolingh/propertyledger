@@ -8,11 +8,14 @@ from decimal import Decimal
 from typing import Any
 
 from django.contrib import messages
+from django.db import transaction
+from django.views import View
+from payments.vendor_sync import vendor_sync_status
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.core import signing
 from django.shortcuts import get_object_or_404
 from django.utils.functional import cached_property
-from django.http import HttpResponseRedirect
+from django.http import HttpResponseRedirect, JsonResponse
 from django.urls import reverse, reverse_lazy
 from django.utils import timezone
 from django.views.generic import CreateView, DetailView, FormView, ListView, TemplateView, UpdateView
@@ -28,9 +31,9 @@ from payments.forms import (
     BillPaymentForm,
     DebtServicePaymentForm,
     InvoicePaymentForm,
+    ReceiptDepositAssignmentForm,
     MaintenanceCategoryForm,
     SecurityDepositEventForm,
-    TenantPaymentForm,
     VendorBillForm,
     VendorBillDecisionForm,
     VendorForm,
@@ -49,6 +52,10 @@ from payments.models import (
     WorkflowAuthorization,
 )
 from payments.approval_services import VendorBillApprovalService, WorkflowAuthorizationService
+from payments.bill_navigation import BillCreationReturnMixin
+from payments.receipt_forms import WaterfallReceiptForm
+from payments.receipt_services import receipt_waterfall, save_receipt
+from payments.deposit_activity import deposit_activity
 from payments.authorization import (
     WORKFLOW_FINANCIAL_ROLES,
     can_approve_vendor_bills,
@@ -60,7 +67,6 @@ from payments.services import (
     DebtServicePaymentService,
     LedgerOSBankingReadService,
     MaintenanceExpenseSummaryService,
-    SecurityDepositLedgerService,
     TenantPaymentService,
     VendorBillService,
     VendorPaymentService,
@@ -400,7 +406,7 @@ class TenantPaymentListView(ReportingRoleRequiredMixin, PaymentsAppContextMixin,
 
     def get_queryset(self):
         return TenantPayment.objects.select_related(
-            "tenant", "property", "sync_record", "deposit_allocation__sync_record"
+            "tenant", "property", "sync_record", "deposit_allocation__sync_record", "other_allocation__sync_record"
         ).prefetch_related("applications__charge").order_by("-payment_date", "-id")
 
     def post(self, request, *args, **kwargs):
@@ -463,20 +469,42 @@ class TenantPaymentListView(ReportingRoleRequiredMixin, PaymentsAppContextMixin,
         return HttpResponseRedirect(reverse("tenant-payment-list"))
 
 
+def _saved_receipt_response(request, payment):
+    if request.POST.get("action") == "post":
+        try:
+            LedgerOSWriteReadinessService.require()
+            TenantPaymentService.sync_payment(payment)
+        except ValidationError as exc:
+            messages.error(request, "; ".join(exc.messages))
+        else:
+            payment.refresh_from_db()
+            if payment.status == TenantPayment.Status.POSTED:
+                messages.success(request, "Receipt posted to LedgerOS.")
+            else:
+                messages.error(request, "Receipt saved; one or more postings need review. Retry this same receipt.")
+    return HttpResponseRedirect(reverse("tenant-payment-detail", args=[payment.pk]))
+
+
 class TenantPaymentCreateView(BookkeepingRoleRequiredMixin, PaymentsAppContextMixin, CreateView):
     model = TenantPayment
-    form_class = TenantPaymentForm
+    form_class = WaterfallReceiptForm
     template_name = "payments/payment_form.html"
     login_url = reverse_lazy("login")
     allowed_roles = BookkeepingRoleRequiredMixin.allowed_roles
 
+    def get_initial(self):
+        initial = super().get_initial()
+        if self.request.GET.get("invoice", "").isdigit():
+            invoice = get_object_or_404(TenantCharge, pk=self.request.GET["invoice"])
+            initial.update(property=invoice.property_id, tenant=invoice.tenant_id, amount=_invoice_balance_due(invoice), payment_date=timezone.localdate())
+        return initial
+
     def form_valid(self, form):
-        self.object = form.save()
-        TenantPaymentService.set_deposit_allocation(
-            payment=self.object,
-            lease=form.cleaned_data.get("deposit_lease"),
-            amount=form.cleaned_data.get("deposit_amount") or Decimal("0.00"),
-        )
+        try:
+            self.object = save_receipt(form)
+        except ValidationError as exc:
+            form.add_error(None, "; ".join(exc.messages))
+            return self.form_invalid(form)
         audit_success(
             action="tenant_payment_created",
             record=self.object,
@@ -488,7 +516,7 @@ class TenantPaymentCreateView(BookkeepingRoleRequiredMixin, PaymentsAppContextMi
 
 class TenantPaymentUpdateView(BookkeepingRoleRequiredMixin, PaymentsAppContextMixin, UpdateView):
     model = TenantPayment
-    form_class = TenantPaymentForm
+    form_class = WaterfallReceiptForm
     template_name = "payments/payment_form.html"
     login_url = reverse_lazy("login")
     allowed_roles = BookkeepingRoleRequiredMixin.allowed_roles
@@ -498,19 +526,29 @@ class TenantPaymentUpdateView(BookkeepingRoleRequiredMixin, PaymentsAppContextMi
         return context
 
     def form_valid(self, form):
-        self.object = form.save()
-        TenantPaymentService.set_deposit_allocation(
-            payment=self.object,
-            lease=form.cleaned_data.get("deposit_lease"),
-            amount=form.cleaned_data.get("deposit_amount") or Decimal("0.00"),
-        )
+        try:
+            self.object = save_receipt(form)
+        except ValidationError as exc:
+            form.add_error(None, "; ".join(exc.messages))
+            return self.form_invalid(form)
         audit_success(
             action="tenant_payment_updated",
             record=self.object,
             user=self.request.user,
             source="ui",
         )
-        return HttpResponseRedirect(reverse("tenant-payment-detail", args=[self.object.pk]))
+        return _saved_receipt_response(self.request, self.object)
+
+
+class ReceiptWaterfallPreviewView(BookkeepingRoleRequiredMixin, View):
+    def get(self, request):
+        property_id, tenant_id = request.GET.get("property", ""), request.GET.get("tenant", "")
+        if not property_id.isdigit() or not tenant_id.isdigit():
+            return JsonResponse({"invoices": [], "leases": [], "invoice_due": "0.00"})
+        payment = None
+        if request.GET.get("payment", "").isdigit():
+            payment = get_object_or_404(TenantPayment, pk=request.GET["payment"], property_id=property_id, tenant_id=tenant_id)
+        return JsonResponse(receipt_waterfall(property_id=property_id, tenant_id=tenant_id, payment=payment))
 
 
 class TenantPaymentDetailView(ReportingRoleRequiredMixin, PaymentsAppContextMixin, DetailView):
@@ -522,12 +560,27 @@ class TenantPaymentDetailView(ReportingRoleRequiredMixin, PaymentsAppContextMixi
 
     def get_queryset(self):
         return TenantPayment.objects.select_related(
-            "tenant", "property", "sync_record", "deposit_allocation__lease__unit", "deposit_allocation__sync_record"
+            "tenant", "property", "sync_record", "deposit_allocation__lease__unit", "deposit_allocation__sync_record", "other_allocation__sync_record"
         ).prefetch_related("applications__charge", "applications__sync_record")
 
     def post(self, request, *args, **kwargs):
         self.object = self.get_object()
         action = request.POST.get("action", "").strip()
+        if action == "assign_deposit":
+            form = ReceiptDepositAssignmentForm(request.POST, payment=self.object)
+            if form.is_valid():
+                try:
+                    allocation = TenantPaymentService.assign_unapplied_deposit(
+                        payment=self.object, lease=form.cleaned_data['deposit_lease'],
+                        amount=form.cleaned_data['deposit_amount'],
+                    )
+                except ValidationError as exc:
+                    form.add_error(None, exc)
+                else:
+                    audit_success(action='receipt_deposit_assigned', record=allocation, user=request.user, source='ui')
+                    messages.success(request, 'Deposit assigned from this receipt. Choose Post receipt to LedgerOS to record it.')
+                    return HttpResponseRedirect(reverse('tenant-payment-detail', args=[self.object.pk]))
+            return self.render_to_response(self.get_context_data(deposit_assignment_form=form))
         if action == "allocate":
             try:
                 LedgerOSWriteReadinessService.require()
@@ -618,6 +671,12 @@ class TenantPaymentDetailView(ReportingRoleRequiredMixin, PaymentsAppContextMixi
         except TenantPaymentDepositAllocation.DoesNotExist:
             deposit = None
         context["deposit_allocation"] = deposit
+        context['can_assign_deposit'] = (
+            deposit is None and payment.unapplied_amount > 0
+            and payment.status not in ('posted', 'voided')
+            and not (payment.sync_record and payment.sync_record.attempt_count)
+        )
+        context.setdefault('deposit_assignment_form', ReceiptDepositAssignmentForm(payment=payment))
         context["deposit_sync_log_entry"] = (
             {
                 "title": "Security deposit component",
@@ -656,6 +715,11 @@ class SecurityDepositEventListView(ReportingRoleRequiredMixin, PaymentsAppContex
 
     def get_queryset(self):
         return SecurityDepositEvent.objects.select_related("tenant", "property", "unit", "lease", "sync_record").order_by("-event_date", "-id")
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context["deposit_summary"], context["deposit_activity"] = deposit_activity()
+        return context
 
     def post(self, request, *args, **kwargs):
         event_id = request.POST.get("event_id", "").strip()
@@ -766,27 +830,58 @@ class SecurityDepositEventDetailView(ReportingRoleRequiredMixin, PaymentsAppCont
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        context["required_amount"] = SecurityDepositLedgerService.required_amount_for_lease(self.object.lease)
-        context["held_balance"] = SecurityDepositLedgerService.balance_for_lease(self.object.lease)
+        summaries, activity = deposit_activity(lease_id=self.object.lease_id)
+        context["deposit_totals"] = summaries[0]
+        context["deposit_activity_status"] = next(
+            row["status"] for row in activity
+            if row["source"] == f"Standalone event {self.object.pk}"
+        )
         return context
 
 
 class VendorListView(ReportingRoleRequiredMixin, PaymentsCrudListView):
+    template_name = "payments/vendor_list.html"
     model = Vendor
     page_title = "Vendors"
     create_url_name = "vendor-create"
     create_label = "Add vendor"
     allowed_roles = ReportingRoleRequiredMixin.allowed_roles
 
+    def get_queryset(self):
+        return Vendor.objects.select_related("sync_record").order_by("name", "id")
+
     def get_rows(self, objects):
         return [
             {
                 "object": obj,
+                "vendor_sync": vendor_sync_status(obj),
                 "summary": f"{obj.email or 'No email'} | {'active' if obj.is_active else 'inactive'}",
                 "edit_url": reverse("vendor-edit", kwargs={"pk": obj.pk}),
             }
             for obj in objects
         ]
+
+
+class VendorSyncView(BookkeepingRoleRequiredMixin, View):
+    """Explicit provisioning of the saved vendor; never a financial posting."""
+    http_method_names = ["post"]
+
+    def post(self, request, pk):
+        try:
+            with transaction.atomic():
+                vendor = get_object_or_404(Vendor.objects.select_for_update(), pk=pk)
+                VendorService.save_and_sync_vendor(vendor)
+                vendor.refresh_from_db()
+                status = vendor_sync_status(vendor)
+                audit_success(action="vendor_sync_requested", record=vendor, user=request.user, source="ui")
+        except ValidationError:
+            messages.error(request, "Vendor could not be synced. Review the saved vendor details and LedgerOS setup before retrying.")
+            return HttpResponseRedirect(reverse("vendor-edit", args=[pk]))
+        if status["synced"]:
+            messages.success(request, "Vendor synced to LedgerOS.")
+        else:
+            messages.warning(request, status["guidance"])
+        return HttpResponseRedirect(reverse("vendor-list"))
 
 
 class VendorCreateView(PaymentsCrudFormView, CreateView):
@@ -812,8 +907,7 @@ class VendorCreateView(PaymentsCrudFormView, CreateView):
         elif self.object.sync_record and self.object.sync_record.status == LedgerOSSyncRecord.Status.FAILED:
             messages.warning(
                 self.request,
-                "Vendor saved locally, but LedgerOS provisioning failed."
-                + (f" {self.object.sync_record.last_error}" if self.object.sync_record.last_error else ""),
+                "Vendor saved locally. " + vendor_sync_status(self.object)["guidance"],
             )
         else:
             messages.warning(
@@ -824,12 +918,21 @@ class VendorCreateView(PaymentsCrudFormView, CreateView):
 
 
 class VendorUpdateView(PaymentsCrudFormView, UpdateView):
+    template_name = "payments/vendor_form.html"
     model = Vendor
     form_class = VendorForm
     page_title = "Edit vendor"
     page_action = "Save vendor"
     list_url_name = "vendor-list"
     allowed_roles = BookkeepingRoleRequiredMixin.allowed_roles
+
+    def get_queryset(self):
+        return Vendor.objects.select_related("sync_record")
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context["vendor_sync"] = vendor_sync_status(self.object)
+        return context
 
     def form_valid(self, form):
         self.object = form.save(commit=False)
@@ -846,8 +949,7 @@ class VendorUpdateView(PaymentsCrudFormView, UpdateView):
         elif self.object.sync_record and self.object.sync_record.status == LedgerOSSyncRecord.Status.FAILED:
             messages.warning(
                 self.request,
-                "Vendor saved locally, but LedgerOS provisioning failed."
-                + (f" {self.object.sync_record.last_error}" if self.object.sync_record.last_error else ""),
+                "Vendor saved locally. " + vendor_sync_status(self.object)["guidance"],
             )
         else:
             messages.warning(
@@ -962,7 +1064,7 @@ class VendorBillListView(ReportingRoleRequiredMixin, PaymentsCrudListView):
         return context
 
 
-class VendorBillCreateView(PaymentsCrudFormView, CreateView):
+class VendorBillCreateView(BillCreationReturnMixin, PaymentsCrudFormView, CreateView):
     model = VendorBill
     form_class = VendorBillForm
     page_title = "Add vendor bill"
@@ -986,7 +1088,8 @@ class VendorBillCreateView(PaymentsCrudFormView, CreateView):
         self.object = VendorBillApprovalService.save_draft(self.object, actor=self.request.user)
         if self.request.POST.get("action") == "submit":
             self.object = VendorBillApprovalService.submit(self.object, actor=self.request.user)
-            messages.success(self.request, "Vendor bill submitted for independent approval.")
+            messages.success(self.request, "Vendor bill created and submitted for independent approval.")
+            return HttpResponseRedirect(self.get_bill_return_url())
         else:
             messages.success(self.request, "Vendor bill saved as a draft.")
         return HttpResponseRedirect(reverse("vendor-bill-detail", args=[self.object.pk]))
@@ -1035,7 +1138,7 @@ class VendorBillDetailView(ReportingRoleRequiredMixin, PaymentsAppContextMixin, 
         return super().dispatch(request, *args, **kwargs)
 
     def get_queryset(self):
-        return VendorBill.objects.select_related("vendor", "property", "unit", "maintenance_category", "maintenance_request", "sync_record")
+        return VendorBill.objects.select_related("vendor", "vendor__sync_record", "property", "unit", "maintenance_category", "maintenance_request", "sync_record")
 
     def post(self, request, *args, **kwargs):
         self.object = self.get_object()
@@ -1048,7 +1151,7 @@ class VendorBillDetailView(ReportingRoleRequiredMixin, PaymentsAppContextMixin, 
                 VendorBillApprovalService.withdraw(
                     self.object, actor=request.user, reason=request.POST.get("reason", "")
                 )
-                messages.success(request, "Vendor bill withdrawn from approval.")
+                messages.success(request, "Vendor bill withdrawn. Resubmit it for independent approval before posting or payment.")
             elif action == "approve":
                 VendorBillApprovalService.approve(
                     self.object, actor=request.user, reason=request.POST.get("reason", "")
@@ -1079,6 +1182,8 @@ class VendorBillDetailView(ReportingRoleRequiredMixin, PaymentsAppContextMixin, 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         bill = self.object
+        context["vendor_sync"] = vendor_sync_status(bill.vendor)
+        context["can_sync_vendor"] = user_has_any_role(self.request.user, BookkeepingRoleRequiredMixin.allowed_roles)
         status = BillPaymentStatusService.statuses([bill])[bill.pk]
         context["bill_payment_status"] = status
         context["can_pay_bills"] = can_pay_vendor_bills(self.request.user)
@@ -1101,7 +1206,8 @@ class VendorBillDetailView(ReportingRoleRequiredMixin, PaymentsAppContextMixin, 
             and bill.approval_status != VendorBill.ApprovalStatus.SUBMITTED
         )
         context["can_withdraw_bill"] = (
-            bill.approval_status == VendorBill.ApprovalStatus.SUBMITTED
+            user_has_any_role(self.request.user, BookkeepingRoleRequiredMixin.allowed_roles)
+            and not VendorBillApprovalService.withdrawal_blocker(bill)
             and (
                 bill.submitted_by_id == self.request.user.pk
                 or user_has_any_role(self.request.user, AdminRoleRequiredMixin.allowed_roles)

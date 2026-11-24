@@ -124,13 +124,74 @@ The maintenance detail batches linked bills through `BillPaymentStatusService` a
 - Create and archive owners, properties, units, tenants, and leases.
 - Respect dependency order when creating records.
 
+### Explicit customer provisioning
+
+`GET /tenants/<id>/provision/` reviews the tenant's existing
+`tenant-<id>` code, name, and enabled AR mapping without provisioning, creating
+setup rows, or making external requests. The signed review binds tenant, user,
+name, and AR account for one hour; changed review data must be reviewed again.
+Only Admin and Property manager roles may submit the CSRF-protected POST.
+`LedgerOSCustomerSyncService.provision_tenant` rechecks role and current data,
+requires write readiness, calls the signed adapter, verifies the returned
+customer ID/code/name/AR/active status, and records actor-attributed success or
+failure in the audit log. Tenant edits and invoice approval never call it.
+
+The adapter uses `POST /api/v1/customers/provision/`, not the existing upsert
+route. LedgerOS must deploy the strict endpoint first; no migration is needed.
+The existing `customers` scope and `customer.upsert_requested` permission apply.
+The strict request identity is `customer.provision_requested`; retries use a
+stable key derived from the reviewed payload. The server creates a missing
+customer or verifies an exact match without modifying it. Name, status, or AR
+conflicts are rejected, including drift discovered on replay. Older LedgerOS
+versions return an error; the client never falls back to upsert. Existing tenant
+creation retains its previous upsert behavior.
+
+This action creates no invoice, payment, journal, or tenant-charge sync record
+and changes no balances, tenant ledger, owner statement, or report total.
+Invoice list/detail/edit pages explain a missing-customer failure and link
+users with tenant-management authority to the review action. Bookkeepers receive
+instructions to ask an Admin or Property manager. Recovery retries the original
+invoice with its existing external reference, sync record, and idempotency key. The recovery warning describes the stored failed attempt, not a current LedgerOS customer lookup. Provisioning leaves that failure intact and never retries the invoice; users with invoice-write authority get an invoice-detail retry link. A successful explicit retry removes the recovery guidance.
+Matching by name or linking differently coded customers is deferred for explicit
+mapping review; provisioning never guesses a match.
+
 ### Tenant charges
 
 - Generate recurring base rent from active leases.
 - Create manual tenant charges.
 - Approve/sync charges through the service layer.
 
+Invoice detail and edit pages share a **LedgerOS Sync** section with an explicit
+**Approve and post to LedgerOS** button, status, error/response history, and
+confirmed-result messages, following the vendor payment detail pattern.
+`POST /charges/<id>/` with `action=sync` requires Admin/Bookkeeper authority,
+CSRF, and live readiness. It locks and reloads the saved invoice, calls the
+existing `TenantChargeService.approve_charge` path, and returns to detail.
+Request fields cannot alter invoice accounting data. An already posted or voided
+invoice cannot be posted through this action, and repeated successful button
+submissions make no further posting request. Failed retries reuse the existing
+sync record and idempotency key. The payload remains the existing invoice API
+contract: debit AR / credit revenue once; no customer provisioning runs.
+
+The Edit screen's separate POST uses the saved invoice, not unsaved form fields,
+and displays a save-first notice with saved amount/due date. Existing create,
+edit-save status handling and bulk posting remain unchanged. The detail page
+shows payment entry only to bookkeeping users after confirmed invoice posting.
+No migrations or LedgerOS API changes are needed for these invoice controls.
+
 ### Payments and deposits
+
+#### Reviewed receipt waterfall
+
+New receipt entry and invoice entry share `WaterfallReceiptForm`: amount received and editable invoice, deposit, and Other amounts are reviewed together. The read-only, bookkeeping-role-protected `receipt-waterfall-preview` route returns eligible posted invoice balances in due-date order and lease deposit capacity. Late fees remain ordinary invoices. The browser uses integer cents, preserves explicit zeros/overrides, and recalculates downstream defaults; server validation remains authoritative without JavaScript. Drafts may retain unapplied funds; posting requires exact allocation. Creating a receipt only saves; posting uses the saved receipt identity.
+
+`save_receipt_allocations` locks the receipt and eligible invoice rows, stores reviewed invoice applications without posting, and enforces deposit ownership/capacity and required Other account codes. Confirmed prior invoice components remain fixed, including their IDs and frozen payloads. Uncertain components cannot be reallocated. `allocation_reviewed` prevents legacy automatic allocation from overriding a reviewed zero. Admin saves use the same service. Existing legacy allocation controls and payloads remain available for unfinished older receipts.
+
+Migration `payments.0011` adds the reviewed flag and `TenantPaymentOtherAllocation`; existing receipts, journals, sync identities and allocations remain unchanged. Other posts through the established signed `/api/v1/sync-events/` contract: debit operating Cash, credit the specified account, for only its own amount on the receipt date. LedgerOS validates the active account and period. The Other component freezes its payload and key before the first request, requires a posted journal response, and appears in the local finalization summary. No additional parent Cash posting occurs. Invalid account responses remain failed components on the same receipt for reconciliation; an attempted account cannot silently change under a new key.
+
+Other cannot credit the configured receiving Cash, AR, or tenant-deposit control account; invoices/deposits must use their own allocation paths so their subledgers and deposit limits remain enforced.
+
+For a 2,100 receipt split 1,500 invoices / 500 deposit / 100 Other, aggregate Cash increases 2,100, AR decreases 1,500, deposit liability increases 500, and the chosen Other account is credited 100. Replays must create no additional journals. Tenant AR/rent, owner rent totals, and deposit totals exclude Other; property reports and owner statement/export display confirmed Other allocations separately by account. Their arbitrary account classification is not inferred into the owner net summary.
 
 - Record tenant payments.
 - Apply payments to invoices.
@@ -198,10 +259,30 @@ to rent and `500.00` to the deposit liability. Confirm aggregate Cash `+2,000.00
 AR `-1,500.00`, deposit liability `+500.00`, and no balance or journal-count
 change after exact replay.
 
+### Receipt posting and deposit collection visibility
+
+New receipts use **Review receipt allocation → Save receipt for review → Post receipt to LedgerOS**. The reviewed invoice applications are saved locally and post with the other components during finalization. **Save and post receipt** on an eligible existing receipt combines saving and finalization. The older **Apply rent and post to LedgerOS** action remains only for unreviewed receipts (`allocation_reviewed=False`) with unapplied money; it is not a required step in the waterfall. After review, receipt detail shows **Invoice allocations** instead. **Post receipt to LedgerOS** is also available on the receipts list once the payment is fully allocated; posted/voided receipts and viewers have no posting control. Existing readiness, role, CSRF, service, and idempotency enforcement remain in place.
+
+`payments/deposit_activity.py` is a read-only projection of lease requirements, receipt deposit allocations, and standalone events. It counts received amounts only with a succeeded sync and journal ID, independently of parent receipt finalization, excluding voided records. Drafts remain visible but contribute nothing to confirmed receipts. Uncertain attempts, local posted events without evidence, and legacy journal-less successes flag the remaining collection amount for review. Confirmed refunds/deductions also require review rather than inferring a replenishment obligation. Remaining initial collection is otherwise `max(lease requirement - confirmed receipts, 0)`; it is not a current liability balance. Standalone detail uses the same projection so draft amounts no longer appear as held money. Existing ledger/report accounting treatments are unchanged.
+
+For Avery’s example: a \$1,450 rent invoice and \$500 deposit portion on a \$1,950 receipt produce the existing Cash +\$1,950, AR -\$1,450, liability +\$500 contract. The deposit page shows required \$1,450, received \$500, remaining \$950, and excludes the separate \$1,450 draft event. Retrying the same receipt creates no additional posting. No migration or correction of historical data is performed. Amounts above the lease requirement are displayed explicitly as an excess, not hidden by a zero remaining balance.
+
+Received-deposit posting now checks one shared lease limit across receipt allocations and standalone received events. The lease row is locked through posting, including concurrent calls from different paths. Fresh postings cannot exceed the lease requirement less existing confirmed deposits. Unconfirmed prior attempts block new postings; the original attempted operation can still retry its frozen payload/key. Local voiding does not reopen posting capacity, and refunds do not automatically authorize recollection. Receipt allocation/finalization preflight the deposit before attempting invoice writes. A blocked new deposit creates no new sync attempt or journal. Existing posted history requires an explicit supported reversal/reconciliation; the guard does not rewrite it.
+
 ### Vendor and debt workflows
 
 - Record vendors, bills, vendor payments, and debt-service payments.
 - Keep credit-card and liability workflows behind the supported adapter paths.
+
+### Tenant sync visibility
+
+The tenant list uses `ledgeros/tenant_sync.py` to read creation/provisioning audit results in one batched query. `tenant_created` and `tenant_customer_provisioned` successes supply the last successful time; a later provisioning failure displays Sync failed. Missing evidence displays Not confirmed. New success audit metadata includes the tenant name so a later name mismatch can show Needs review. Historical entries remain unchanged. Review links retain the existing role, signed-payload confirmation, CSRF, and strict provisioning service. List GET sends no provisioning request, and no migration or accounting mutation is introduced.
+
+### Vendor sync visibility
+
+The vendor list and edit page display the stored `Vendor.sync_record` result and last successful sync timestamp. `payments/vendor_sync.py` supplies controlled labels and recovery guidance without exposing raw exceptions or response bodies. No live vendor verification is implied. Vendor and sync rows are fetched together; reading status does not initiate provisioning.
+
+`POST /payments/vendors/<id>/sync/` permits administrators and bookkeepers, requires CSRF, locks the saved vendor, and calls the existing `VendorService.save_and_sync_vendor` path. It records the requesting actor, preserves unchanged retry identity, and skips a repeat request when the successful payload hash matches. Missing setup can leave the vendor locally unsynced without creating an attempt. No journal, bill, payment, balance, report, or schema behavior changes. Bill detail explains the vendor prerequisite and links authorized editors to recovery.
 
 ### Vendor bill approval and payment authority (WP2)
 
@@ -222,6 +303,10 @@ The submitter cannot approve or reject the same bill, including when that user i
 The approval fingerprint covers vendor, property/unit attribution, bill and due dates, amount, expense and maintenance categories, repair description, and tenant-chargeable treatment. General notes are excluded and are not sent in the LedgerOS bill payload. Submitted bills cannot be edited. A material change to an approved but unposted bill returns it to draft and clears the decision; posted accounting fields remain immutable. Approval transitions and grant changes record their actor and immutable history.
 
 Saving a bill never posts it. An administrator or bookkeeper explicitly posts an approved bill through the existing LedgerOS bill API. New vendor settlements must be started from an approved, successfully posted bill by a user with the payment grant. The service rechecks LedgerOS payable status and amount, while retaining the existing signed submission token, persisted UUID/fingerprint, row locking, and stable idempotency key.
+
+Bill creation forms preserve a validated local referring URL in a hidden field across validation errors. Successful creation with submission returns to that page and displays a dismissible success message. Normal entry falls back to the vendor-bill list; maintenance handoff falls back to its request detail. External and self-referring form destinations are rejected. Draft creation continues to open bill detail. This navigation changes no approval rules, LedgerOS requests, journals, balances, or report totals. Shared success messages show a red X and dismiss automatically after 10 seconds through `ledgeros/messages.js`. Automatic dismissal preserves focus elsewhere on the page; without JavaScript, the message remains visible.
+
+`VendorBillApprovalService.withdraw` also permits Approved → Withdrawn for a local draft bill with no linked sync record. The original submitter must still have bill-editor authority; administrators may withdraw another user's bill. Approved withdrawal requires a nonblank reason, clears the active approval fingerprint, and records the withdrawal actor/time/reason in decision metadata and immutable approval/audit history. Prior approval events remain intact. Resubmission increments the submission version and requires independent approval. Submitted-bill withdrawal retains its existing optional reason behavior. The detail page uses the service's withdrawal eligibility rules. Withdrawal and `VendorBillService.sync_bill` lock and recheck the same bill row, so a concurrent posting either sees Withdrawn and stops before a sync request or completes its attempt before withdrawal is rejected. Failed/uncertain attempts remain recoverable under their original identities. Withdrawal itself sends no LedgerOS request and changes no journals, balances, tenant ledgers, owner statements, or report totals.
 
 A retry of a saved uncertain payment requires a currently authorized payer but preserves the original payment, payload, and key. Revoking the original user's grant prevents that user from retrying; another authorized user may resume the same saved operation. Credit-card-funded bill settlements follow these rules. Credit-card payoff and debt-service workflows remain distinct and do not confer or consume vendor-bill approval.
 
@@ -412,3 +497,7 @@ Do not rely on host Python or host-installed Django dependencies.
 - [Quick Start Guide](./quick-start.md)
 - [User Manual](./user-manual.md)
 
+
+### Deposit assignment after rent posting
+
+`TenantPaymentService.assign_unapplied_deposit` adds a deposit component from an existing receipt’s unused funds, including after confirmed invoice applications. It locks the lease and receipt, validates ownership, unapplied funds and the shared deposit ceiling, and rejects finalized receipts or uncertain rent postings. It does not relax general receipt editing or alter attempted invoice payloads. Assignment creates no journal; the existing receipt sync service posts the deposit and skips confirmed invoice applications. Identical assignment submissions reuse the existing allocation.

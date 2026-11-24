@@ -1,5 +1,6 @@
 from django import forms
 
+from ledgeros.form_relationships import configure_property_autofill
 from ledgeros.models import Property, Tenant, Unit
 from payments.models import MaintenanceCategory, MaintenanceRequest, MaintenanceRequestEvent, Vendor
 from payments.models import VendorBill
@@ -40,6 +41,7 @@ class MaintenanceRequestForm(forms.ModelForm):
         self.fields["unit"].help_text = "Optional. The unit must belong to the selected property."
         self.fields["tenant"].help_text = "Optional. The tenant must have a lease for the selected property and unit."
         self.fields["estimated_cost"].help_text = "Optional planning estimate; this does not create an accounting entry."
+        configure_property_autofill(self)
 
 
 class MaintenanceTransitionForm(forms.Form):

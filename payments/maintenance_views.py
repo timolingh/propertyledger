@@ -14,6 +14,7 @@ from ledgeros.permissions import RoleRequiredMixin
 from ledgeros.roles import user_has_any_role
 from ledgeros.views import LedgerOSAppContextMixin
 from payments.authorization import BILL_EDITOR_ROLES, MAINTENANCE_EDITOR_ROLES, MAINTENANCE_VIEWER_ROLES
+from payments.bill_navigation import BillCreationReturnMixin
 from payments.forms import VendorBillForm
 from payments.maintenance_forms import (
     MAINTENANCE_BILL_TOKEN_SALT,
@@ -168,11 +169,14 @@ class MaintenanceRequestDetailView(RoleRequiredMixin, MaintenanceAppContextMixin
         return context
 
 
-class MaintenanceBillCreateView(RoleRequiredMixin, MaintenanceAppContextMixin, CreateView):
+class MaintenanceBillCreateView(BillCreationReturnMixin, RoleRequiredMixin, MaintenanceAppContextMixin, CreateView):
     form_class = VendorBillForm
     template_name = "payments/maintenance_bill_form.html"
     allowed_roles = BILL_EDITOR_ROLES
     login_url = reverse_lazy("login")
+
+    def default_bill_return_url(self):
+        return reverse("maintenance-request-detail", args=[self.maintenance_request.pk])
 
     def dispatch(self, request, *args, **kwargs):
         if not request.user.is_authenticated or not user_has_any_role(request.user, self.allowed_roles):
@@ -244,6 +248,8 @@ class MaintenanceBillCreateView(RoleRequiredMixin, MaintenanceAppContextMixin, C
             messages.success(self.request, message)
         else:
             messages.info(self.request, "This submission already created a vendor bill; the existing bill was reused.")
+        if self.request.POST.get("action") == "submit":
+            return HttpResponseRedirect(self.get_bill_return_url())
         return HttpResponseRedirect(reverse("vendor-bill-detail", args=[bill.pk]))
 
 

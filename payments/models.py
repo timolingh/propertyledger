@@ -80,6 +80,7 @@ class TenantPayment(models.Model):
     reference = models.CharField(max_length=255, blank=True, default="")
     notes = models.TextField(blank=True, default="")
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.DRAFT)
+    allocation_reviewed = models.BooleanField(default=False)
     sync_record = models.OneToOneField(
         LedgerOSSyncRecord,
         on_delete=models.SET_NULL,
@@ -111,11 +112,18 @@ class TenantPayment(models.Model):
 
     @builtins.property
     def rent_amount(self) -> Decimal:
-        return (self.amount - self.deposit_amount).quantize(Decimal("0.01"))
+        return (self.amount - self.deposit_amount - self.other_amount).quantize(Decimal("0.01"))
 
     @builtins.property
     def remaining_amount(self) -> Decimal:
-        return (self.amount - self.deposit_amount - self.allocated_amount).quantize(Decimal("0.01"))
+        return (self.amount - self.deposit_amount - self.allocated_amount - self.other_amount).quantize(Decimal("0.01"))
+
+    @builtins.property
+    def other_amount(self) -> Decimal:
+        try:
+            return self.other_allocation.amount
+        except TenantPaymentOtherAllocation.DoesNotExist:
+            return Decimal("0.00")
 
     @builtins.property
     def unapplied_amount(self) -> Decimal:
@@ -133,6 +141,11 @@ class TenantPayment(models.Model):
             return False
         # An unsuccessful response can still follow a committed upstream write.
         # Keep retry payloads stable once any allocation has been attempted.
+        try:
+            if self.other_allocation.sync_record and self.other_allocation.sync_record.attempt_count:
+                return False
+        except TenantPaymentOtherAllocation.DoesNotExist:
+            pass
         deposit_attempted = False
         try:
             deposit_attempted = bool(
@@ -146,6 +159,19 @@ class TenantPayment(models.Model):
     @builtins.property
     def sync_status(self) -> str:
         return self.sync_record.status if self.sync_record else ""
+
+
+class TenantPaymentOtherAllocation(models.Model):
+    payment = models.OneToOneField(TenantPayment, on_delete=models.CASCADE, related_name="other_allocation")
+    amount = models.DecimalField(max_digits=12, decimal_places=2)
+    account_code = models.CharField(max_length=32)
+    sync_record = models.OneToOneField(LedgerOSSyncRecord, on_delete=models.SET_NULL, null=True, blank=True)
+    frozen_request_payload = models.JSONField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [models.CheckConstraint(check=models.Q(amount__gt=0), name="receipt_other_amount_positive")]
 
 
 class TenantPaymentApplication(models.Model):

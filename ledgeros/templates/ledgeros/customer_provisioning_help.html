@@ -1,0 +1,7 @@
+{% if recovery %}
+  <div class="banner banner-bad" role="status">
+    <p>{{ recovery.message }}</p>
+    {% if recovery.retry_url and not suppress_retry_link %}<p><a href="{{ recovery.retry_url }}">Review invoice and post</a></p>{% endif %}
+    {% if recovery.url %}<a href="{{ recovery.url }}">Review tenant provisioning</a>{% endif %}
+  </div>
+{% endif %}

@@ -16,6 +16,7 @@
           {% for entry in sync_log_entries %}
             <li>
               <strong>{{ entry.title }}</strong>
+            {% include "ledgeros/customer_provisioning_help.html" with recovery=entry.customer_recovery only %}
               <div class="muted">
                 {{ entry.updated_at }} | {{ entry.status }}
               </div>
@@ -37,4 +38,5 @@
       <a class="button" href="{{ list_url }}">Back</a>
     </form>
   </div>
+  {% block after_form %}{% endblock %}
 {% endblock %}

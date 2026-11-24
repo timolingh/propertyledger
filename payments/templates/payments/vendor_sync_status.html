@@ -1,0 +1,7 @@
+<span class="vendor-sync-badge {% if vendor_sync.synced %}vendor-sync-ok{% elif vendor_sync.label == 'Sync failed' %}vendor-sync-failed{% else %}vendor-sync-neutral{% endif %}"><span aria-hidden="true" class="vendor-sync-dot"></span>{{ vendor_sync.label }}</span>
+{% if vendor_sync.last_synced_at %}<span class="vendor-sync-time">{% if compact %}<span class="visually-hidden">Last successful sync: </span>{{ vendor_sync.last_synced_at|date:"M j, Y · g:i A" }}{% else %}Last successful sync: {{ vendor_sync.last_synced_at }}{% endif %}</span>{% endif %}
+{% if vendor_sync.guidance %}
+  {% if compact %}
+    <details class="vendor-sync-details"><summary>Details</summary><p>{{ vendor_sync.guidance }}</p></details>
+  {% else %}<p class="vendor-sync-guidance">{{ vendor_sync.guidance }}</p>{% endif %}
+{% endif %}
