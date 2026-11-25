@@ -91,7 +91,7 @@ Before release or rollback, run `python manage.py inventory_workflow_release --j
 
 `ledgeros/static/ledgeros/workflows.css` and `navigation.js` provide the shared responsive sidebar. Desktop collapse is stored in browser local storage, with a fallback when storage is disabled. The mobile drawer supports inert background/closed navigation, focus containment, Escape and focus return; without JavaScript, mobile navigation remains expanded. Production deployments must run `collectstatic` and serve `STATIC_ROOT` through their static-file hosting configuration; Django's local debug server serves these assets during development.
 
-Browser acceptance artifacts and repeatable fixture commands are in [WP1 QA](qa/wp1/README.md). The existing workflow PRD and [implementation plan](workflow-implementation-plan.md) define later work packages.
+Browser acceptance artifacts and repeatable fixture commands are in [WP1 QA](../testing/qa/wp1/README.md). The existing workflow PRD and [implementation plan](workflow-implementation-plan.md) define later work packages.
 
 ### Maintenance lifecycle (WP3)
 
@@ -494,8 +494,8 @@ Do not rely on host Python or host-installed Django dependencies.
 
 ## See also
 
-- [Quick Start Guide](./quick-start.md)
-- [User Manual](./user-manual.md)
+- [Quick Start Guide](quick-start.md)
+- [User Manual](user-manual.md)
 
 
 ### Deposit assignment after rent posting

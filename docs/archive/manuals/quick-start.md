@@ -10,7 +10,7 @@ You need:
 
 The setup path is a prerequisite for using the app meaningfully. If you only want to boot the containers, you can stop after `make up`; if you want a usable PropertyLedger environment, you must also complete the admin setup steps.
 
-For the detailed admin checklist, see [Admin Setup Guide](./admin-setup.md).
+For the detailed admin checklist, see [Admin Setup Guide](admin-setup.md).
 
 ## 1. Configure the environment
 
@@ -85,19 +85,14 @@ docker compose -f docker-compose.yml run --rm propertyledger-web python manage.p
 make check
 ```
 
-## Beta testing
+## Archived testing guides
 
-If you are doing user beta testing, start with the beta guide:
-
-- [Beta Testing Guide](./beta-testing.md)
-
-Use the beta seed command first, then complete the admin setup prerequisites before following the manual role checklists in the guide. The beta guide assumes the admin setup guide has already been completed.
-If LedgerOS web is not running yet, the beta seed command will warn and continue instead of failing, and you can run `make smoke` after both stacks are up.
+Historical demo setup and manual acceptance instructions are in the [testing archive](../testing/README.md). Use the setup steps above for the workstation you intend to use for production.
 
 ## If something fails
 
 When upgrading for bill payment status, deploy the matching LedgerOS code and
-apply its migrations first. See the [Technical Manual](./technical-manual.md)
+apply its migrations first. See the [Technical Manual](technical-manual.md)
 for the upgrade and legacy credit-card reconciliation commands. The bill list
 shows Unavailable if the upstream bill-read API cannot be reached.
 
@@ -108,8 +103,8 @@ shows Unavailable if the upstream bill-read API cannot be reached.
 
 ## See also
 
-- [Technical Manual](./technical-manual.md)
-- [User Manual](./user-manual.md)
+- [Technical Manual](technical-manual.md)
+- [User Manual](user-manual.md)
 ## Release validation
 
 Run `make release-check` for Django checks, migration drift, all tests, and the read-only compatibility inventory. A LedgerOS outage still permits local maintenance and draft entry, but accounting posting is blocked. Restore the service and retry the same record; never create a replacement merely because a request timed out.

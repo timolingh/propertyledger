@@ -9,8 +9,8 @@ The seed supplies setup, roles, and separate records for later exercises. The fi
 From the PropertyLedger repository root:
 
 ```bash
-bash scripts/beta-reset.sh
-bash scripts/beta-seed.sh
+bash scripts/archive/testing/beta-reset.sh
+bash scripts/archive/testing/beta-seed.sh
 ```
 
 Start LedgerOS and PropertyLedger:
@@ -19,7 +19,7 @@ Start LedgerOS and PropertyLedger:
 cd ../ledgeros_v2 && WEB_PORT=8001 make up
 cd ../propertyledger && make up
 make smoke
-bash scripts/workflow-test-status.sh
+bash scripts/archive/testing/workflow-test-status.sh
 ```
 
 The status script is read-only. It confirms the fixture pack and prints current workflow states plus the release compatibility inventory. Open PropertyLedger at `http://localhost:8000/home/` and LedgerOS at `http://localhost:8001/`.
@@ -390,7 +390,7 @@ For every scenario, record:
 After testing, run:
 
 ```bash
-bash scripts/workflow-test-status.sh
+bash scripts/archive/testing/workflow-test-status.sh
 make release-check
 ```
 

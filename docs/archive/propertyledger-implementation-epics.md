@@ -913,7 +913,7 @@ keys. Fully allocated, fully posted receipts alone can finalize. Legacy parent
 
 Security deposit receipt/deduction/refund events retain the existing generic
 `POST /api/v1/sync-events/` contract. See the current
-[Technical Manual](../technical-manual.md) for details.
+[Technical Manual](manuals/technical-manual.md) for details.
 
 ## Acceptance criteria
 

@@ -23,7 +23,7 @@ runner = DiscoverRunner(verbosity=0, interactive=False)
 connection.settings_dict["TEST"]["NAME"] = "test_propertyledger_workflow_preview"
 old_config = runner.setup_databases()
 try:
-    output = Path("docs/qa/wp1")
+    output = Path("docs/archive/testing/qa/wp1")
     output.mkdir(parents=True, exist_ok=True)
     admin = get_user_model().objects.create_user(username="demo-admin", is_staff=True)
     viewer = get_user_model().objects.create_user(username="demo-viewer")
@@ -50,6 +50,6 @@ try:
         (output / "outage.html").write_bytes(client.get("/home/").content)
     for name in ("workflows.css", "navigation.js"):
         copyfile(Path("ledgeros/static/ledgeros") / name, output / name)
-    print("Exported fictional UI fixtures to docs/qa/wp1; no real LedgerOS request was sent.")
+    print("Exported fictional UI fixtures to docs/archive/testing/qa/wp1; no real LedgerOS request was sent.")
 finally:
     runner.teardown_databases(old_config)

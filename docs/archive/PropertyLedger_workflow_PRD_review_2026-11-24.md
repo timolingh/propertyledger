@@ -1,17 +1,18 @@
 # PropertyLedger PRD: Workflow Home, Rent Collection, Vendor Payables, and Maintenance
 
-**Version:** 1.0 — Product decisions incorporated  
+**Version:** 1.0 — Product decisions and implementation review incorporated  
 **Date:** October 20, 2026  
+**Last reviewed:** November 24, 2026  
 **Repository:** [timolingh/propertyledger](https://github.com/timolingh/propertyledger) (baseline: `main`, reviewed October 20, 2026)  
 **Owner:** Product owner  
-**Status:** Product decisions Q1–Q16 recorded. **Codex may prepare an implementation plan; accounting-contract verification and the bounded technical questions in §14 must be resolved before affected financial mutations are implemented.**  
+**Status:** Core workflow implementation is present. Production review identified outstanding code/UI gaps and optional photo support, tracked in §17. Receipt behavior and resolved implementation decisions are documented below. This status does not certify production readiness or current live LedgerOS compatibility.  
 **Related material:** Original workflow-oriented landing-page PRD, workflow state diagram and landing-page mockup from design review. Mockups are design direction, not executable specifications.
 
 ## 1. Executive summary
 
 Replace the existing module-oriented navigation and role-dependent `/home/` redirect with one workflow-oriented landing page, visible to every signed-in user subject to authorization. The page prioritizes three end-to-end user jobs:
 
-1. **Collect Rent / Deposit** — create and post tenant charges/invoices, record externally received payments, and allocate one receipt across rent and refundable security deposits without double-posting or misclassifying liabilities.
+1. **Collect Rent / Deposit** — create and post tenant charges/invoices, record externally received payments, and review one receipt across invoices, one refundable deposit lease, and Other to a selected account without double-posting or misclassifying liabilities.
 2. **Get Billed & Pay Vendors** — enter and attribute vendor bills, enforce explicit independent approval, then allow separately authorized staff to record payments against eligible approved bills.
 3. **Log Maintenance Request** — create, triage, assign, and track maintenance to verified work completion; associate zero or more vendor invoices (including multiple vendors) as invoices arrive; carry linked bills through approval and payment independently of maintenance closure.
 
@@ -33,7 +34,7 @@ The current UI presents modules (`Invoices`, `Payments`, `Bills`, `Maintenance c
 - Deliver a complete internal maintenance-request lifecycle with explicit request-to-bill links.
 - Separate **operational completion** from **accounts payable status**.
 - Require approval of **every vendor bill** before payment, prohibit self-approval, and separate approval and payment authority.
-- Safely support **one combined receipt** containing both rent and refundable security deposit components.
+- Safely support **one combined receipt** containing invoice, refundable security deposit, and Other components within the limits in §6.
 - Preserve accounting accuracy, audit trails, authorization, and idempotent retries.
 - Keep local non-accounting workflows usable during LedgerOS outages.
 
@@ -47,9 +48,9 @@ The current UI presents modules (`Invoices`, `Payments`, `Bills`, `Maintenance c
 - A general-purpose offline transaction synchronization engine.
 - Unrelated refactoring or changes to existing GL/accounting conventions.
 
-## 3. Observed repository baseline
+## 3. Historical repository baseline — October 20, 2026
 
-The following were verified from the `main` repository during PRD research; **Codex must re-inspect the checkout before modifying code**.
+The following observations describe the pre-implementation `main` checkout reviewed on October 20, 2026; they are historical context, not current implementation gaps. The current state is summarized in §13.2 and §14. Re-inspect the checkout before modifying code.
 
 | Area | Current source / observed behavior | Consequence |
 | --- | --- | --- |
@@ -64,7 +65,7 @@ The following were verified from the `main` repository during PRD research; **Co
 | Permissions | Role groups defined in `ledgeros/roles.py`; route mixins guard current workflows | Add assignable per-user approval and payment capabilities, server-side enforced |
 | LedgerOS | Docs describe separate adapter/API, sync records and idempotency | Preserve service boundary, journal effects and retry identities |
 
-**Accounting invariants from `docs/technical-manual.md`:** LedgerOS owns invoices, bills, payment applications, journals, accounting reports, and posted facts. A tenant receipt allocation to an invoice posts a LedgerOS payment against that invoice; receipt finalization requires all of the applicable invoice allocations to have confirmed successful posting. A vendor bill's actual payable balance and payment eligibility come from LedgerOS, not from guessed local status. An attempted payment may have succeeded upstream even if PropertyLedger timed out: retry the same saved operation/identity, never create a replacement posting.
+**Accounting invariants from `docs/archive/manuals/technical-manual.md`:** LedgerOS owns invoices, bills, payment applications, journals, accounting reports, and posted facts. A tenant receipt allocation to an invoice posts a LedgerOS payment against that invoice; receipt finalization requires all of the applicable invoice allocations to have confirmed successful posting. A vendor bill's actual payable balance and payment eligibility come from LedgerOS, not from guessed local status. An attempted payment may have succeeded upstream even if PropertyLedger timed out: retry the same saved operation/identity, never create a replacement posting.
 
 ## 4. Approved product decisions (Q1–Q16)
 
@@ -80,7 +81,7 @@ These answers supersede the unanswered-decision section of the earlier PRD. No a
 | **Q6** | Bill approvers | Admins **designate approvers**. A user **may not approve a bill they submitted**. |
 | **Q7** | Payment authorization | Admins **designate payment-authorized users** separately from bill approvers. Permission to approve does not itself confer permission to pay. |
 | **Q8** | Rent collection method | **Manual recording only**: record externally received check, Zelle, ACH, cash, etc.; do not initiate transfers. |
-| **Q9** | Rent/deposit receipt | **One receipt may contain both** rent and refundable security-deposit components, accounted for separately. |
+| **Q9** | Rent/deposit receipt | **One receipt may contain** invoice allocations, at most one refundable security-deposit allocation to one matching lease, and at most one Other allocation to one credited account, accounted for separately. |
 | **Q10** | Request submitters | **Internal staff only** in this release; design for future tenant-created requests. |
 | **Q11** | Bills for vendor payments | **Every vendor payment requires an approved vendor bill**. See legacy/other-payment compatibility requirement in §8. |
 | **Q12** | Request fields | Required: **property, description, category, priority**. Optional: unit, tenant, vendor, photos, target completion date, estimated cost. |
@@ -167,10 +168,10 @@ Layout at narrow widths: cards stack, tables/queues reflow or scroll responsibly
 1. Start from workflow card and select tenant/lease, existing invoice, or create an appropriate charge.
 2. Review/approve/sync invoice using existing service, preserving base-rent period uniqueness and idempotency.
 3. Record one **externally received** receipt (check, Zelle, manual ACH, cash, other).
-4. Enter allocations: zero or more rent/invoice lines and zero or more refundable deposit components (as allowed by configured lease context). Must sum exactly to receipt amount before **finalized/posted** state.
-5. Review allocation destinations and accounting implications, including refundable deposit liability.
+4. Review the editable waterfall: **Open invoices → Deposit → Other**. A receipt may have zero or more invoice allocations, at most one refundable deposit allocation to one matching lease, and at most one Other allocation to one credited account. All allocations must sum exactly to the receipt amount before **finalized/posted** state. A draft may retain unapplied money. Entering zero skips a category; positive Other requires an account code.
+5. Review allocation destinations and accounting implications: invoices settle receivables, refundable deposits increase liability, and Other credits the selected account. Select the deposit lease explicitly when multiple leases are available; one receipt cannot divide its deposit portion across leases.
 6. Post via a safe LedgerOS API contract with stable identities; confirm each posting and the combined receipt's completeness. Retry using original identities when uncertain.
-7. Finalized receipt appears once in cash totals and the appropriate rent/deposit ledgers; receipt detail presents line allocations and posted LedgerOS references.
+7. Receipt detail presents confirmed invoice, deposit, and Other references. Reports separate confirmed invoice settlement, deposit activity, and Other by credited account. Finalization creates a local summary and never posts the full receipt again.
 
 ### 6.2 Required state behavior
 
@@ -178,17 +179,29 @@ Layout at narrow widths: cards stack, tables/queues reflow or scroll responsibly
 
 A deposit must be a **liability**, not rent revenue or AR settlement. The same amount cannot debit cash twice because both a `TenantPayment` and a `SecurityDepositEvent` were submitted. The combined receipt should have traceable rent and deposit portions; a method based on separate source rows must prevent duplicate cash posting at the LedgerOS layer.
 
-### 6.3 Critical engineering gate: combined receipts
+### 6.3 Implemented posting contract and release verification
 
-The existing code separately handles invoice payment applications and `SecurityDepositEvent` sync events; it is **not established** that its present LedgerOS endpoints safely support one mixed receipt. Before implementation of mixed posting:
+The implementation posts invoice components through `/api/v1/payments/` and receipt deposit/Other components through `/api/v1/sync-events/` with explicit accounting entries. Each component preserves its frozen payload and idempotency key. The parent `tenant_payment.finalized` record is a local summary with no additional LedgerOS cash posting.
+
+The archived implementation plan records a historical live sandbox proof of Cash +2,000 / AR −1,500 / deposit liability +500. The November 24 review verified local code and automated tests; it did not independently repeat live LedgerOS acceptance. Revalidate the intended deployed LedgerOS version, accounts, permissions, and failure recovery before release or changes to this contract:
 
 1. Inspect the actual LedgerOS API contract and sample journal behavior for rent collections and deposit-liability receipts.
-2. Specify a **single economic receipt identity**, allocation records, journal posting map, reference mappings, and idempotency keys across rent and deposit components.
+2. Specify a **single economic receipt identity**, allocation records, journal posting map, reference mappings, and idempotency keys across invoice, deposit, and Other components.
 3. Demonstrate the exact debit/credit treatment with a mixed example. For a \$2,000 receipt allocating \$1,500 to open rent invoices and \$500 to a refundable deposit, the aggregate posting must debit Cash **\$2,000 once**, credit AR **\$1,500**, and credit Security Deposit Liability **\$500** (subject to the real LedgerOS supported accounting events).
 4. Define retry, partial-success, full-finalization, and reversal behavior without changing a successfully posted allocation's identity or creating new accounting entries to recover a timeout.
 5. If existing LedgerOS APIs do not support this without posting ambiguity, **stop this financial slice and propose the smallest explicit API enhancement**. Do not emulate by posting the same receipt as two unrelated full deposits or bypassing the LedgerOS adapter.
 
-The product decision that combined receipts are required is final; the *mechanism* must be verified, not guessed.
+The existing mechanism is established in the code; deployment compatibility and any accounting-contract change still require verification.
+
+### 6.4 Other allocations and the single-lease deposit limit
+
+Other posts only its own amount: debit the configured operating Cash account and credit the selected account on the receipt date. Positive Other requires an account code. It cannot credit the configured receiving Cash, Accounts Receivable, or tenant-security-deposit control account; use the invoice/deposit allocation paths for those destinations. LedgerOS validates the account and posting period. Invoice/deposit/Other components require confirmed posted-journal evidence before finalization, and retries reuse confirmed results without posting cash twice.
+
+For a 2,100 receipt split 1,500 invoices / 500 deposit / 100 Other, aggregate Cash increases 2,100, AR decreases 1,500, deposit liability increases 500, and the chosen Other account is credited 100. Other does not settle invoices or count as rent. Property reports and owner statements/exports show confirmed Other allocations separately by credited account; owner statements show them outside the rent/net summary rather than inferring their accounting classification.
+
+The deposit allocation belongs to one matching tenant/property lease and shares that lease's deposit ceiling with standalone received events. Multiple deposit leases within one receipt are outside the current release. This limit does not require a new receipt for money already recorded: preserve and recover the original receipt. Any future multi-lease design must explicitly preserve total cash, component identity, deposit capacity, retry behavior, and reporting.
+
+Economic fields and attempted component payloads remain protected after posting attempts. An older receipt with confirmed invoice applications and unused funds may review those same funds for deposit/Other allocation while retaining its confirmed invoice components; uncertain attempts must be resolved first.
 
 ## 7. Workflow 2 — Get Billed & Pay Vendors
 
@@ -231,7 +244,7 @@ Internal staff create requests in this release. Preserve nullable `requested_by`
 
 ### 8.2 Operational lifecycle
 
-A proposed minimal canonical lifecycle:
+The implemented canonical lifecycle:
 
 `Open → Triaged → Assigned → In Progress → Completed/Verified → Closed`, with `Cancelled`, `On Hold`, and `Reopened` transitions where needed.
 
@@ -272,10 +285,13 @@ flowchart LR
   RC --> S{Split receipt}
   S --> RA[Allocate rent to invoices]
   S --> SD[Allocate refundable deposit to liability]
+  S --> OA[Allocate Other to one credited account]
   RA --> RP[LedgerOS confirms rent posting]
   SD --> DP[LedgerOS confirms deposit posting]
+  OA --> OP[LedgerOS confirms Other posting]
   RP --> RF[Finalize combined receipt only when all lines confirmed]
   DP --> RF
+  OP --> RF
   B --> VB[Enter vendor invoice as bill]
   VB --> AP[Independent approval]
   AP -->|Approved| PP[Authorized user records vendor payment]
@@ -363,11 +379,11 @@ LedgerOS unavailable is a **display/operational condition** rather than proof of
 | --- | --- |
 | RENT-01 | Reuse charge approval/sync, rent period idempotency, and invoice display/selection. |
 | RENT-02 | Manually enter receipts for check, Zelle, ACH manual, cash, etc.; no money-movement API. |
-| RENT-03 | Single receipt can have invoice and security-deposit portions; allocation totals equal receipt total. |
-| RENT-04 | Posting creates correct LedgerOS invoice payment applications and deposit liability effect without double cash recognition. |
+| RENT-03 | One receipt supports invoice allocations, zero or one deposit allocation to one matching lease, and zero or one Other allocation to one credited account; all allocations equal the receipt total before posting. Multi-lease deposit splitting is outside the current release. |
+| RENT-04 | Posting creates invoice payment applications, explicit Cash/deposit-liability entries, and explicit Cash/selected-account entries for Other, each only for its own amount. The parent summary creates no further cash posting. |
 | RENT-05 | No finalized receipt until **all** allocation lines are confirmed; never mislabel unapplied funds as posted credit. |
 | RENT-06 | Preserve stable identities for failed, timed-out, partial, and retried writes; show reconciliation path. |
-| RENT-07 | Exact posting contract validated with LedgerOS before shipping mixed-receipt mutation. |
+| RENT-07 | Validate invoice/deposit/Other posting contracts against the intended LedgerOS deployment, including exact journals, period/account validation, partial success and idempotent retries. |
 
 ### 11.3 Vendor AP requirements
 
@@ -419,14 +435,29 @@ LedgerOS unavailable is a **display/operational condition** rather than proof of
 12. **No-cost/internal:** Complete and verify internal maintenance without a vendor bill; allow close with a reason/no-external-invoice note.
 13. **Outage:** Simulate unavailable LedgerOS. Home warns; maintenance requests and local drafts still save; posting and payments cannot proceed; accounting-derived counts show `Unavailable`, not zero. Retry after recovery does not duplicate past attempts.
 14. **No regressions:** Property/unit attribution, existing rent generation, invoice allocation and receipt finalization, deposit events, vendor AP posting, bill balance/retry, owner statements, historical records, role permissions and auditing remain correct.
+15. **Other allocation:** A 2,100 receipt split 1,500 invoices / 500 deposit / 100 Other posts aggregate Cash +2,100, AR −1,500, deposit liability +500, and selected Other account credit 100. Other appears separately by account in property reports and owner statements/exports, outside owner rent/net totals. Positive Other without an account, or using the configured Cash/AR/deposit control account, is rejected. A timeout retry reuses the same component payload and key without reposting confirmed components.
+16. **Single deposit lease:** A receipt's deposit portion targets one matching tenant/property lease and respects the shared lease deposit ceiling. Multiple eligible leases require an explicit selection; the receipt cannot split its deposit amount across leases. Recover an existing receipt using its original identity rather than recording the same money again.
 
-## 13. Codex implementation plan and verification requirements
+## 13. Implementation status and verification requirements
 
-### 13.1 Required discovery before code
+### 13.1 Documentation authority and discovery
 
-Read `CLAUDE.md`, `README.md`, `docs/technical-manual.md`, `docs/user-manual.md`, `docs/quick-start.md`, relevant migrations, services, routes and existing tests. Compare this PRD against the checkout and document differences. Confirm supported LedgerOS API contracts and deployment compatibility.
+This PRD is the only active Markdown specification. Repository guidance, manuals, implementation plans, and QA guides under `docs/archive/` are historical references. Preserve that archive policy; update this PRD for current behavior and record implementation work in GitHub issues. Read relevant code, migrations, services, routes, and tests before changes, and consult archived references for historical decisions and verification evidence. Confirm LedgerOS deployment compatibility independently.
 
-### 13.2 Recommended reviewable work packages
+### 13.2 Current implementation status
+
+Reviewed November 24, 2026. These are implementation findings, not a statement that every acceptance criterion or production check has passed.
+
+| Package | Current implementation | Remaining disposition |
+| --- | --- | --- |
+| WP1 | Shared authenticated home, responsive sidebar, role-aware actions, and local workflow queues. | Home payment queue/labels and global connection freshness remain tracked in §17. |
+| WP2 | Independent approval state/history, separate per-user grants, explicit bill posting, and bill-scoped payment identities/retries. | Posted-record deletion and readiness enforcement across entry points remain tracked in §17. |
+| WP3 | Local maintenance lifecycle, actor-attributed history, hold/resume, verification, closure, and reasoned reopening. | Photos are absent and tracked in §17; no upload control is exposed. |
+| WP4 | Multiple bills/vendors per request, safe bill prefill, replay-safe handoff, explicit compatible links, and independent financial state. | Maintenance paid amounts and reconciliation explanations remain tracked in §17. |
+| WP5 | Invoice/deposit/Other receipt components, frozen retries, local finalization summary, and separate reporting. | Current contract and single-lease limit are defined in §6; current live deployment verification is still required. |
+| WP6 | Automated workflow checks, outage preflights in UI handlers, compatibility inventory, and historical QA evidence. | Service/admin readiness coverage, current live acceptance, and production validation are not certified complete. |
+
+The packages below describe responsibility boundaries for future fixes; do not recreate implemented workflows merely because the original PRD described them in future tense.
 
 **WP1 — Navigation and workflow home.** Shared `/home/`, sidebar layout, role-aware CTAs and queues, health/readiness, responsive/accessibility tests. All CTAs must work or be explicitly gated until implemented; do not deploy a misleading finished workflow card.
 
@@ -436,9 +467,9 @@ Read `CLAUDE.md`, `README.md`, `docs/technical-manual.md`, `docs/user-manual.md`
 
 **WP4 — Request-to-AP handoff.** Multi-vendor/multi-bill request link, create/link existing bills at any stage, prefill, audit and duplicate prevention, separate financial read state, end-to-end tests.
 
-**WP5 — Combined rent/deposit receipts.** LedgerOS contract proof, receipt-level allocation model or minimal extension, correct journal posting, robust partial success/retry/reconciliation, migration strategy and financial invariant tests. **Do not implement this slice until the posting contract is verified.**
+**WP5 — Combined rent/deposit receipts.** LedgerOS contract proof, receipt-level allocation model or minimal extension, correct journal posting, robust partial success/retry/reconciliation, migration strategy and financial invariant tests. **Preserve the existing component identities and verify deployment compatibility before changing posting behavior.**
 
-**WP6 — Integration, docs and release.** Real work queues, outage experience, desktop/mobile QA, manuals, migration verification, staging smoke tests, deprecation/rollback notes and handoff.
+**WP6 — Integration, documentation and release.** Real work queues, outage experience, desktop/mobile QA, current PRD updates, migration verification, staging smoke tests, deprecation/rollback notes and handoff. Other Markdown documentation remains archived.
 
 ### 13.3 Engineering constraints
 
@@ -459,36 +490,52 @@ docker compose -f docker-compose.yml run --rm propertyledger-web python manage.p
 make check
 ```
 
-In a prepared, non-production LedgerOS sandbox, exercise all acceptance scenarios, including forced timeouts, duplicate HTTP submissions and a real service outage. Do not reset or purge actual bookkeeping data. Codex must include the exact commands, test results, and residual risks in its completion report. Update active technical and user manuals; keep archived epic records as historical artifacts.
+In a prepared, non-production LedgerOS sandbox, exercise all acceptance scenarios, including forced timeouts, duplicate HTTP submissions and a real service outage. Do not reset or purge actual bookkeeping data. Codex must include the exact commands, test results, and residual risks in its completion report. Update this PRD for approved changes; keep other Markdown documentation archived. The review ran 77 focused workflow tests successfully and three isolated checks reproducing the deletion, readiness, and stale-banner gaps. Those checks are not live LedgerOS acceptance or production certification.
 
-## 14. Remaining implementation-design questions (not a reopening of Q1–Q16)
+## 14. Resolved implementation decisions and remaining boundaries
 
-The sixteen **product choices are resolved**. The following are bounded technical/design details the repository and API contracts must establish. Codex should propose an answer with code evidence before implementing the affected slice. Product approval is required if a proposal changes scope or economic behavior.
+Q1–Q16 remain approved. The implementation has established the choices below. Outstanding deviations are tracked separately in §17; documenting a decision does not waive a missing safeguard.
 
-| Topic | Implementation decision to verify | Default boundary / resolution rule |
-| --- | --- | --- |
-| **Mixed rent/deposit journals** | Does LedgerOS support a shared external receipt identity with invoice allocations and liability posting without double cash recognition? | **Financial release gate.** Provide posting proof and idempotency strategy first. Request smallest adapter/API extension if needed. |
-| **Maint. bill allocation** | Should one vendor bill ever be split across multiple maintenance requests? | Not approved. Initially allow multiple bills per request, but at most one request on a bill; flag cost-splitting requirement separately. |
-| **Maintenance authority** | Which staff can triage, assign, verify, close, reopen, and link bills? | Reuse established role model; propose explicit permission matrix, with no write permissions for viewers. Bill approval/payment grants remain individually configurable. |
-| **Approver administration** | User-level grants UI, revocation, audit, and migration/bootstrap defaults? | Admin-managed. No implicit blanket authorization for bookkeepers/property managers. Define safe initial admin/bootstrap grants and rollout. |
-| **Bill approval/posting ordering** | Is bill submitted/approved before or after LedgerOS posting? | Both must be independently visible; payment always requires approval **and** eligible LedgerOS posting. Choose path minimizing existing contract disruption. |
-| **Prior vendor transactions** | How do new payment gates coexist with previously posted bills/payments and credit-card payoffs? | Preserve history, do not backfill fictional approvals, and separate vendor bill settlement from card payoff/debt service. |
-| **Photos** | Which validated storage backend, size limits, allowed types, malware/URL controls and access restrictions? | Optional field from product decision; no nonfunctional upload widget. Confirm safe implementation in WP3. |
-| **Home queue metrics** | Definitions/filter logic, live versus cached counts, upstream outage treatment and performance thresholds? | Show real permission-scoped counts only. Start with outstanding approval, receipts awaiting finalization, active requests and posted bill statuses. Explicit unavailable label for LedgerOS-derived data. |
-| **Navigation** | What remains in header vs collapsible nav, remembered collapse state, mobile focus trap, role-filtering? | Left sidebar approved; use accessible, simple server-rendered solution; no unnecessary front-end framework. |
-| **Receipt semantics** | Are returns/refunds/reversals or deposit transfers represented within the combined receipt UI? | Preserve existing rules; add only behaviors required for this release; document any deferred post-finalization correction flow. |
+| Topic | Established implementation / release boundary |
+| --- | --- |
+| Mixed receipt journals | Invoice allocations use the payments API; deposit and Other use explicit component journals via sync events. Finalization is local. Frozen payloads and stable keys are retained; intended deployment compatibility still requires live verification. |
+| Maintenance bill allocation | One optional protected maintenance-request reference per vendor bill; one request may link multiple bills/vendors. Splitting one bill across requests is outside the current release. |
+| Maintenance authority | Admin, Property manager, and Bookkeeper roles can change maintenance and link compatible existing bills. Creating a vendor bill requires Admin/Bookkeeper. Read-only viewers can review maintenance; owner viewers and unassigned users have no maintenance access. |
+| Approver administration | Admin-managed per-user approval and payment grants are independent, checked against current user state, and audited. Migration creates no blanket grants. A submitter cannot approve their own bill, including administrators. |
+| Bill ordering | New bills follow draft → submit → independent approval → explicit LedgerOS posting → eligible payment. Approval, posting, and payable balance remain separate. Material edits require reapproval; attempted postings retain their original identity. |
+| Prior vendor transactions | Historical posted bills/payments are retained. Legacy bills receive prospective approval before a new settlement without reposting. Card payoff and debt service remain distinct; uncertain payment recovery reuses the existing payment and key. |
+| Photos | No fields, upload controls, or private storage implementation are present. The conditional requirement and secure-storage dependency remain tracked in §17. |
+| Home queue metrics | Local queues count receipts awaiting finalization, attempted vendor payments awaiting confirmation, independent approvals, active maintenance, and maintenance awaiting a bill; displayed items are limited to five. Eligible-payable navigation and maintenance footer labels remain tracked in §17. |
+| Navigation and health | Server-rendered responsive sidebar, remembered desktop collapse, and mobile focus/Escape behavior are present. Home probes current readiness; other pages use recorded health state, with that freshness gap tracked in §17. |
+| Receipt scope | Zero or more invoice allocations, at most one deposit allocation to one matching lease, and at most one Other allocation to one credited account. Multi-lease deposit splitting and a new combined post-finalization correction UI are outside the current release. |
 
-No new broad discovery questionnaire is required. If the implementation is blocked by an unresolved **accounting contract**, stop only that work package and report evidence, options, impact and recommendation. Other independent work packages may proceed after normal review.
+When a future change encounters an unresolved accounting contract, stop that affected slice and report evidence, options, and impact. Preserve existing confirmed history and retry identities.
 
-## 15. Codex kickoff prompt (copy/paste)
+## 15. Maintenance and release prompt (copy/paste)
 
-> Implement the PropertyLedger workflow-oriented landing page and the three approved workflows using the **PropertyLedger Workflow Home PRD v1.0**. Read `CLAUDE.md`, the active technical/user manuals, existing app code and tests first. Treat §4 Q1–Q16 as product-approved decisions. Produce a file-by-file plan and a dependency/risks table before coding. Implement reviewable work packages without unrelated refactoring. Do not bypass LedgerOS services, posting, permissions, or idempotency. The combined rent/deposit receipt work requires a demonstrated LedgerOS accounting and retry contract **before** its financial mutations are implemented. Add migrations, per-user permissions and audited approval/state transitions as specified. Test all accounting flows in Docker with a compatible LedgerOS sandbox, provide desktop/mobile screenshots, and document any unresolved implementation assumptions. Do not change or push to production without approval.
+> Review or update PropertyLedger against this PRD and the selected GitHub issue. This PRD is the only active Markdown specification; use archived documents for historical context. Read current code, tests, migrations, service boundaries, and issue acceptance criteria first. Preserve implemented workflows and approved Q1–Q16 decisions. Financial changes require explicit journal/account/report examples and Docker verification. Preserve original posting identities, frozen payloads, authorization, audit history, and idempotency. Verify the intended LedgerOS deployment in a prepared non-production sandbox before claiming live accounting acceptance. Update this PRD for approved behavior changes; keep other Markdown documentation archived. Do not deploy or push to production without approval.
 
 ## 16. Completion deliverables
 
-- File-by-file implementation plan and resolved technical findings from §14.
+- For each selected issue, a concrete change summary and traceability to its PRD requirements and acceptance criteria.
 - Reviewable code changes/migrations (separate PRs or commits by work package where practical).
 - Updated desktop/mobile home, sidebar and all three usable workflow paths.
 - Complete end-to-end tests including combined rent/deposit journaling and bill approval/payment authorization.
-- Updated active documentation, manual QA scenario matrix, rollback/legacy compatibility notes.
+- Updated PRD content, acceptance evidence, and rollback/legacy compatibility notes as needed; other Markdown documentation stays archived.
 - Clear implementation-vs-deferred scope report and actual test evidence.
+
+## 17. November 24, 2026 review dispositions
+
+The product owner selected **Update doc** for F, G, and I and **Create issue** for A–E and H. Creating an issue does not resolve its acceptance criteria or authorize implementation or deployment. The original requirements remain in force for the tracked code/UI gaps.
+
+| Finding | PRD requirement / scope | Observed code behavior | Disposition |
+| --- | --- | --- | --- |
+| A | Preserve posted payment history (§7.3, §13.3). | Admin permits deleting a posted local payment while its sync reference remains. | [Issue #30](https://github.com/timolingh/propertyledger/issues/30) |
+| B | Apply common financial safeguards across UI, services, and admin (HOME-04, §10). | Payment service/admin paths can attempt posting without consulting the readiness preflight used by UI handlers. | [Issue #31](https://github.com/timolingh/propertyledger/issues/31) |
+| C | Show current global connection/outage information (§10). | Non-home headers can display a previously recorded healthy result as connected. | [Issue #32](https://github.com/timolingh/propertyledger/issues/32) |
+| D | Show confirmed paid/remaining amounts and reconciliation explanations on maintenance detail (§8.3). | The linked-bill table omits paid amounts and reconciliation error explanations. | [Issue #33](https://github.com/timolingh/propertyledger/issues/33) |
+| E | Provide clear workflow actions and eligible approved-payable navigation (§5.2, HOME-03/08). | The payment link opens all bills; maintenance queue footers use the vendor-payments label. | [Issue #34](https://github.com/timolingh/propertyledger/issues/34) |
+| F | Document the current receipt allocation/posting/reporting contract. | Invoice → Deposit → Other waterfall with independent component posting/retries. | Documentation updated in §4, §6, §9, §11, and §12. |
+| G | State the deposit-component limit. | One deposit allocation to one matching lease per receipt. | Documentation updated in §6, RENT-03, §12, and §14; multi-lease splitting is outside the current release. |
+| H | Optional maintenance photos require secure storage/validation before exposure (§8.1, MAINT-01). | No photo fields, upload controls, or private storage implementation. | [Issue #35](https://github.com/timolingh/propertyledger/issues/35); no release assigned by this decision. |
+| I | Distinguish historical baseline from current implementation and maintain one active specification. | Core workflows are implemented; other Markdown documentation is archived. | Documentation updated in the status, §3, and §13–16. |

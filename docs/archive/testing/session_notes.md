@@ -16,13 +16,13 @@ Last updated: September 28, 2026
 ## Docs Updated
 
 - Added a new admin setup guide:
-  - [`docs/admin-setup.md`](./docs/admin-setup.md)
+  - [`docs/admin-setup.md`](../manuals/admin-setup.md)
 - Updated quick start to state that setup is a prerequisite for a usable environment:
-  - [`docs/quick-start.md`](./docs/quick-start.md)
+  - [`docs/quick-start.md`](../manuals/quick-start.md)
 - Updated beta testing docs to say admin setup must be completed before beta testing:
-  - [`docs/beta-testing.md`](./docs/beta-testing.md)
+  - [`docs/beta-testing.md`](./beta-testing.md)
 - Updated the README docs index to include the new admin setup guide:
-  - [`README.md`](./README.md)
+  - [`README.md`](../repository/README.md)
 
 ## Guidance Added To CLAUDE.md
 
@@ -38,25 +38,25 @@ Last updated: September 28, 2026
   - account mappings
   - setup/smoke status
 - Added explanatory copy to:
-  - [`ledgeros/templates/ledgeros/setup.html`](./ledgeros/templates/ledgeros/setup.html)
-  - [`ledgeros/templates/ledgeros/base.html`](./ledgeros/templates/ledgeros/base.html)
+  - [`ledgeros/templates/ledgeros/setup.html`](../../../ledgeros/templates/ledgeros/setup.html)
+  - [`ledgeros/templates/ledgeros/base.html`](../../../ledgeros/templates/ledgeros/base.html)
 - Added/updated tests to lock the wording in place:
-  - [`ledgeros/tests/test_models_and_api.py`](./ledgeros/tests/test_models_and_api.py)
+  - [`ledgeros/tests/test_models_and_api.py`](../../../ledgeros/tests/test_models_and_api.py)
 
 ## Beta Setup Flow Fixes
 
-- Updated `scripts/beta-seed.sh` so it now:
+- Updated `scripts/archive/testing/beta-seed.sh` so it now:
   - bootstraps the selected LedgerOS entity and accounting period into PropertyLedger
   - seeds the beta demo data
   - runs the setup smoke step so the demo is recorded as ready when checks pass
-- Updated `scripts/beta-reset.sh` and `scripts/beta-seed.sh` to print clearer next-step instructions and URLs.
+- Updated `scripts/archive/testing/beta-reset.sh` and `scripts/archive/testing/beta-seed.sh` to print clearer next-step instructions and URLs.
 
 ## Smoke Status Fix
 
 - Discovered that `make smoke` previously verified setup but did not persist the smoke result back to the setup model.
 - Fixed that by adding a shared recording path:
-  - new command: [`ledgeros/management/commands/run_setup_smoke.py`](./ledgeros/management/commands/run_setup_smoke.py)
-  - shared service logic in [`ledgeros/services.py`](./ledgeros/services.py)
+  - new command: [`ledgeros/management/commands/run_setup_smoke.py`](../../../ledgeros/management/commands/run_setup_smoke.py)
+  - shared service logic in [`ledgeros/services.py`](../../../ledgeros/services.py)
 - Wired both workflows to use it:
   - `make smoke`
   - setup-page `Run setup smoke` button
@@ -86,14 +86,14 @@ Last updated: September 28, 2026
 
 ## Follow-Up Session Summary
 
-- Investigated why `scripts/beta-seed.sh` was not finishing when LedgerOS web was not running.
-- Updated `scripts/beta-seed.sh` so the final smoke step is best-effort:
+- Investigated why `scripts/archive/testing/beta-seed.sh` was not finishing when LedgerOS web was not running.
+- Updated `scripts/archive/testing/beta-seed.sh` so the final smoke step is best-effort:
   - it records smoke when LedgerOS web is reachable
   - it warns and exits successfully when LedgerOS web is still down
 - Aligned the docs with that behavior:
-  - [`docs/admin-setup.md`](./docs/admin-setup.md)
-  - [`docs/beta-testing.md`](./docs/beta-testing.md)
-  - [`docs/quick-start.md`](./docs/quick-start.md)
+  - [`docs/admin-setup.md`](../manuals/admin-setup.md)
+  - [`docs/beta-testing.md`](./beta-testing.md)
+  - [`docs/quick-start.md`](../manuals/quick-start.md)
 - Clarified the setup wording so the docs emphasize selected books and smoke timing rather than creating friction around beta startup.
 - Briefly removed the LedgerOS entity check from the setup UI and validation, then reverted the repo to `ac1be96a95f25c663bac1514fd9ddb830f92bc1a` at the user's request.
 - Re-applied only the beta-seed non-blocking smoke behavior and the matching docs updates after the revert.
@@ -178,7 +178,7 @@ Voided
 
 ### Demo environment
 
-- Rebuilt and started PropertyLedger, ensured LedgerOS was running, and reran `scripts/beta-seed.sh` followed by `make smoke`.
+- Rebuilt and started PropertyLedger, ensured LedgerOS was running, and reran `scripts/archive/testing/beta-seed.sh` followed by `make smoke`.
 - Preserved existing databases; did not run the destructive beta reset script.
 - Refreshed the Cedar Grove demo data and populated the selected LedgerOS entity and accounting period.
 - Setup smoke passed and recorded its result. PropertyLedger responded with its login redirect, and the LedgerOS admin login page responded successfully.
@@ -197,7 +197,7 @@ Voided
 - Added separate **View** links and read-only detail pages for properties, units, tenants, and leases.
 - Detail pages display record fields as plain text and provide explicit **Edit** and **Back to list** links.
 - Preserved existing property-management access rules. Detail endpoints reject POST requests; viewing does not alter records or initiate accounting sync.
-- Updated the [User Manual](./docs/user-manual.md) with the View/Edit workflow.
+- Updated the [User Manual](../manuals/user-manual.md) with the View/Edit workflow.
 - Recorded in commit `98b2ddb` (`Add view only links.`).
 
 ### Validation and remaining issue

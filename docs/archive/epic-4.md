@@ -109,7 +109,7 @@ is no longer required. Legacy receipt events remain as history; a separate local
 Security deposit events continue to use `POST /api/v1/sync-events/`. The generic
 event endpoint alone is not proof of posted accounting.
 
-See the [Technical Manual](../technical-manual.md) for current retry,
+See the [Technical Manual](manuals/technical-manual.md) for current retry,
 immutability, and compatibility rules.
 
 ## Testing

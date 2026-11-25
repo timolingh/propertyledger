@@ -32,19 +32,18 @@ That separation is intentional.
 Make sure you have:
 
 - the PropertyLedger repo;
-- the sibling LedgerOS v2 repo;
 - Docker and Docker Compose;
 - a running LedgerOS web stack;
 - a running PropertyLedger web stack.
 
-For local beta-style setup, use the provided scripts:
+Configure `.env` using the [Quick Start Guide](quick-start.md), then start and prepare PropertyLedger:
 
 ```bash
-bash scripts/beta-reset.sh
-bash scripts/beta-seed.sh
 make up
-cd ../ledgeros_v2 && WEB_PORT=8001 make up
+make migrate
 ```
+
+Use the intended LedgerOS endpoint, books, and chart of accounts. Historical demo reset and seed instructions are in the [testing archive](../testing/README.md).
 
 ## Step 1: Confirm LedgerOS is available
 
@@ -64,7 +63,7 @@ In LedgerOS admin, confirm:
 
 - the default entity exists;
 - there is an open accounting period;
-- the sample chart of accounts is loaded.
+- the chart of accounts intended for this deployment is loaded.
 
 ## Step 2: Open PropertyLedger setup
 
@@ -116,11 +115,7 @@ The `Selected LedgerOS Books` section should show:
 
 If those fields are blank, the setup is not complete.
 
-Use the values from LedgerOS admin or the beta bootstrap flow and make sure they are copied into PropertyLedger.
-
-For the beta demo, the seed script should already populate these values.
-It also provisions LedgerOS account `2200` as the active, credit-normal tenant security deposit liability and verifies the corresponding PropertyLedger mapping. If an existing `2200` account has conflicting settings, seeding stops instead of changing its accounting treatment.
-If LedgerOS web is not running yet, the seed script will warn and continue instead of failing, then you can run `make smoke` after both web stacks are up.
+Use the values from the intended LedgerOS books and make sure they are copied into PropertyLedger.
 
 ## Step 5: Configure account mappings
 
@@ -193,34 +188,6 @@ Maintenance lifecycle authority comes from the existing workflow roles; there is
 Open the queue at `http://localhost:8000/payments/maintenance/`. Maintenance data is local and remains writable during a LedgerOS outage. It does not post bills or journals. Photo uploads are intentionally unavailable until the deployment has private durable storage, backups, access policy, and validated JPEG/PNG processing. Do not expose a public media route as a substitute.
 
 Admins and bookkeepers can create a vendor bill from a maintenance request. Property managers can link and unlink compatible existing bills but cannot use that handoff to create, approve, post, or pay one. The linked bill must share the request property and, for a unit-specific request, its unit. These changes are audited and remain independent of maintenance closure.
-
-## Beta demo example
-
-When you are preparing the beta demo, use these seeded records:
-
-- owner: `Cedar Grove Holdings LLC`
-- property: `Cedar Grove Apartments`
-- units: `101`, `102`, `103`
-- tenants: `Avery Jordan`, `Brooke Chen`, `Carlos Rivera`
-- vendors: `Ace Plumbing`, `Bright Electric`, `GreenLine Landscaping`
-- maintenance categories: `Plumbing`, `Electrical`, `Landscaping`
-- demo users: `beta-admin`, `beta-manager`, `beta-bookkeeper`
-
-Representative beta records:
-
-- unit `101` with tenant `Avery Jordan`, rent `1450.00`, deposit `1450.00`
-- unit `102` with tenant `Brooke Chen`, rent `1575.00`, deposit `1575.00`
-- unit `103` with tenant `Carlos Rivera`, rent `1695.00`, deposit `1695.00`
-- draft tenant charge: `Landscape cleanup charge` for `125.00`
-- vendor bill: `Ace Plumbing` for `240.00`
-- vendor bill: `Bright Electric` for `180.00`
-- vendor bill: `GreenLine Landscaping` for `315.00`
-- draft vendor payment: `Ace Plumbing` with check number `BETA-1001`
-- three draft security deposit events tied to the three leases
-
-Default demo password:
-
-- `PropertyLedgerBeta123!`
 
 ## When setup is done
 

@@ -7,7 +7,7 @@ import path from 'node:path';
 import {pathToFileURL} from 'node:url';
 import assert from 'node:assert/strict';
 
-const output = path.resolve(process.argv[2] || 'docs/qa/wp1');
+const output = path.resolve(process.argv[2] || 'docs/archive/testing/qa/wp1');
 await mkdir(output, {recursive: true});
 const profile = await mkdtemp(path.join(tmpdir(), 'propertyledger-ui-'));
 const chrome = spawn(process.env.CHROME_PATH || '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', [

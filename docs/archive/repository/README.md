@@ -27,7 +27,7 @@ This repository now includes the Epic 1 through Epic 3 Django foundation for Pro
 
 ## Environment variables
 
-Use [`.env.example`](./.env.example) as the single env template. Leave the LedgerOS values blank for PropertyLedger-only local work, or fill them in with the LedgerOS-enabled values below.
+Use [`.env.example`](../../../.env.example) as the single env template. Leave the LedgerOS values blank for PropertyLedger-only local work, or fill them in with the LedgerOS-enabled values below.
 
 Warning: `LEDGEROS_BASE_URL` should point at the running LedgerOS endpoint, such as `http://host.docker.internal:8001` when LedgerOS is running on your host alongside Docker Compose.
 
@@ -92,8 +92,7 @@ Where to get the LedgerOS values:
 - `docs/user-manual.md` — day-to-day product usage guide for property managers and bookkeepers.
 - `docs/admin-setup.md` — admin setup checklist for connection settings, selected books, and account mappings.
 - `docs/quick-start.md` — minimal startup and smoke-check guide.
-- `docs/beta-testing.md` — manual beta-testing checklist for admin, manager, and bookkeeper roles.
-- `docs/workflow-testing.md` — repeatable WP1–WP6 workflow acceptance guide with seeded records, expected accounting results, outage recovery, and evidence capture.
+- [Archived testing material](../testing/README.md) — beta/workflow guides, feedback, session notes, and QA evidence; demo shell scripts are under `scripts/archive/testing/`.
 - `docs/archive/` — archived epic docs and historical decision records.
 - `CLAUDE.md` — guidance for AI agents working on the PropertyLedger repo.
 

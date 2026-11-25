@@ -41,3 +41,6 @@ htmlcov/
 # Docker / local data
 docker/postgres_data/
 postgres_data/
+
+# Isolated demo runtime configuration and generated credentials
+.demo/

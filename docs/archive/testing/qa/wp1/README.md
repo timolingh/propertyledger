@@ -13,7 +13,7 @@ Reproduce from the repository root:
 
 ```bash
 docker compose -f docker-compose.yml run --rm propertyledger-web python manage.py shell -c "exec(open('scripts/export-workflow-preview.py').read())"
-node scripts/check-workflow-ui.mjs docs/qa/wp1
+node scripts/check-workflow-ui.mjs docs/archive/testing/qa/wp1
 ```
 
 The exporter creates and destroys a separate `test_propertyledger_workflow_preview` database. It does not change the application database or send LedgerOS requests. The browser check requires Node and a local Chrome executable; set `CHROME_PATH` if Chrome is installed outside the script's default macOS application location. These are optional developer QA tools, not runtime dependencies. Exported HTML and copied assets are ignored by Git.

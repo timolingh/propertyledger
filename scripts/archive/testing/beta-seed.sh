@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 ledgeros_repo_root="$repo_root/../ledgeros_v2"
 
 if [[ ! -d "$ledgeros_repo_root" ]]; then
@@ -135,7 +135,7 @@ fi
 
 echo "Beta seed complete."
 echo "Guided workflow fixtures include staged maintenance requests and BETA-MIXED-RECEIPT."
-echo "Verify their current state with: bash scripts/workflow-test-status.sh"
+echo "Verify their current state with: bash scripts/archive/testing/workflow-test-status.sh"
 echo "If the web services are not already running, start them now:"
 echo "  PropertyLedger: make up"
 echo "  LedgerOS v2: cd ../ledgeros_v2 && WEB_PORT=8001 make up"

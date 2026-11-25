@@ -6,20 +6,20 @@ The goal is not to “test every feature.” The goal is to watch people try to 
 
 Admin setup is a prerequisite for beta testing. Complete the setup path first, then bring participants into the product.
 
-If you need the setup checklist, use [Admin Setup Guide](./admin-setup.md).
+If you need the setup checklist, use [Admin Setup Guide](../manuals/admin-setup.md).
 
 ## Session setup
 
 Start from a clean slate before the group arrives:
 
 ```bash
-bash scripts/beta-reset.sh
+bash scripts/archive/testing/beta-reset.sh
 ```
 
 Then seed the demo environment:
 
 ```bash
-bash scripts/beta-seed.sh
+bash scripts/archive/testing/beta-seed.sh
 ```
 
 These scripts reset and seed the demo data, but they do not leave the web apps running.

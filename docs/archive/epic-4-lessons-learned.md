@@ -4,7 +4,7 @@ This note captures the practical workflow and accounting boundaries that emerged
 
 Current contract update (Issue #6): tenant payment applications use the real
 LedgerOS payment endpoint. Receipt finalization is local; generic sync events
-remain for security deposits. See the [Technical Manual](../technical-manual.md).
+remain for security deposits. See the [Technical Manual](manuals/technical-manual.md).
 
 ## What Epic 4 Taught Us
 
